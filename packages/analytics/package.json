@@ -1,0 +1,17 @@
+{
+  "name": "@silapor/analytics",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"test: @silapor/analytics (stub, no tests yet)\"",
+    "build": "echo \"build: @silapor/analytics (stub, no emit yet)\""
+  },
+  "dependencies": {
+    "@silapor/domain": "workspace:*",
+    "@silapor/shared": "workspace:*"
+  }
+}

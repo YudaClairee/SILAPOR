@@ -43,11 +43,12 @@ Gunakan `TBD` untuk bagian yang belum diputuskan. Hapus `TBD` setelah keputusan 
 - **Alternatif yang dipertimbangkan:** akun lokal penuh / langsung mengintegrasikan SSO UPI sejak awal / Mock SSO
 - **Alasan:** Tim dapat membangun dan menguji workflow dengan kontrak SSO tanpa menunggu konfigurasi provider UPI yang lebih kompleks.
 - **Dampak:** application layer menggunakan kontrak SSO yang sama untuk semua environment; provider dapat diganti melalui konfigurasi runtime.
-- **Kontrak provider:** provider mengembalikan `externalUserId`, nama, email, NIM, role, dan status akun aktif.
-- **Akun mock awal:** `admin@mock.upi.ac.id`, `230001@upi.ac.id`, dan `230002@upi.ac.id`.
+- **Kontrak provider (disederhanakan 2026-10-10, menunggu persetujuan UMPER/admin):** untuk sekarang provider hanya mengembalikan `username`, role, dan status akun aktif — tanpa nama/email. Username adalah identitas pelapor: NIM untuk mahasiswa, NIP untuk pegawai/dosen, atau identitas kampus resmi lainnya. Atribut tambahan (nama, email, dsb.) ditunda sampai integrasi SSO UPI nyata.
+- **Akun mock awal:** `admin` (ADMIN), `230001` dan `230002` (REPORTER, format NIM).
 - **Konfigurasi environment:** `AUTH_PROVIDER=mock` untuk seluruh environment selama MVP/pilot.
 - **Guard production:** guard penolakan mock di production dinonaktifkan selama pilot; aktifkan kembali saat migrasi ke SSO UPI.
 - **Security:** Mock SSO tidak menggunakan password palsu sebagai pengganti SSO; session cookie dan authorization server-side tetap digunakan.
+- **Kredensial SSO (arahan 2026-10-10, menunggu persetujuan UMPER/admin):** login memakai username + password via SSO UPI setelah integrasi tersedia. Username adalah identitas pelapor: NIM untuk mahasiswa, NIP untuk pegawai/dosen, atau identitas kampus resmi lainnya. Untuk sekarang cukup username + password + role + status akun aktif; nama/email tidak disimpan. Kontrak provider dan mock mengikuti bentuk minimal ini, agar duplicate detection (`reporter_id` terverifikasi) dan audit tetap akurat.
 - **Approver:** Project owner; persetujuan UMPER/admin untuk production masih pending.
 - **Tanggal:** 2026-09-28
 
@@ -114,13 +115,23 @@ Gunakan `TBD` untuk bagian yang belum diputuskan. Hapus `TBD` setelah keputusan 
 - **Keputusan:** Setiap laporan memperoleh skor prioritas deterministik dan
   salah satu level `HIGH`, `MEDIUM`, atau `LOW`. Skor menjadi rekomendasi
   awal; `ADMIN`/UMPER menetapkan `finalPriority`.
-- **Dimensi skor:** bobot kategori aset, bobot aset/fasilitas, dan bobot lokasi.
-  Bobot lokasi meningkat berdasarkan frekuensi penggunaan ruangan untuk
+- **Dimensi skor:** bobot kategori aset, bobot aset/fasilitas, bobot lokasi,
+  dan bobot frekuensi pelapor (jumlah reporter berbeda untuk insiden yang
+  sama). Bobot lokasi meningkat berdasarkan frekuensi penggunaan ruangan untuk
   kegiatan perkuliahan.
 - **Nilai bobot:** disimpan pada konfigurasi master data agar dapat diubah
   tanpa mengubah histori laporan. Baseline provisional (menunggu kalibrasi
-  UMPER/admin): kategori 0–40 + aset/fasilitas 0–30 + lokasi 0–30, total
-  0–100.
+  UMPER/admin): kategori 0–35 + aset/fasilitas 0–25 + lokasi 0–25 +
+  frekuensi 0–15, total 0–100.
+- **Bobot frekuensi (arahan 2026-10-10, menunggu kalibrasi UMPER/admin):**
+  reporter berbeda yang melaporkan aset + issue type yang sama menambah skor.
+  Menghitung reporter berbeda (`affected reporters`), bukan jumlah submission
+  mentah; hanya laporan aktif (`REPORTED`–`IN_REPAIR`); status `DUPLICATE`,
+  `REJECTED`, dan `CLOSED` tidak dihitung; duplikat dari reporter yang sama
+  dihitung satu kali. Tier provisional: 1 reporter → 0; 2 → 5; 3–4 → 10;
+  ≥5 → 15. Skor adalah snapshot saat verifikasi (tersimpan di
+  `priority_factors`); laporan baru tidak mengubah skor tiket lama tanpa
+  keputusan admin.
 - **Mapping skor ke priority:** `HIGH`, `MEDIUM`, atau `LOW`. Baseline
   provisional: `LOW` 0–39, `MEDIUM` 40–69, `HIGH` 70–100; ambang final masih
   menunggu kalibrasi bersama UMPER/admin. Tidak ada level `CRITICAL`.
@@ -129,7 +140,8 @@ Gunakan `TBD` untuk bagian yang belum diputuskan. Hapus `TBD` setelah keputusan 
 - **Peran AI:** saran faktor/prioritas, bukan keputusan final
 - **Peran admin:** menetapkan `finalPriority` dan alasan override bila diperlukan
 - **Alasan:** Prioritas perlu mempertimbangkan jenis aset, tingkat pentingnya
-  aset, dan seberapa sering lokasi digunakan untuk perkuliahan.
+  aset, seberapa sering lokasi digunakan untuk perkuliahan, dan berapa banyak
+  sivitas berbeda yang terdampak insiden yang sama.
 - **Dampak:** data model, scoring service, AI contract, dan analytics
 - **Approver:** TBD
 - **Tanggal:** TBD

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.moon/cache/
+*.tsbuildinfo
+# Local filesystem attachment storage (packages/storage default STORAGE_DIR).
+.data/
+.env
+.env.local

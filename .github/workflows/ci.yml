@@ -1,0 +1,29 @@
+# CI (Task 6, Phase 1 step 21 pilot): lint + typecheck + build + unit tests
+# via Moon. No Cloudflare Workers dry-run, no e2e (browsers missing), no DB
+# services — the DB integration test skips without DATABASE_URL by design.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint, typecheck, build, test via Moon
+        run: pnpm exec moon run :lint :typecheck :build :test

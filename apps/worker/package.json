@@ -1,0 +1,22 @@
+{
+  "name": "@silapor/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"test: @silapor/worker (stub, no tests yet)\"",
+    "build": "echo \"build: @silapor/worker (stub, no emit yet)\""
+  },
+  "dependencies": {
+    "@silapor/jobs": "workspace:*",
+    "@silapor/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15"
+  }
+}

@@ -1,0 +1,6 @@
+# Pinned toolchain versions (Task 1). Moon provisions these via proto so every
+# machine runs tasks with the same Node/pnpm.
+node:
+  version: '24.18.0'
+pnpm:
+  version: '11.21.0'

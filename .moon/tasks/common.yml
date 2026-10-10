@@ -1,0 +1,4 @@
+# Shim: moon v2 inherits workspace tasks from .moon/tasks/*.yml files only
+# (a top-level .moon/tasks.yml is not picked up). The pipeline itself lives in
+# .moon/tasks.yml and is inherited here so there is a single source of truth.
+extends: '../tasks.yml'

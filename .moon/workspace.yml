@@ -1,0 +1,5 @@
+# Moonrepo workspace (Task 1). Projects are discovered via globs so that
+# `moon query projects` finds apps/* and packages/* without one-by-one listing.
+projects:
+  - 'apps/*'
+  - 'packages/*'

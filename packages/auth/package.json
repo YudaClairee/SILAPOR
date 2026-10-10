@@ -1,0 +1,17 @@
+{
+  "name": "@silapor/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"test: @silapor/auth (stub, no tests yet)\"",
+    "build": "echo \"build: @silapor/auth (stub, no emit yet)\""
+  },
+  "dependencies": {
+    "@silapor/domain": "workspace:*",
+    "@silapor/shared": "workspace:*"
+  }
+}

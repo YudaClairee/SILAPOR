@@ -1,0 +1,53 @@
+# Default task pipeline (Task 1), inherited by every project.
+# Single source of truth: moon v2 reads inherited tasks from .moon/tasks/*.yml,
+# and .moon/tasks/common.yml extends this file.
+# All tasks are deterministic and cacheable: no DB, secrets, or external services.
+# Task 6: `test` runs vitest per package (offline-green; DB integration skips
+# without DATABASE_URL, e2e lives in the separate non-cacheable web:test-e2e).
+taskOptions:
+  cache: true
+
+tasks:
+  build:
+    command: 'pnpm run build'
+    deps:
+      - '^:build'
+    inputs:
+      - 'src/**/*'
+      - 'package.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - 'app.config.ts'
+      - 'moon.yml'
+      - '/tsconfig.base.json'
+
+  typecheck:
+    command: 'pnpm run typecheck'
+    deps:
+      - '^:typecheck'
+    inputs:
+      - 'src/**/*'
+      - 'package.json'
+      - 'tsconfig.json'
+      - 'moon.yml'
+      - '/tsconfig.base.json'
+
+  lint:
+    command: 'pnpm run lint'
+    inputs:
+      - 'src/**/*'
+      - 'package.json'
+      - 'moon.yml'
+      - '/eslint.config.mjs'
+      - '/.prettierrc.json'
+
+  test:
+    command: 'pnpm run test'
+    deps:
+      - '^:build'
+    inputs:
+      - 'src/**/*'
+      - 'package.json'
+      - 'tsconfig.json'
+      - 'vitest.config.ts'
+      - 'moon.yml'

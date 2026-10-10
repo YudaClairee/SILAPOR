@@ -1,0 +1,15 @@
+language: 'javascript'
+# Task 6: Playwright e2e lives outside the default `test` pipeline (needs
+# browsers + a dev server). Moon task ids cannot contain `:`, so the Moon
+# wrapper is `test-e2e` for the pnpm script `test:e2e`.
+tasks:
+  test-e2e:
+    command: 'pnpm run test:e2e'
+    options:
+      cache: false
+    inputs:
+      - 'e2e/**/*'
+      - 'playwright.config.ts'
+      - 'package.json'
+      - 'moon.yml'
+      - 'src/**/*'

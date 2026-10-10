@@ -1,0 +1,28 @@
+{
+  "name": "@silapor/database",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "echo \"build: @silapor/database (stub, no emit yet)\"",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate.ts",
+    "db:seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@silapor/domain": "workspace:*",
+    "@silapor/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "vitest": "5.0.3"
+  }
+}

@@ -1,0 +1,72 @@
+# Local infrastructure for the SILAPOR pilot (Task 3).
+#
+# DOCUMENTED PATH ONLY: this environment has no docker/podman/postgres
+# binaries, so `moon run :lint :typecheck :build` must pass WITHOUT these
+# containers running. No live container verification is required for Task 3.
+# Cloudflare Queues/R2 stay out of the pilot; local code talks to localhost
+# Postgres + Garage (S3-compatible) instead.
+#
+# Usage:
+#   docker compose up -d          # start postgres + garage
+#   docker compose down           # stop (keep volumes)
+#   docker compose down -v        # stop AND drop volumes (dev data loss!)
+#
+# Wiring (see packages/shared/src/config.ts):
+#   DATABASE_URL=postgres://silapor:silapor@localhost:5432/silapor
+#   STORAGE_DIR=./.data/attachments          # filesystem adapter (packages/storage)
+#
+# NOTE (2026-10-10): MinIO image removed — upstream restricted public pulls
+# (Docker Hub `latest` gone, quay.io returns 401). Replaced with Garage
+# (`dxflrs/garage`), a lightweight S3-compatible store with a published image.
+# Pilot code still uses the filesystem adapter; Garage stands by for the
+# S3-compatible adapter landing in Phase 4.
+#
+# Garage admin API: http://localhost:3903 (dev only).
+
+name: silapor
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: silapor
+      POSTGRES_USER: silapor
+      POSTGRES_PASSWORD: silapor
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U silapor -d silapor']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # minio: REMOVED (see NOTE above — image no longer publicly pullable).
+  # Replaced by the `garage` service below.
+
+  garage:
+    image: dxflrs/garage:v2.3.0
+    restart: unless-stopped
+    # --single-node auto-configures the cluster layout; --default-bucket
+    # auto-creates the access key + bucket from GARAGE_DEFAULT_* below.
+    command: /garage server --single-node --default-bucket
+    environment:
+      # DEV-ONLY defaults (match .env.example). Replace on shared hosts.
+      GARAGE_DEFAULT_ACCESS_KEY: GKaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      GARAGE_DEFAULT_SECRET_KEY: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+      GARAGE_DEFAULT_BUCKET: silapor
+    ports:
+      - '3900:3900' # S3 API
+      - '3903:3903' # admin API
+    volumes:
+      - ./infra/garage/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+
+volumes:
+  pgdata:
+  garage-meta:
+  garage-data:
