@@ -12,11 +12,18 @@ export interface RuntimeConfig {
   readonly port: number;
   readonly databaseUrl: string | undefined;
   readonly storageEndpoint: string | undefined;
+  // SSO provider selector (Phase 2 P2-3). Reads AUTH_PROVIDER, defaults to
+  // 'mock'; 'mock' is the only pilot value. This accessor never throws for
+  // 'mock' — unknown values pass through untouched and the caller (web auth
+  // routes via getSsoProvider) decides how to surface them, including any
+  // warning logs.
+  readonly authProvider: string;
 }
 
 const DEFAULT_PORT = 3000;
+const DEFAULT_AUTH_PROVIDER = 'mock';
 
-type EnvName = 'DATABASE_URL' | 'STORAGE_ENDPOINT' | 'PORT';
+type EnvName = 'DATABASE_URL' | 'STORAGE_ENDPOINT' | 'PORT' | 'AUTH_PROVIDER';
 
 function readEnv(name: EnvName): string | undefined {
   if (typeof process === 'undefined' || process.env === undefined) {
@@ -44,5 +51,6 @@ export function getRuntimeConfig(): RuntimeConfig {
     port: parsePort(readEnv('PORT')),
     databaseUrl: readEnv('DATABASE_URL'),
     storageEndpoint: readEnv('STORAGE_ENDPOINT'),
+    authProvider: readEnv('AUTH_PROVIDER') ?? DEFAULT_AUTH_PROVIDER,
   };
 }

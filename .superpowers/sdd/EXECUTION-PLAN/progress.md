@@ -1,4 +1,4 @@
-# SDD ledger — plan: /home/yudaclairee/kuliah/silapor/EXECUTION-PLAN.md (Phase 1 only)
+# SDD ledger — plan: /home/yudaclairee/kuliah/silapor/EXECUTION-PLAN.md (Phase 1 + Phase 2)
 
 ## Scope
 Phase 1 — Repository and Engineering Foundation (EXECUTION-PLAN.md lines 948-1000).
@@ -56,3 +56,40 @@ Plan text self-check per task: briefs carry exact values verbatim; no test-asser
 - Product input refined (2026-10-10, user): kontrak auth minimal — hanya username + password + role + status aktif; nama/email ditunda. Dampak Phase 2: tabel users + seed (saat ini email-based: admin@mock.upi.ac.id dkk.) harus migrasi ke username-based (NIM/NIP).
 - Schema change (2026-10-10, per user): users table email+name -> username unique (minimal auth contract); seed now admin/230001/230002; migration 0000_foundation regenerated; decision doc mock accounts updated. Verified: db typecheck+lint green, integration test skips offline. Note: reset local DB volume (down -v) if 0000 already applied with email schema.
 - Product input (2026-10-10, user): scoring tambah dimensi frekuensi 0-15 ( distinct reporters, insiden sama, hanya aktif); baseline provisional 35+25+25+15; tier 0/5/10/15. Dicatat di decision §5, pending kalibrasi UMPER/admin. Dampak: EXECUTION-PLAN §4.4 + data/master bobot + scoring service Phase 5 perlu update saat implementasi (belum diubah sekarang).
+
+## Phase 2 — Database, Master Data, Authentication, RBAC (EXECUTION-PLAN.md lines 1003-1040)
+Scope: 12 steps + test-minimum (7 items) + release gate (role boundary + master data stabil).
+Spec authority: EXECUTION-PLAN.md §4.1/§7/§8/§9 + docs/decisions/PHASE-0-PRODUCT-DECISIONS.md §§1-2,6,8 + data/master/*.csv.
+User constraint (2026-10-10): NO commits — implementers must NOT run git commit/git push; leave working-tree changes. Controller makes zero commits.
+BASE Phase 2: b74e54f2f878819e3358f4ae1ecf86a7798e93cb.
+
+### Rulings (Phase 2 pre-flight)
+- Ruling: Batch 12 steps into 5 tasks (P2-1 schema+migration; P2-2 seed; P2-3 auth/session/rate-limit; P2-4 authorization+middleware; P2-5 admin CRUD+archive+audit). One implementer at a time, review after each. — Why: same-shape batching per SDD; 12 dispatches wasteful. — Cost if wrong: larger diffs per review; mitigated by scoped re-review.
+- Ruling: P2-1 extends users table in place (keep username unique + user_role enum + is_active); ADD external_user_id unique nullable, nim nullable, last_login_at nullable, keep created_at/updated_at. Do NOT reintroduce name/email (minimal auth contract per 2026-10-10 decision). Existing 3-user seed test must keep passing. — Why: decision §1 minimal contract. — Cost if wrong: auth/duplicate-detection keyed on wrong identity; rework P2-2/P2-3.
+- Ruling: P2-1 scoring weights stored as numeric columns only (category weight 0-40 on facility_categories, asset weight 0-30 on facility_assets, location tier score 0-30 on locations); NO scoring service in Phase 2 (Phase 5 owns it). Decision §5 4-dim baseline (35+25+25+15) NOT implemented now; only persist v1 CSV values for later use. — Why: plan §4.4 weights provisional + scoring lands Phase 5. — Cost if wrong: premature scoring logic needing recalibration.
+- Ruling: locations model = buildings as location rows (type CAMPUS/BUILDING/FLOOR/ROOM) + rooms from rooms_lengkap.csv; floor derived from room_code segment; single-floor buildings (B,D,E,F,G,J) floor_number=1. Lift rooms (name contains LIFT) seeded is_active=true but flagged reporter_hidden=true for Phase 3 form filtering. — Why: decision §6 exceptions. — Cost if wrong: Phase 3 form shows lift rooms; small fix then.
+- Ruling: issue_types are 7 generic rows (BROKEN/NOT_WORKING/MISSING/DIRTY/LEAKING/DANGEROUS/OTHER) with NULL category_id (valid for all categories); legacy per-category codes from CSV seeded is_active=false. facility_categories: 6 active + legacy codes inactive. — Why: decision §6 taxonomy. — Cost if wrong: Phase 3 dependent-select breaks; caught by P2-5 tests.
+- Ruling: sessions table = id uuid pk, user_id fk cascade, token_hash text unique (sha256 hex, never raw token), expires_at timestamptz, created_at, revoked_at nullable; index (user_id), (token_hash). No password column (MockSso has no passwords; UpiSso deferred). — Why: plan step 4 MockSso all env + decision §1 no fake passwords. — Cost if wrong: session hijack surface; mitigated by hash + secure cookie + expiry.
+- Ruling: Pilot local only — no Cloudflare/Wrangler work in Phase 2. Queue/outbox untouched (Phase 1 outbox_events stays as-is). — Why: pilot note lokal saja. — Cost if wrong: none; adapters deferred.
+
+### Pre-flight conflict scan (pairs sharing files/interfaces)
+| Pair | Produces vs consumes | Finding |
+|---|---|---|
+| P2-1 vs P2-2 | P2-1 creates tables/enums vs P2-2 seed inserts | Ordering enforced (schema first). P2-2 must be idempotent upserts keyed on natural codes (username/code/room_code/asset_code/technician_code); archive flags preserved. No conflict. |
+| P2-1 vs P2-3 | P2-1 sessions table vs P2-3 session create/validate/revoke | Interface agreement: token_hash sha256 hex, 7-day expiry default, secure cookie name silapor_session. Both recorded here. No contradiction. |
+| P2-3 vs P2-4 | P2-3 getSessionUser vs P2-4 requireRole/requireOwner policy | P2-3 owns session resolution; P2-4 owns role checks consuming it. No overlap; P2-4 must not reimplement session lookup. Clean. |
+| P2-4 vs P2-5 | P2-4 policy fns vs P2-5 admin CRUD calling them | P2-5 consumes requireAdmin from P2-4; if P2-4 API differs, P2-5 adapts without editing P2-4 files (or flags conflict). Ordering enforced. |
+| Plan §7 users (name/email) vs decision §1 minimal (username only) | Plan text vs binding decision | Conflict found, ruled above: username-only wins (decision is source of truth; plan §4.1 points to decision register). |
+| Plan §4.4 3-dim weights (40+30+30) vs decision §5 4-dim (35+25+25+15) | Plan text vs decision update | Conflict found, ruled above: persist numeric weights only in Phase 2; scoring formula deferred to Phase 5 with decision baseline. |
+| P2-5 archive vs seed re-run | archive sets is_active=false vs seed upsert | Ruled: seed never reactivates manually-archived rows except for its own seed codes on first insert; seed upsert updates weights/names but preserves is_active=false if admin archived after first seed (track via explicit logic + test). |
+
+Plan self-check per task: briefs carry exact CSV values verbatim; no asserts-nothing or verbatim-duplication mandates. Scan table above is the scan record.
+
+## Progress (Phase 2)
+- Setup complete. Starting P2-1.
+- P2-1: complete (no commits; schema 7 tables + 0001_redundant_dagger, journal-consistent; typecheck+lint clean, test 1 skipped offline; review Spec ✅ Quality Approved, no findings).
+- P2-2: complete (no commits; seed 3 users/15 categories/11 issue_types/196 locations/334 assets/5 technicians live-verified 561→0 idempotent, archive guard verified; review Spec ✅ Approved, 3 deferred minors: CLI wording, brief-vs-CSV legacy count 10-vs-9, ~1700-stmt seed perf).
+- P2-3: complete (no commits; SsoProvider+Mock/UPI-stub, session helpers, rate-limit 5/10min, sessions repo, 3 web routes, auth 33/33 tests, web build green, live smoke login/429/logout/me; review Spec ✅ Approved, 3 minors: empty-insert 400-vs-500, logout log unredacted detail, UPI resolve arity — all deferred).
+- P2-4: complete (no commits; pure deny-by-default policies + server requireUser/Admin/Owner guards + redirect-only admin/reporter layouts + login page; auth 43/43, web build green; review Spec ✅ Approved, 3 minors: parseSessionToken triplication, layout beforeLoad duplication, stale P2-3 header — all deferred).
+- P2-5: complete (no commits; repos+validators for 5 entities, 10 admin routes, audit transactions, no-delete; db 26 pass, web build green with 10 routes, live cycle per-entity verified; review Spec ✅ Approved, 3 minors: specialization alias, unwired archive fns, index-line note — all deferred).
+- Final verification (controller, 2026-10-10): moon run :typecheck 10/10 green; :lint 10/10 green; :test green (shared 5, auth 43, database 26 + 1 pre-existing gated skip); :build 10/10 green. Release gate: role boundary + master data stabil — PASS (server requireAdmin everywhere, reporter-blocked, archive-never-delete, audit on all mutations, seed idempotent, inactive sessions dead). Zero commits per user rule — changes in working tree for user to review/commit.

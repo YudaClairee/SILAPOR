@@ -1,6 +1,10 @@
 // Migration runner (Task 4). Applies ./drizzle SQL to an empty or
 // existing PostgreSQL via the drizzle postgres-js migrator.
 //
+// NOTE (P2-1): a local DB volume with only 0000_foundation applied must be
+// reset with `docker compose down -v` before migrating to the P2-1 chain
+// (do NOT run it here — operator action only).
+//
 // Importing this module performs no I/O. Run directly:
 //   pnpm --filter @silapor/database run db:migrate
 // Exits non-zero with a clear (credential-redacted) message when
