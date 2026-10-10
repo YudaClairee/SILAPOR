@@ -1,0 +1,2 @@
+config_version,category_max,asset_max,location_max,low_max,medium_max,high_min,default_category,default_asset,default_location,safety_rule,verification_status,approved_by
+v1,40,30,30,39,69,70,20,15,15,DANGEROUS_MIN_HIGH,PROVISIONAL,project-team

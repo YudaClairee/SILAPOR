@@ -1,0 +1,12 @@
+code,name,category_code,is_active,verification_status
+BROKEN,Rusak,,true,CONFIRMED
+NOT_WORKING,Tidak berfungsi,,true,CONFIRMED
+MISSING,Hilang,,true,CONFIRMED
+DIRTY,Kotor,,true,CONFIRMED
+LEAKING,Bocor atau mampet,,true,CONFIRMED
+DANGEROUS,Berpotensi membahayakan,,true,CONFIRMED
+OTHER,Lainnya,,true,CONFIRMED
+NOT_COOLING,Tidak dingin,AC,false,PROVISIONAL
+LIGHT_OFF,Lampu mati,LIGHTING,false,PROVISIONAL
+POWER_FAILURE,Gangguan listrik,ELECTRICAL,false,PROVISIONAL
+NO_CONNECTION,Tidak tersambung,NETWORK,false,PROVISIONAL

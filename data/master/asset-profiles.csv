@@ -1,0 +1,15 @@
+profile_code,applies_to,asset_code,asset_name,quantity,asset_type,verification_status,notes
+CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,TV,Televisi,1,ELECTRONIC,CONFIRMED,Setiap ruang kelas (mencakup R. KULIAH dan RUANG KULIAH)
+CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,HDMI,HDMI,1,ELECTRONIC,CONFIRMED,Setiap ruang kelas (mencakup R. KULIAH dan RUANG KULIAH)
+CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,WHITEBOARD,Papan tulis,1,FURNITURE,CONFIRMED,Setiap ruang kelas (mencakup R. KULIAH dan RUANG KULIAH)
+CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,LECTURER_DESK,Meja dosen,1,FURNITURE,CONFIRMED,Setiap ruang kelas (mencakup R. KULIAH dan RUANG KULIAH)
+CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,STUDENT_CHAIR,Kursi mahasiswa,,FURNITURE,PROVISIONAL,Dikelola sebagai satu aset/fasilitas per ruangan; jumlah kursi tidak ditentukan satu per satu
+CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,LIGHTING,Lampu,1,ELECTRICAL,CONFIRMED,Satu aset agregat per ruangan; mencakup 2 titik lampu
+CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,POWER_OUTLET,Stop kontak,4,ELECTRICAL,CONFIRMED,Per ruangan
+BUILDING_C_CLASSROOM,BUILDING_CODE=C;ROOM_NAME_CONTAINS=KULIAH,CENTRAL_AC,AC central,1,HVAC,PROVISIONAL,Satu sistem/unit AC central per ruangan
+BUILDING_C_BALLROOM,ROOM_CODE=22.4C.05.064,CENTRAL_AC,AC central ballroom,6,HVAC,PROVISIONAL,Asumsi kerja; gunakan 6 untuk MVP dan perbarui jika verifikasi fisik berbeda
+OTHER_CLASSROOM,BUILDING_CODE!=C;ROOM_NAME_CONTAINS=KULIAH,CONVENTIONAL_AC,AC biasa/split,1,HVAC,PROVISIONAL,Satu unit per ruangan; jumlah berdasarkan informasi awal
+IOT_LAB,ROOM_NAME_CONTAINS=IOT,COMPUTER,Komputer lab,,ELECTRONIC,PROVISIONAL,Dikelola sebagai aset agregat; jumlah unit menunggu inventaris Lab IoT
+TOILET,ROOM_NAME_CONTAINS=TOILET,SINK,Wastafel,1,PLUMBING,CONFIRMED,Satu per toilet (semua toilet)
+TOILET,ROOM_NAME_CONTAINS=PRIA,URINAL,Tempat BAK berdiri,1,PLUMBING,CONFIRMED,Hanya toilet pria; toilet wanita dan difabel tidak memiliki urinal
+TOILET,ROOM_NAME_CONTAINS=TOILET,TOILET_BOWL,WC,2,PLUMBING,CONFIRMED,Dua per toilet (semua toilet)

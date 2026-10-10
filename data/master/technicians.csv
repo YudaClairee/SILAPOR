@@ -1,0 +1,6 @@
+technician_code,display_name,specialization,is_active,verification_status,notes
+TECH-001,Andi Pratama,HVAC dan listrik,true,DUMMY,Data dummy untuk pengembangan MVP
+TECH-002,Budi Santoso,Elektronik dan perangkat kelas,true,DUMMY,Data dummy untuk pengembangan MVP
+TECH-003,Citra Lestari,Plumbing dan toilet,true,DUMMY,Data dummy untuk pengembangan MVP
+TECH-004,Deni Kurniawan,Jaringan dan komputer,true,DUMMY,Data dummy untuk pengembangan MVP
+TECH-005,Eka Rahmawati,Furniture dan fasilitas umum,true,DUMMY,Data dummy untuk pengembangan MVP

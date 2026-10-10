@@ -1,0 +1,25 @@
+config_version,weight_type,target_code,target_name,max_score,weight_value,is_active,verification_status,approved_by,approved_at
+v1,CATEGORY,ELECTRICAL,Listrik dan lampu,40,40,true,PROVISIONAL,project-team,2026-10-10
+v1,CATEGORY,HVAC,AC dan pendingin,40,35,true,PROVISIONAL,project-team,2026-10-10
+v1,CATEGORY,PLUMBING,Toilet dan sanitasi,40,35,true,PROVISIONAL,project-team,2026-10-10
+v1,CATEGORY,ELECTRONIC,Elektronik komputer dan jaringan,40,25,true,PROVISIONAL,project-team,2026-10-10
+v1,CATEGORY,FURNITURE,Furniture pintu dan jendela,40,15,true,PROVISIONAL,project-team,2026-10-10
+v1,CATEGORY,OTHER,Lainnya,40,10,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,CENTRAL_AC,AC central ballroom/kelas C,30,30,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,SERVER_PANEL,Panel/server tertutup (rencana),30,28,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,CONVENTIONAL_AC,AC biasa/split,30,25,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,COMPUTER,Komputer lab,30,25,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,TV,Televisi,30,24,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,SINK,Wastafel,30,22,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,TOILET_BOWL,WC,30,22,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,HDMI,HDMI,30,20,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,POWER_OUTLET,Stop kontak,30,20,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,PROJECTOR,Proyektor (rencana),30,20,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,URINAL,Tempat BAK berdiri,30,18,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,SOUND_SYSTEM,Sound system (rencana),30,18,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,DOOR_LOCK,Pintu/kunci (rencana),30,18,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,WHITEBOARD,Papan tulis,30,15,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,STUDENT_CHAIR,Kursi mahasiswa,30,15,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,LIGHTING,Lampu,30,15,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,LECTURER_DESK,Meja dosen,30,12,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,STORAGE_DOOR,Pintu gudang (rencana),30,8,true,PROVISIONAL,project-team,2026-10-10

@@ -1,0 +1,16 @@
+code,name,is_active,verification_status
+ELECTRICAL,Listrik dan lampu,true,CONFIRMED
+HVAC,AC dan pendingin,true,CONFIRMED
+FURNITURE,Furniture pintu dan jendela,true,CONFIRMED
+ELECTRONIC,Elektronik komputer dan jaringan,true,CONFIRMED
+PLUMBING,Toilet dan sanitasi,true,CONFIRMED
+OTHER,Lainnya,true,CONFIRMED
+AC,AC,false,PROVISIONAL
+LIGHTING,Lampu,false,PROVISIONAL
+NETWORK,Jaringan atau internet,false,PROVISIONAL
+COMPUTER,Komputer,false,PROVISIONAL
+PROJECTOR,Proyektor,false,PROVISIONAL
+TOILET,Toilet,false,PROVISIONAL
+ELEVATOR,Lift,false,PROVISIONAL
+DOOR_WINDOW,Pintu atau jendela,false,PROVISIONAL
+ROOM_FACILITY,Fasilitas ruangan,false,PROVISIONAL
