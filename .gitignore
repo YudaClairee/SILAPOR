@@ -4,5 +4,6 @@ dist/
 *.tsbuildinfo
 # Local filesystem attachment storage (packages/storage default STORAGE_DIR).
 .data/
+.worktrees/
 .env
 .env.local
