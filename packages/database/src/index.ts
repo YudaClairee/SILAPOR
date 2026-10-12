@@ -51,3 +51,4 @@ export function getDb(connectionString?: string): DatabaseConnection {
 export * from './schema.js';
 export * from './sessions.js';
 export * from './master-data.js';
+export * from './reports.js';
