@@ -15,6 +15,8 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiReportsRouteImport } from './routes/api/reports'
+import { Route as AdminReportsIndexRouteImport } from './routes/admin.reports.index'
+import { Route as AdminReportsTicketRouteImport } from './routes/admin.reports.$ticket'
 import { Route as ApiAdminAssetsRouteImport } from './routes/api/admin/assets'
 import { Route as ApiAdminCategoriesRouteImport } from './routes/api/admin/categories'
 import { Route as ApiAdminIssueTypesRouteImport } from './routes/api/admin/issue-types'
@@ -67,6 +69,16 @@ const ApiReportsRoute = ApiReportsRouteImport.update({
   id: '/api/reports',
   path: '/api/reports',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AdminReportsIndexRoute = AdminReportsIndexRouteImport.update({
+  id: '/reports/',
+  path: '/reports/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminReportsTicketRoute = AdminReportsTicketRouteImport.update({
+  id: '/reports/$ticket',
+  path: '/reports/$ticket',
+  getParentRoute: () => AdminRoute,
 } as any)
 const ApiAdminAssetsRoute = ApiAdminAssetsRouteImport.update({
   id: '/api/admin/assets',
@@ -182,11 +194,12 @@ const ApiReportsIdTimelineRoute = ApiReportsIdTimelineRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/reports': typeof ApiReportsRouteWithChildren
+  '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
   '/api/admin/issue-types': typeof ApiAdminIssueTypesRouteWithChildren
@@ -201,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
+  '/admin/reports/': typeof AdminReportsIndexRoute
   '/reporter/reports/': typeof ReporterReportsIndexRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
@@ -212,11 +226,12 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/reports': typeof ApiReportsRouteWithChildren
+  '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
   '/api/admin/issue-types': typeof ApiAdminIssueTypesRouteWithChildren
@@ -231,6 +246,7 @@ export interface FileRoutesByTo {
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
+  '/admin/reports': typeof AdminReportsIndexRoute
   '/reporter/reports': typeof ReporterReportsIndexRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
@@ -243,11 +259,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/reports': typeof ApiReportsRouteWithChildren
+  '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
   '/api/admin/issue-types': typeof ApiAdminIssueTypesRouteWithChildren
@@ -262,6 +279,7 @@ export interface FileRoutesById {
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
+  '/admin/reports/': typeof AdminReportsIndexRoute
   '/reporter/reports/': typeof ReporterReportsIndexRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
@@ -280,6 +298,7 @@ export interface FileRouteTypes {
     | '/reporter'
     | '/api/health'
     | '/api/reports'
+    | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
     | '/api/admin/issue-types'
@@ -294,6 +313,7 @@ export interface FileRouteTypes {
     | '/api/reports/form-options'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
+    | '/admin/reports/'
     | '/reporter/reports/'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
@@ -310,6 +330,7 @@ export interface FileRouteTypes {
     | '/reporter'
     | '/api/health'
     | '/api/reports'
+    | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
     | '/api/admin/issue-types'
@@ -324,6 +345,7 @@ export interface FileRouteTypes {
     | '/api/reports/form-options'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
+    | '/admin/reports'
     | '/reporter/reports'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
@@ -340,6 +362,7 @@ export interface FileRouteTypes {
     | '/reporter'
     | '/api/health'
     | '/api/reports'
+    | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
     | '/api/admin/issue-types'
@@ -354,6 +377,7 @@ export interface FileRouteTypes {
     | '/api/reports/form-options'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
+    | '/admin/reports/'
     | '/reporter/reports/'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
@@ -366,7 +390,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AdminRoute: typeof AdminRoute
+  AdminRoute: typeof AdminRouteWithChildren
   LoginRoute: typeof LoginRoute
   ReporterRoute: typeof ReporterRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRoute
@@ -425,6 +449,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/reports'
       preLoaderRoute: typeof ApiReportsRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/reports/': {
+      id: '/admin/reports/'
+      path: '/reports'
+      fullPath: '/admin/reports/'
+      preLoaderRoute: typeof AdminReportsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/reports/$ticket': {
+      id: '/admin/reports/$ticket'
+      path: '/reports/$ticket'
+      fullPath: '/admin/reports/$ticket'
+      preLoaderRoute: typeof AdminReportsTicketRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/api/admin/assets': {
       id: '/api/admin/assets'
@@ -583,6 +621,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AdminRouteChildren {
+  AdminReportsTicketRoute: typeof AdminReportsTicketRoute
+  AdminReportsIndexRoute: typeof AdminReportsIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminReportsTicketRoute: AdminReportsTicketRoute,
+  AdminReportsIndexRoute: AdminReportsIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 interface ReporterRouteChildren {
   ReporterReportsTicketRoute: typeof ReporterReportsTicketRoute
   ReporterReportsNewRoute: typeof ReporterReportsNewRoute
@@ -697,7 +747,7 @@ const ApiAdminTechniciansRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AdminRoute: AdminRoute,
+  AdminRoute: AdminRouteWithChildren,
   LoginRoute: LoginRoute,
   ReporterRoute: ReporterRouteWithChildren,
   ApiHealthRoute: ApiHealthRoute,
