@@ -9,6 +9,18 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import {
+  Button,
+  ErrorPanel,
+  FieldError,
+  Input,
+  LoadingState,
+  Select,
+  Textarea,
+  TicketMono,
+  buttonBaseClasses,
+  buttonVariantClasses,
+} from '../components/index.js';
+import {
   buildDuplicateCheckParams,
   buildingsOf,
   filterAssetsByCategoryLocation,
@@ -302,18 +314,31 @@ function NewReportPage() {
 
   if (options === null) {
     return (
-      <section aria-labelledby="new-report-title">
-        <h1 id="new-report-title">Buat Laporan Baru</h1>
+      <section aria-labelledby="new-report-title" className="max-w-3xl">
+        <h1 id="new-report-title" className="text-2xl font-semibold text-text">
+          Buat Laporan Baru
+        </h1>
         {optionsPending || (optionsError === null && initial.needsClientLoad) ? (
-          <p role="status">Memuat opsi formulir…</p>
+          <div className="mt-4">
+            <LoadingState message="Memuat opsi formulir…" />
+          </div>
         ) : null}
         {optionsError !== null ? (
-          <>
-            <p role="alert">{optionsError}</p>
-            <button type="button" onClick={() => void loadOptions()} disabled={optionsPending}>
-              {optionsPending ? 'Memuat…' : 'Coba lagi'}
-            </button>
-          </>
+          <div className="mt-4">
+            <ErrorPanel
+              message={optionsError}
+              retry={
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void loadOptions()}
+                  disabled={optionsPending}
+                >
+                  {optionsPending ? 'Memuat…' : 'Coba lagi'}
+                </Button>
+              }
+            />
+          </div>
         ) : null}
       </section>
     );
@@ -321,23 +346,42 @@ function NewReportPage() {
 
   if (phase === 'success' && result !== null) {
     return (
-      <section aria-labelledby="new-report-success-title">
-        <h1 id="new-report-success-title">Laporan berhasil dikirim</h1>
-        <p role="status">
-          Nomor tiket Anda: <strong>{result.ticketNumber}</strong>
-        </p>
-        {result.replay ? <p>Laporan sudah tercatat dengan nomor tiket tersebut.</p> : null}
-        <p>
-          <Link to="/reporter/reports/$ticket" params={{ ticket: result.ticketNumber }}>
-            Lihat detail laporan
-          </Link>
-        </p>
-        <p>
-          <Link to="/reporter/reports" search={{ filter: 'semua', status: '', offset: 0 }}>Laporan Saya</Link>
-        </p>
-        <button type="button" onClick={resetForm}>
-          Lapor masalah lain
-        </button>
+      <section aria-labelledby="new-report-success-title" className="max-w-3xl">
+        <div className="rounded-md border border-border bg-surface p-6 text-center md:p-8">
+          <h1 id="new-report-success-title" className="text-2xl font-semibold text-text">
+            Laporan berhasil dikirim
+          </h1>
+          <p role="status" className="mt-4 text-sm text-muted">
+            Nomor tiket Anda:{' '}
+            <TicketMono className="block pt-2 text-3xl font-medium text-text">
+              {result.ticketNumber}
+            </TicketMono>
+          </p>
+          {result.replay ? (
+            <p className="mt-2 text-sm text-muted">
+              Laporan sudah tercatat dengan nomor tiket tersebut.
+            </p>
+          ) : null}
+          <p className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+            <Link
+              to="/reporter/reports/$ticket"
+              params={{ ticket: result.ticketNumber }}
+              className={`${buttonBaseClasses} ${buttonVariantClasses.primary}`}
+            >
+              Lihat detail laporan
+            </Link>
+            <Link
+              to="/reporter/reports"
+              search={{ filter: 'semua', status: '', offset: 0 }}
+              className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
+            >
+              Laporan Saya
+            </Link>
+            <Button type="button" variant="ghost" onClick={resetForm}>
+              Lapor masalah lain
+            </Button>
+          </p>
+        </div>
       </section>
     );
   }
@@ -346,58 +390,97 @@ function NewReportPage() {
     const assetName =
       values.assetId === '' ? 'Tanpa asset' : nameOf(options.assets, values.assetId);
     return (
-      <section aria-labelledby="new-report-review-title">
-        <h1 id="new-report-review-title">Tinjau Laporan</h1>
-        <dl>
-          <dt>Gedung</dt>
-          <dd>{nameOf(locations, values.buildingId)}</dd>
-          <dt>Ruangan</dt>
-          <dd>{nameOf(locations, values.locationId)}</dd>
-          <dt>Kategori</dt>
-          <dd>{nameOf(categoryOptions, values.categoryId)}</dd>
-          <dt>Asset</dt>
-          <dd>{assetName}</dd>
-          <dt>Jenis masalah</dt>
-          <dd>{nameOf(options.issueTypes, values.issueTypeId)}</dd>
-          <dt>Deskripsi</dt>
-          <dd>{values.description.trim()}</dd>
-          <dt>Waktu kejadian</dt>
-          <dd>{formatDateTime(values.occurredAt)}</dd>
-        </dl>
+      <section aria-labelledby="new-report-review-title" className="max-w-3xl">
+        <h1 id="new-report-review-title" className="text-2xl font-semibold text-text">
+          Tinjau Laporan
+        </h1>
+        <div className="mt-4 rounded-md border border-border bg-surface px-4 md:px-6">
+          <dl className="divide-y divide-border">
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Gedung</dt>
+              <dd className="text-sm text-text">{nameOf(locations, values.buildingId)}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Ruangan</dt>
+              <dd className="text-sm text-text">{nameOf(locations, values.locationId)}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Kategori</dt>
+              <dd className="text-sm text-text">{nameOf(categoryOptions, values.categoryId)}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Asset</dt>
+              <dd className="text-sm text-text">{assetName}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">
+                Jenis masalah
+              </dt>
+              <dd className="text-sm text-text">{nameOf(options.issueTypes, values.issueTypeId)}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Deskripsi</dt>
+              <dd className="text-pretty text-sm break-words whitespace-pre-wrap text-text">
+                {values.description.trim()}
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">
+                Waktu kejadian
+              </dt>
+              <dd className="text-sm text-text">{formatDateTime(values.occurredAt)}</dd>
+            </div>
+          </dl>
+        </div>
 
-        {dupState === 'checking' ? <p role="status">Memeriksa laporan serupa…</p> : null}
+        {dupState === 'checking' ? (
+          <div className="mt-4">
+            <LoadingState message="Memeriksa laporan serupa…" />
+          </div>
+        ) : null}
         {dupState === 'error' ? (
-          <p>
-            Pemeriksaan duplikat gagal.{' '}
-            <button
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <p className="text-sm text-muted">Pemeriksaan duplikat gagal.</p>
+            <Button
               type="button"
+              variant="secondary"
               onClick={() => setDupKey((key) => key + 1)}
               disabled={submitPending}
             >
               Coba lagi
-            </button>
-          </p>
+            </Button>
+          </div>
         ) : null}
         {dupState === 'done' && candidates.length > 0 ? (
-          <section aria-labelledby="duplicate-warning-title">
-            <h2 id="duplicate-warning-title">Laporan serupa ditemukan</h2>
-            <p>
+          <section
+            aria-labelledby="duplicate-warning-title"
+            className="mt-4 rounded-md border border-warning bg-tint-warning p-4"
+          >
+            <h2 id="duplicate-warning-title" className="text-base font-semibold text-text">
+              Laporan serupa ditemukan
+            </h2>
+            <p className="mt-1 text-sm text-text">
               Laporan berikut tampak mirip. Jika masalah Anda sama, buka tiket lama tersebut.
               Jika berbeda, tetap kirim laporan baru.
             </p>
-            <ul>
+            <ul className="mt-2 flex flex-wrap gap-2">
               {candidates.map((candidate) => (
                 <li key={candidate.id}>
-                  <Link to="/reporter/reports/$ticket" params={{ ticket: candidate.ticketNumber }}>
-                    {candidate.ticketNumber}
+                  <Link
+                    to="/reporter/reports/$ticket"
+                    params={{ ticket: candidate.ticketNumber }}
+                    className="text-accent underline underline-offset-2"
+                  >
+                    <TicketMono>{candidate.ticketNumber}</TicketMono>
                   </Link>
                 </li>
               ))}
             </ul>
-            <p>
+            <p className="mt-3">
               <Link
                 to="/reporter/reports/$ticket"
                 params={{ ticket: candidates[0]?.ticketNumber ?? '' }}
+                className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
               >
                 Buka tiket lama
               </Link>
@@ -405,19 +488,28 @@ function NewReportPage() {
           </section>
         ) : null}
 
-        {serverError !== null ? <p role="alert">{serverError}</p> : null}
-        <p>
-          <button type="button" onClick={() => setPhase('form')} disabled={submitPending}>
+        {serverError !== null ? (
+          <div className="mt-4">
+            <ErrorPanel message={serverError} />
+          </div>
+        ) : null}
+        <p className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setPhase('form')}
+            disabled={submitPending}
+          >
             Kembali
-          </button>{' '}
+          </Button>
           {dupState === 'done' && candidates.length > 0 ? (
-            <button type="button" onClick={() => void submit()} disabled={submitPending}>
+            <Button type="button" onClick={() => void submit()} disabled={submitPending}>
               {submitPending ? 'Mengirim…' : 'Tetap kirim — masalah berbeda'}
-            </button>
+            </Button>
           ) : (
-            <button type="button" onClick={() => void submit()} disabled={submitPending}>
+            <Button type="button" onClick={() => void submit()} disabled={submitPending}>
               {submitPending ? 'Mengirim…' : 'Kirim laporan'}
-            </button>
+            </Button>
           )}
         </p>
       </section>
@@ -426,142 +518,186 @@ function NewReportPage() {
 
   const descLength = values.description.trim().length;
   return (
-    <section aria-labelledby="new-report-title">
-      <h1 id="new-report-title">Buat Laporan Baru</h1>
-      {formAlert !== null ? <p role="alert">{formAlert}</p> : null}
-      <form onSubmit={onSubmitDetails}>
-        <div>
-          <label htmlFor="report-building">Gedung</label>
-          <select
-            id="report-building"
-            value={values.buildingId}
-            onChange={(event) => {
-              patch({ buildingId: event.target.value, locationId: '', assetId: '' });
-            }}
-          >
-            <option value="">Pilih gedung</option>
-            {buildingOptions.map((building) => (
-              <option key={building.id} value={building.id}>
-                {building.name}
+    <section aria-labelledby="new-report-title" className="max-w-3xl">
+      <h1 id="new-report-title" className="text-2xl font-semibold text-text">
+        Buat Laporan Baru
+      </h1>
+      {formAlert !== null ? (
+        <div className="mt-4">
+          <ErrorPanel message={formAlert} />
+        </div>
+      ) : null}
+      <form onSubmit={onSubmitDetails} className="mt-4 rounded-md border border-border bg-surface p-4 md:p-6">
+        <div className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="report-building" className="mb-1 block text-sm font-medium text-text">
+              Gedung
+            </label>
+            <Select
+              id="report-building"
+              value={values.buildingId}
+              invalid={fieldErrors.buildingId !== undefined}
+              aria-describedby="report-building-error"
+              onChange={(event) => {
+                patch({ buildingId: event.target.value, locationId: '', assetId: '' });
+              }}
+            >
+              <option value="">Pilih gedung</option>
+              {buildingOptions.map((building) => (
+                <option key={building.id} value={building.id}>
+                  {building.name}
+                </option>
+              ))}
+            </Select>
+            <FieldError id="report-building-error" message={fieldErrors.buildingId} />
+          </div>
+
+          <div>
+            <label htmlFor="report-room" className="mb-1 block text-sm font-medium text-text">
+              Ruangan
+            </label>
+            <Select
+              id="report-room"
+              value={values.locationId}
+              disabled={values.buildingId === ''}
+              invalid={fieldErrors.locationId !== undefined}
+              aria-describedby="report-room-error"
+              onChange={(event) => {
+                patch({ locationId: event.target.value, assetId: '' });
+              }}
+            >
+              <option value="">
+                {values.buildingId === '' ? 'Pilih gedung terlebih dahulu' : 'Pilih ruangan'}
               </option>
-            ))}
-          </select>
-          {fieldErrors.buildingId !== undefined ? <p>{fieldErrors.buildingId}</p> : null}
-        </div>
+              {roomOptions.map((room) => (
+                <option key={room.id} value={room.id}>
+                  {room.name}
+                </option>
+              ))}
+            </Select>
+            <FieldError id="report-room-error" message={fieldErrors.locationId} />
+          </div>
 
-        <div>
-          <label htmlFor="report-room">Ruangan</label>
-          <select
-            id="report-room"
-            value={values.locationId}
-            disabled={values.buildingId === ''}
-            onChange={(event) => {
-              patch({ locationId: event.target.value, assetId: '' });
-            }}
-          >
-            <option value="">
-              {values.buildingId === '' ? 'Pilih gedung terlebih dahulu' : 'Pilih ruangan'}
-            </option>
-            {roomOptions.map((room) => (
-              <option key={room.id} value={room.id}>
-                {room.name}
-              </option>
-            ))}
-          </select>
-          {fieldErrors.locationId !== undefined ? <p>{fieldErrors.locationId}</p> : null}
-        </div>
+          <div>
+            <label htmlFor="report-category" className="mb-1 block text-sm font-medium text-text">
+              Kategori
+            </label>
+            <Select
+              id="report-category"
+              value={values.categoryId}
+              invalid={fieldErrors.categoryId !== undefined}
+              aria-describedby="report-category-error"
+              onChange={(event) => {
+                patch({ categoryId: event.target.value, assetId: '' });
+              }}
+            >
+              <option value="">Pilih kategori</option>
+              {categoryOptions.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </Select>
+            <FieldError id="report-category-error" message={fieldErrors.categoryId} />
+          </div>
 
-        <div>
-          <label htmlFor="report-category">Kategori</label>
-          <select
-            id="report-category"
-            value={values.categoryId}
-            onChange={(event) => {
-              patch({ categoryId: event.target.value, assetId: '' });
-            }}
-          >
-            <option value="">Pilih kategori</option>
-            {categoryOptions.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-          {fieldErrors.categoryId !== undefined ? <p>{fieldErrors.categoryId}</p> : null}
-        </div>
+          <div>
+            <label htmlFor="report-asset" className="mb-1 block text-sm font-medium text-text">
+              Asset (opsional)
+            </label>
+            <Select
+              id="report-asset"
+              value={values.assetId}
+              disabled={values.categoryId === '' || values.locationId === ''}
+              invalid={fieldErrors.assetId !== undefined}
+              aria-describedby="report-asset-error"
+              onChange={(event) => {
+                patch({ assetId: event.target.value });
+              }}
+            >
+              <option value="">Tanpa asset — asset tidak ditemukan</option>
+              {assetOptions.map((asset) => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.name} ({asset.assetCode})
+                </option>
+              ))}
+            </Select>
+            <FieldError id="report-asset-error" message={fieldErrors.assetId} />
+          </div>
 
-        <div>
-          <label htmlFor="report-asset">Asset (opsional)</label>
-          <select
-            id="report-asset"
-            value={values.assetId}
-            disabled={values.categoryId === '' || values.locationId === ''}
-            onChange={(event) => {
-              patch({ assetId: event.target.value });
-            }}
-          >
-            <option value="">Tanpa asset — asset tidak ditemukan</option>
-            {assetOptions.map((asset) => (
-              <option key={asset.id} value={asset.id}>
-                {asset.name} ({asset.assetCode})
-              </option>
-            ))}
-          </select>
-          {fieldErrors.assetId !== undefined ? <p>{fieldErrors.assetId}</p> : null}
-        </div>
+          <div>
+            <label htmlFor="report-issue-type" className="mb-1 block text-sm font-medium text-text">
+              Jenis masalah
+            </label>
+            <Select
+              id="report-issue-type"
+              value={values.issueTypeId}
+              invalid={fieldErrors.issueTypeId !== undefined}
+              aria-describedby="report-issue-type-error"
+              onChange={(event) => {
+                patch({ issueTypeId: event.target.value });
+              }}
+            >
+              <option value="">Pilih jenis masalah</option>
+              {issueOptions.map((issueType) => (
+                <option key={issueType.id} value={issueType.id}>
+                  {issueType.name}
+                </option>
+              ))}
+            </Select>
+            <FieldError id="report-issue-type-error" message={fieldErrors.issueTypeId} />
+          </div>
 
-        <div>
-          <label htmlFor="report-issue-type">Jenis masalah</label>
-          <select
-            id="report-issue-type"
-            value={values.issueTypeId}
-            onChange={(event) => {
-              patch({ issueTypeId: event.target.value });
-            }}
-          >
-            <option value="">Pilih jenis masalah</option>
-            {issueOptions.map((issueType) => (
-              <option key={issueType.id} value={issueType.id}>
-                {issueType.name}
-              </option>
-            ))}
-          </select>
-          {fieldErrors.issueTypeId !== undefined ? <p>{fieldErrors.issueTypeId}</p> : null}
-        </div>
+          <div>
+            <label htmlFor="report-description" className="mb-1 block text-sm font-medium text-text">
+              Deskripsi
+            </label>
+            <Textarea
+              id="report-description"
+              value={values.description}
+              maxLength={2000}
+              rows={5}
+              invalid={fieldErrors.description !== undefined}
+              aria-describedby="report-description-error"
+              onChange={(event) => {
+                patch({ description: event.target.value });
+              }}
+            />
+            <p aria-live="polite" className="mt-1 font-mono text-xs text-subtle">
+              {descLength}/2000 karakter
+            </p>
+            <p className="mt-1 text-sm text-muted">Minimal 10 karakter.</p>
+            <FieldError id="report-description-error" message={fieldErrors.description} />
+          </div>
 
-        <div>
-          <label htmlFor="report-description">Deskripsi</label>
-          <textarea
-            id="report-description"
-            value={values.description}
-            maxLength={2000}
-            rows={5}
-            onChange={(event) => {
-              patch({ description: event.target.value });
-            }}
-          />
-          <p aria-live="polite">{descLength}/2000 karakter</p>
-          <p>Minimal 10 karakter.</p>
-          {fieldErrors.description !== undefined ? <p>{fieldErrors.description}</p> : null}
-        </div>
+          <div>
+            <label htmlFor="report-occurred-at" className="mb-1 block text-sm font-medium text-text">
+              Waktu kejadian (opsional)
+            </label>
+            <Input
+              id="report-occurred-at"
+              type="datetime-local"
+              value={values.occurredAt}
+              invalid={fieldErrors.occurredAt !== undefined}
+              aria-describedby="report-occurred-at-error"
+              onChange={(event) => {
+                patch({ occurredAt: event.target.value });
+              }}
+            />
+            <FieldError id="report-occurred-at-error" message={fieldErrors.occurredAt} />
+          </div>
 
-        <div>
-          <label htmlFor="report-occurred-at">Waktu kejadian (opsional)</label>
-          <input
-            id="report-occurred-at"
-            type="datetime-local"
-            value={values.occurredAt}
-            onChange={(event) => {
-              patch({ occurredAt: event.target.value });
-            }}
-          />
-          {fieldErrors.occurredAt !== undefined ? <p>{fieldErrors.occurredAt}</p> : null}
+          <Button type="submit">Lanjut ke review</Button>
         </div>
-
-        <button type="submit">Lanjut ke review</button>
       </form>
-      <p>
-        <Link to="/reporter/reports" search={{ filter: 'semua', status: '', offset: 0 }}>Laporan Saya</Link>
+      <p className="mt-4">
+        <Link
+          to="/reporter/reports"
+          search={{ filter: 'semua', status: '', offset: 0 }}
+          className="text-accent underline underline-offset-2"
+        >
+          Laporan Saya
+        </Link>
       </p>
     </section>
   );

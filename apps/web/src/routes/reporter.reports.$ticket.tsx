@@ -15,9 +15,20 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router';
-import { eventLabel, reportStatusLabel } from '../lib/report-helpers.js';
+import { eventLabel } from '../lib/report-helpers.js';
 import type { DuplicateCandidate } from '@silapor/database';
 import type { FormOptions } from '../server/reports.js';
+import {
+  Button,
+  EmptyState,
+  ErrorPanel,
+  LoadingState,
+  StatusBadge,
+  TicketMono,
+  Timeline,
+  buttonBaseClasses,
+  buttonVariantClasses,
+} from '../components/index.js';
 
 interface ReportRow {
   readonly ticketNumber: string;
@@ -117,9 +128,13 @@ export const Route = createFileRoute('/reporter/reports/$ticket')({
 
 function DetailPending() {
   return (
-    <section aria-labelledby="report-detail-title">
-      <h1 id="report-detail-title">Detail Laporan</h1>
-      <p role="status">Memuat laporan…</p>
+    <section aria-labelledby="report-detail-title" className="max-w-3xl">
+      <h1 id="report-detail-title" className="text-2xl font-semibold text-text">
+        Detail Laporan
+      </h1>
+      <div className="mt-4">
+        <LoadingState message="Memuat laporan…" />
+      </div>
     </section>
   );
 }
@@ -204,69 +219,141 @@ function ReportDetailPage() {
   const assetNames = new Map((options?.assets ?? []).map((a) => [a.id, a.name] as const));
 
   return (
-    <section aria-labelledby="report-detail-title">
-      <h1 id="report-detail-title">Detail Laporan</h1>
-      <p>
-        <Link to="/reporter/reports" search={{ filter: 'semua', status: '', offset: 0 }}>Laporan Saya</Link>
-      </p>
+    <section aria-labelledby="report-detail-title" className="max-w-3xl">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 id="report-detail-title" className="text-2xl font-semibold text-text">
+          Detail Laporan
+        </h1>
+        <Link
+          to="/reporter/reports"
+          search={{ filter: 'semua', status: '', offset: 0 }}
+          className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
+        >
+          Laporan Saya
+        </Link>
+      </div>
 
-      {clientPending ? <p role="status">Memuat laporan…</p> : null}
+      {clientPending ? (
+        <div className="mt-4">
+          <LoadingState message="Memuat laporan…" />
+        </div>
+      ) : null}
 
-      {!clientPending && notFound ? <p role="alert">Laporan tidak ditemukan</p> : null}
+      {!clientPending && notFound ? (
+        <div className="mt-4">
+          <EmptyState
+            title="Laporan tidak ditemukan"
+            description="Periksa kembali nomor tiket pada URL."
+          />
+        </div>
+      ) : null}
 
       {!clientPending && !notFound && loadError !== null ? (
-        <>
-          <p role="alert">{loadError}</p>
-          <button type="button" onClick={() => void router.invalidate()}>
-            Coba lagi
-          </button>
-        </>
+        <div className="mt-4">
+          <ErrorPanel
+            message={loadError}
+            retry={
+              <Button type="button" variant="secondary" onClick={() => void router.invalidate()}>
+                Coba lagi
+              </Button>
+            }
+          />
+        </div>
       ) : null}
 
       {!clientPending && !notFound && loadError === null && detail !== null ? (
         <>
-          <dl>
-            <dt>Nomor tiket</dt>
-            <dd>{detail.report.ticketNumber}</dd>
-            <dt>Status</dt>
-            <dd>{reportStatusLabel(detail.report.status)}</dd>
-            <dt>Kategori</dt>
-            <dd>{categoryNames.get(detail.report.submittedCategoryId) ?? detail.report.submittedCategoryId}</dd>
-            <dt>Jenis masalah</dt>
-            <dd>
-              {detail.report.submittedIssueTypeId === null
-                ? '—'
-                : (issueTypeNames.get(detail.report.submittedIssueTypeId) ??
-                  detail.report.submittedIssueTypeId)}
-            </dd>
-            <dt>Lokasi</dt>
-            <dd>{locationNames.get(detail.report.locationId) ?? detail.report.locationId}</dd>
-            <dt>Asset</dt>
-            <dd>
-              {detail.report.assetId === null
-                ? 'Tanpa asset'
-                : (assetNames.get(detail.report.assetId) ?? detail.report.assetId)}
-            </dd>
-            <dt>Deskripsi</dt>
-            <dd>{detail.report.description}</dd>
-            <dt>Waktu kejadian</dt>
-            <dd>{formatDateTime(detail.report.occurredAt)}</dd>
-            <dt>Waktu lapor</dt>
-            <dd>{formatDateTime(detail.report.reportedAt)}</dd>
-          </dl>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <TicketMono className="text-xl font-medium text-text">
+              {detail.report.ticketNumber}
+            </TicketMono>
+            <StatusBadge status={detail.report.status} />
+          </div>
+
+          <div className="mt-4 rounded-md border border-border bg-surface px-4 md:px-6">
+            <dl className="divide-y divide-border">
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Nomor tiket</dt>
+                <dd className="text-sm text-text">
+                  <TicketMono>{detail.report.ticketNumber}</TicketMono>
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Status</dt>
+                <dd className="text-sm text-text">
+                  <StatusBadge status={detail.report.status} />
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Kategori</dt>
+                <dd className="text-sm text-text">{categoryNames.get(detail.report.submittedCategoryId) ?? detail.report.submittedCategoryId}</dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">
+                  Jenis masalah
+                </dt>
+                <dd className="text-sm text-text">
+                  {detail.report.submittedIssueTypeId === null
+                    ? '—'
+                    : (issueTypeNames.get(detail.report.submittedIssueTypeId) ??
+                      detail.report.submittedIssueTypeId)}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Lokasi</dt>
+                <dd className="text-sm text-text">{locationNames.get(detail.report.locationId) ?? detail.report.locationId}</dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Asset</dt>
+                <dd className="text-sm text-text">
+                  {detail.report.assetId === null
+                    ? 'Tanpa asset'
+                    : (assetNames.get(detail.report.assetId) ?? detail.report.assetId)}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Deskripsi</dt>
+                <dd className="text-pretty text-sm break-words whitespace-pre-wrap text-text">
+                  {detail.report.description}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">
+                  Waktu kejadian
+                </dt>
+                <dd className="text-sm text-text">
+                  <TicketMono>{formatDateTime(detail.report.occurredAt)}</TicketMono>
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Waktu lapor</dt>
+                <dd className="text-sm text-text">
+                  <TicketMono>{formatDateTime(detail.report.reportedAt)}</TicketMono>
+                </dd>
+              </div>
+            </dl>
+          </div>
 
           {detail.duplicateCandidates.length > 0 ? (
-            <section aria-labelledby="detail-duplicate-title">
-              <h2 id="detail-duplicate-title">Laporan serupa ditemukan</h2>
-              <p>Laporan berikut tampak mirip dengan laporan ini.</p>
-              <ul>
+            <section
+              aria-labelledby="detail-duplicate-title"
+              className="mt-4 rounded-md border border-warning bg-tint-warning p-4"
+            >
+              <h2 id="detail-duplicate-title" className="text-base font-semibold text-text">
+                Laporan serupa ditemukan
+              </h2>
+              <p className="mt-1 text-sm text-text">
+                Laporan berikut tampak mirip dengan laporan ini.
+              </p>
+              <ul className="mt-2 flex flex-wrap gap-2">
                 {detail.duplicateCandidates.map((candidate) => (
                   <li key={candidate.id}>
                     <Link
                       to="/reporter/reports/$ticket"
                       params={{ ticket: candidate.ticketNumber }}
+                      className="text-accent underline underline-offset-2"
                     >
-                      {candidate.ticketNumber}
+                      <TicketMono>{candidate.ticketNumber}</TicketMono>
                     </Link>
                   </li>
                 ))}
@@ -274,18 +361,22 @@ function ReportDetailPage() {
             </section>
           ) : null}
 
-          <section aria-labelledby="detail-timeline-title">
-            <h2 id="detail-timeline-title">Riwayat laporan</h2>
+          <section aria-labelledby="detail-timeline-title" className="mt-6">
+            <h2 id="detail-timeline-title" className="text-lg font-semibold text-text">
+              Riwayat laporan
+            </h2>
             {detail.events.length === 0 ? (
-              <p>Belum ada riwayat.</p>
+              <p className="mt-2 text-sm text-muted">Belum ada riwayat.</p>
             ) : (
-              <ol>
-                {detail.events.map((entry, index) => (
-                  <li key={`${entry.createdAt}-${index}`}>
-                    {eventLabel(entryType(entry))} — {formatDateTime(entry.createdAt)}
-                  </li>
-                ))}
-              </ol>
+              <div className="mt-3">
+                <Timeline
+                  items={detail.events.map((entry, index) => ({
+                    id: `${entry.createdAt}-${index}`,
+                    label: eventLabel(entryType(entry)),
+                    timestamp: formatDateTime(entry.createdAt),
+                  }))}
+                />
+              </div>
             )}
           </section>
         </>

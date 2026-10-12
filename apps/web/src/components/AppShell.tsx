@@ -25,7 +25,7 @@ export interface AppShellNavItem {
   readonly label: string;
 }
 
-/** Role-aware nav: reporter (Laporan Baru, Laporan Saya), admin
+/** Role-aware nav: reporter (Laporkan, Laporan Saya), admin
  *  (Semua Laporan). Shared auth entry is rendered separately (Masuk/Keluar).
  *  Never more than 5 items. */
 export function navItemsForRole(role: AppShellRole): readonly AppShellNavItem[] {

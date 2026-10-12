@@ -11,8 +11,19 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router';
-import { buildMyReportsQuery, reportStatusLabel } from '../lib/report-helpers.js';
+import { buildMyReportsQuery } from '../lib/report-helpers.js';
 import type { FormOptions } from '../server/reports.js';
+import {
+  Button,
+  EmptyState,
+  ErrorPanel,
+  LoadingState,
+  Select,
+  StatusBadge,
+  TicketMono,
+  buttonBaseClasses,
+  buttonVariantClasses,
+} from '../components/index.js';
 
 interface MyReportRow {
   readonly id: string;
@@ -109,9 +120,13 @@ export const Route = createFileRoute('/reporter/reports/')({
 
 function ReportsPending() {
   return (
-    <section aria-labelledby="my-reports-title">
-      <h1 id="my-reports-title">Laporan Saya</h1>
-      <p role="status">Memuat laporan…</p>
+    <section aria-labelledby="my-reports-title" className="max-w-3xl">
+      <h1 id="my-reports-title" className="text-2xl font-semibold text-text">
+        Laporan Saya
+      </h1>
+      <div className="mt-4">
+        <LoadingState message="Memuat laporan…" />
+      </div>
     </section>
   );
 }
@@ -184,19 +199,27 @@ function MyReportsPage() {
   const hasNext = offset + limit < total;
 
   return (
-    <section aria-labelledby="my-reports-title">
-      <h1 id="my-reports-title">Laporan Saya</h1>
-      <p>
-        <Link to="/reporter/reports/new">Buat laporan</Link>
-      </p>
+    <section aria-labelledby="my-reports-title" className="max-w-3xl">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 id="my-reports-title" className="text-2xl font-semibold text-text">
+          Laporan Saya
+        </h1>
+        <Link
+          to="/reporter/reports/new"
+          className={`${buttonBaseClasses} ${buttonVariantClasses.primary}`}
+        >
+          Buat laporan
+        </Link>
+      </div>
 
-      <nav aria-label="Filter status">
-        <ul>
+      <nav aria-label="Filter status" className="mt-4">
+        <ul className="flex flex-wrap gap-2">
           <li>
             <Link
               to="/reporter/reports"
               search={{ filter: 'semua', status: '', offset: 0 }}
               aria-current={search.filter === 'semua' && search.status === '' ? 'page' : undefined}
+              className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Semua
             </Link>
@@ -206,6 +229,7 @@ function MyReportsPage() {
               to="/reporter/reports"
               search={{ filter: 'aktif', status: '', offset: 0 }}
               aria-current={search.filter === 'aktif' && search.status === '' ? 'page' : undefined}
+              className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Aktif
             </Link>
@@ -217,14 +241,17 @@ function MyReportsPage() {
               aria-current={
                 search.filter === 'selesai' && search.status === '' ? 'page' : undefined
               }
+              className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Selesai
             </Link>
           </li>
         </ul>
-        <div>
-          <label htmlFor="my-reports-status">Status</label>
-          <select
+        <div className="mt-3 max-w-xs">
+          <label htmlFor="my-reports-status" className="mb-1 block text-sm font-medium text-text">
+            Status
+          </label>
+          <Select
             id="my-reports-status"
             value={search.status}
             onChange={(event) => {
@@ -244,68 +271,107 @@ function MyReportsPage() {
             <option value="CLOSED">Ditutup</option>
             <option value="REJECTED">Ditolak</option>
             <option value="DUPLICATE">Duplikat</option>
-          </select>
+          </Select>
         </div>
       </nav>
 
-      {clientPending ? <p role="status">Memuat laporan…</p> : null}
+      {clientPending ? (
+        <div className="mt-4">
+          <LoadingState message="Memuat laporan…" />
+        </div>
+      ) : null}
 
       {!clientPending && loadError !== null ? (
-        <>
-          <p role="alert">{loadError}</p>
-          <button type="button" onClick={() => void router.invalidate()}>
-            Coba lagi
-          </button>
-        </>
+        <div className="mt-4">
+          <ErrorPanel
+            message={loadError}
+            retry={
+              <Button type="button" variant="secondary" onClick={() => void router.invalidate()}>
+                Coba lagi
+              </Button>
+            }
+          />
+        </div>
       ) : null}
 
       {!clientPending && loadError === null && reports !== null ? (
         reports.items.length === 0 ? (
-          <>
-            <h2>Belum ada laporan</h2>
-            <p>Belum ada laporan yang tercatat.</p>
-            <p>
-              <Link to="/reporter/reports/new">Buat laporan</Link>
-            </p>
-          </>
+          <div className="mt-4">
+            <EmptyState
+              title="Belum ada laporan"
+              description="Belum ada laporan yang tercatat."
+              action={
+                <Link
+                  to="/reporter/reports/new"
+                  className={`${buttonBaseClasses} ${buttonVariantClasses.primary}`}
+                >
+                  Buat laporan
+                </Link>
+              }
+            />
+          </div>
         ) : (
           <>
-            <ul>
+            <ul className="mt-4 divide-y divide-border rounded-md border border-border bg-surface px-4">
               {reports.items.map((item) => (
-                <li key={item.id}>
-                  <Link to="/reporter/reports/$ticket" params={{ ticket: item.ticketNumber }}>
-                    {item.ticketNumber}
-                  </Link>{' '}
-                  <span>{reportStatusLabel(item.status)}</span>{' '}
-                  <span>Kategori: {categoryNames.get(item.submittedCategoryId) ?? item.submittedCategoryId}</span>{' '}
-                  <span>Lokasi: {locationNames.get(item.locationId) ?? item.locationId}</span>{' '}
-                  <time>{formatReportedAt(item.reportedAt)}</time>
+                <li key={item.id} className="flex flex-col gap-1 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      to="/reporter/reports/$ticket"
+                      params={{ ticket: item.ticketNumber }}
+                      className="text-accent underline underline-offset-2"
+                    >
+                      <TicketMono>{item.ticketNumber}</TicketMono>
+                    </Link>
+                    <StatusBadge status={item.status} />
+                  </div>
+                  <p className="text-sm text-muted">
+                    Kategori: {categoryNames.get(item.submittedCategoryId) ?? item.submittedCategoryId}
+                  </p>
+                  <p className="text-sm text-muted">
+                    Lokasi: {locationNames.get(item.locationId) ?? item.locationId}
+                  </p>
+                  <TicketMono className="text-xs text-subtle">
+                    <time>{formatReportedAt(item.reportedAt)}</time>
+                  </TicketMono>
                 </li>
               ))}
             </ul>
-            <p>
+            <p className="mt-3 text-sm text-muted">
               Menampilkan {shownFrom}–{shownTo} dari {total}
             </p>
-            <p>
+            <p className="mt-2 flex gap-2">
               {hasPrev ? (
                 <Link
                   to="/reporter/reports"
                   search={{ filter: search.filter, status: search.status, offset: offset - limit }}
+                  className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
                 >
                   Sebelumnya
                 </Link>
               ) : (
-                <span>Sebelumnya</span>
-              )}{' '}
+                <span
+                  aria-disabled="true"
+                  className={`${buttonBaseClasses} cursor-not-allowed text-subtle opacity-50`}
+                >
+                  Sebelumnya
+                </span>
+              )}
               {hasNext ? (
                 <Link
                   to="/reporter/reports"
                   search={{ filter: search.filter, status: search.status, offset: offset + limit }}
+                  className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
                 >
                   Berikutnya
                 </Link>
               ) : (
-                <span>Berikutnya</span>
+                <span
+                  aria-disabled="true"
+                  className={`${buttonBaseClasses} cursor-not-allowed text-subtle opacity-50`}
+                >
+                  Berikutnya
+                </span>
               )}
             </p>
           </>
