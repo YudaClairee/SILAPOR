@@ -18,14 +18,24 @@ import {
   locations,
   maintenanceReports,
   outboxEvents,
+  reportAttachments,
   reportEvents,
   reportRelations,
   users,
 } from './schema.js';
 import {
+  buildSearchPattern,
+  countAffectedReporters,
   createReport,
   findDuplicateCandidates,
+  getAdminReportDetail,
   getJakartaYear,
+  getMyReportDetail,
+  getMyReportTimeline,
+  linkSupportingReport,
+  listAllReports,
+  listMyReports,
+  reportOrderBy,
   validateCreateReportInput,
 } from './reports.js';
 
@@ -769,4 +779,559 @@ it('reports P3-2 availability (informational)', () => {
     );
   }
   expect(true).toBe(true);
+});
+
+it('reports P3-2 availability (informational)', () => {
+  if (!enabled) {
+    console.log(
+      'SKIP P3-2 integration: PostgreSQL unreachable at ' +
+        'the resolved DATABASE_URL — start local postgres (docker compose up) ' +
+        'or set DATABASE_URL to a live instance to run.',
+    );
+  }
+  expect(true).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// P3-3 report queries + supporting links (Phase 3 backend, final task).
+//
+// Pure validation tests run offline with a never-valued stub db (option
+// validation throws before any I/O). DB-gated integration uses its own
+// SCRATCH database (`silapor_p33_test`) created/dropped in
+// beforeAll/afterAll — the shared dev database is never touched.
+// ---------------------------------------------------------------------------
+
+// Validation in every P3-3 entrypoint runs before the first query, so pure
+// tests pass a stub that would crash on use; any path reaching the database
+// with this stub fails loudly instead of passing silently.
+const stubDb = undefined as never;
+
+describe('P3-3 list validation (pure)', () => {
+  it('rejects invalid status values with 400', async () => {
+    await expect(
+      listMyReports(stubDb, VALID_UUID_A, { status: 'BOGUS' }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      listMyReports(stubDb, VALID_UUID_A, { status: ['REPORTED', 'NOPE'] }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects invalid priority values with 400', async () => {
+    await expect(
+      listMyReports(stubDb, VALID_UUID_A, { priority: 'URGENT' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects invalid from/to dates with 400', async () => {
+    await expect(
+      listMyReports(stubDb, VALID_UUID_A, { from: 'not-a-date' }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      listMyReports(stubDb, VALID_UUID_A, { to: '2342-13-99' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects invalid sort values with 400', async () => {
+    await expect(
+      listMyReports(stubDb, VALID_UUID_A, { sort: 'newest' }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      listAllReports(stubDb, { sort: 'ticket_up' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects too-short and too-long search with 400', async () => {
+    await expect(listAllReports(stubDb, { search: 'x' })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      listAllReports(stubDb, { search: 'x'.repeat(101) }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('treats blank search as no filter (pure helper returns null)', () => {
+    expect(buildSearchPattern('   ')).toBeNull();
+    expect(buildSearchPattern('')).toBeNull();
+    expect(buildSearchPattern(undefined)).toBeNull();
+    expect(buildSearchPattern('  lampu  ')).toBe('%lampu%');
+  });
+
+  it('escapes LIKE wildcards in the search pattern', () => {
+    expect(buildSearchPattern('te%st')).toBe('%te\\%st%');
+    expect(buildSearchPattern('a_b\\c')).toBe('%a\\_b\\\\c%');
+  });
+
+  it('always tiebreaks ordering by id asc (deterministic pagination)', () => {
+    for (const sort of ['reported_desc', 'reported_asc', 'ticket_asc', 'ticket_desc'] as const) {
+      const spec = reportOrderBy(sort);
+      expect(spec.length).toBeGreaterThan(1);
+      expect(spec[spec.length - 1]).toEqual({ column: 'id', direction: 'asc' });
+    }
+    expect(reportOrderBy(undefined)[0]).toEqual({ column: 'reportedAt', direction: 'desc' });
+    let thrown: unknown;
+    try {
+      reportOrderBy('bogus');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ status: 400 });
+  });
+});
+
+describe('P3-3 link + detail validation (pure)', () => {
+  const base = {
+    sourceReportId: VALID_UUID_A,
+    targetReportId: VALID_UUID_B,
+    relationType: 'SUPPORTING',
+    createdBy: VALID_UUID_C,
+  };
+
+  it('rejects self-link with 400', async () => {
+    await expect(
+      linkSupportingReport(stubDb, { ...base, targetReportId: VALID_UUID_A }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects unknown relation types with 400', async () => {
+    await expect(
+      linkSupportingReport(stubDb, { ...base, relationType: 'DUPLICATE_OF' }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      linkSupportingReport(stubDb, { ...base, relationType: 'supporting' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects malformed report ids with 400 before any ownership check', async () => {
+    await expect(getMyReportDetail(stubDb, VALID_UUID_A, 'not-a-uuid')).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(getAdminReportDetail(stubDb, 'not-a-uuid')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('rejects a missing affected-count scope with 400', async () => {
+    await expect(
+      countAffectedReporters(stubDb, {
+        locationId: 'not-a-uuid',
+        categoryId: VALID_UUID_D,
+        issueTypeId: null,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+const P33_SCRATCH_DB_NAME = 'silapor_p33_test';
+
+function p33ScratchUrl(base: string): string {
+  const url = new URL(base);
+  url.pathname = `/${P33_SCRATCH_DB_NAME}`;
+  return url.toString();
+}
+
+describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reachable PostgreSQL)', () => {
+  const url = p33ScratchUrl(baseUrl);
+  let close: () => Promise<void> = async () => undefined;
+  let db: ReturnType<typeof getDb>['db'] | undefined;
+
+  let reporterA = '';
+  let reporterB = '';
+  let reporterC = '';
+  let locA = '';
+  let catA = '';
+  let catB = '';
+  let a1Id = '';
+  let a2Id = '';
+  let a3Id = '';
+  let b1Id = '';
+  let b2Id = '';
+  let a1Ticket = '';
+
+  beforeAll(
+    async () => {
+      const admin = postgres(baseUrl, { max: 1 });
+      try {
+        await admin.unsafe(`DROP DATABASE IF EXISTS "${P33_SCRATCH_DB_NAME}"`);
+        await admin.unsafe(`CREATE DATABASE "${P33_SCRATCH_DB_NAME}"`);
+      } finally {
+        await admin.end();
+      }
+      await runMigrations(url);
+
+      const conn = getDb(url);
+      close = conn.close;
+      db = conn.db;
+
+      const insertUser = async (username: string): Promise<string> => {
+        const rows = await db!
+          .insert(users)
+          .values({ username, role: 'REPORTER' })
+          .returning({ id: users.id });
+        const id = rows[0]?.id;
+        if (id === undefined) {
+          throw new Error('fixture: user insert failed');
+        }
+        return id;
+      };
+      reporterA = await insertUser('p33-reporter-a');
+      reporterB = await insertUser('p33-reporter-b');
+      reporterC = await insertUser('p33-reporter-c');
+
+      locA = (
+        await db!
+          .insert(locations)
+          .values({ type: 'ROOM', code: 'P33-ROOM-A', name: 'P3-3 room A' })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const insertCategory = async (code: string): Promise<string> => {
+        const rows = await db!
+          .insert(facilityCategories)
+          .values({ code, name: `P3-3 ${code}` })
+          .returning({ id: facilityCategories.id });
+        const id = rows[0]?.id;
+        if (id === undefined) {
+          throw new Error('fixture: category insert failed');
+        }
+        return id;
+      };
+      catA = await insertCategory('P33-CAT-A');
+      catB = await insertCategory('P33-CAT-B');
+
+      const report = async (
+        reporterId: string,
+        categoryId: string,
+        description: string,
+      ): Promise<{ id: string; ticketNumber: string }> => {
+        const result = await createReport(
+          db!,
+          {
+            reporterId,
+            locationId: locA,
+            assetId: null,
+            submittedCategoryId: categoryId,
+            submittedIssueTypeId: null,
+            description,
+            occurredAt: null,
+          },
+          randomUUID(),
+        );
+        return { id: result.report.id, ticketNumber: result.report.ticketNumber };
+      };
+
+      // Reporter A: 3 reports (same incident scope: locA + catA, no asset/issue).
+      const a1 = await report(
+        reporterA,
+        catA,
+        'Lampu ruangan mati total sejak pagi hari, mohon segera diperbaiki.',
+      );
+      a1Id = a1.id;
+      a1Ticket = a1.ticketNumber;
+      a2Id = (
+        await report(
+          reporterA,
+          catA,
+          'Stop kontak mengeluarkan percikan api yang berbahaya bagi penghuni.',
+        )
+      ).id;
+      a3Id = (
+        await report(reporterA, catA, 'Laporan te%st khusus untuk uji escape pola pencarian.')
+      ).id;
+      // Reporter B: 2 reports under a different category (not the catA incident).
+      b1Id = (await report(reporterB, catB, 'Unit AC split tidak dingin sama sekali.')).id;
+      b2Id = (await report(reporterB, catB, 'Laporan texst biasa tanpa pola khusus.')).id;
+
+      await db!.insert(reportAttachments).values({
+        reportId: a1Id,
+        storageKey: 'p33/a1-photo-1',
+        originalFilename: 'photo.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 1234,
+        checksum: 'p33-checksum-1',
+        uploadedBy: reporterA,
+      });
+    },
+    120_000,
+  );
+
+  afterAll(async () => {
+    await close();
+    const admin = postgres(baseUrl, { max: 1 });
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS "${P33_SCRATCH_DB_NAME}"`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it('pages reporter A list as [2,1] with no overlap and total 3', async () => {
+    const page1 = await listMyReports(db!, reporterA, { limit: 2, offset: 0 });
+    expect(page1.total).toBe(3);
+    expect(page1.items).toHaveLength(2);
+    expect(page1.limit).toBe(2);
+    expect(page1.offset).toBe(0);
+    const page2 = await listMyReports(db!, reporterA, { limit: 2, offset: 2 });
+    expect(page2.total).toBe(3);
+    expect(page2.items).toHaveLength(1);
+    const page1Ids = new Set(page1.items.map((r) => r.id));
+    for (const row of page2.items) {
+      expect(page1Ids.has(row.id)).toBe(false);
+    }
+    expect(new Set([...page1.items, ...page2.items].map((r) => r.id)).size).toBe(3);
+  });
+
+  it('returns an identical 404 for foreign vs missing tickets', async () => {
+    await expect(getMyReportDetail(db!, reporterB, a1Id)).rejects.toMatchObject({ status: 404 });
+    await expect(getMyReportDetail(db!, reporterA, randomUUID())).rejects.toMatchObject({
+      status: 404,
+    });
+    const foreign = await getMyReportDetail(db!, reporterB, a1Id).catch((error: unknown) => error);
+    const missing = await getMyReportDetail(db!, reporterA, randomUUID()).catch(
+      (error: unknown) => error,
+    );
+    expect(String((foreign as Error).message)).toBe(String((missing as Error).message));
+  });
+
+  it('sees all 5 rows from the admin list with total matching items length', async () => {
+    const all = await listAllReports(db!, {});
+    expect(all.total).toBe(5);
+    expect(all.items).toHaveLength(all.total);
+  });
+
+  it('searches by ticket suffix, description keyword, and literal wildcards', async () => {
+    const suffix = a1Ticket.slice(-6);
+    const byTicket = await listAllReports(db!, { search: suffix });
+    expect(byTicket.items.map((r) => r.ticketNumber)).toEqual([a1Ticket]);
+
+    const byKeyword = await listAllReports(db!, { search: 'lampu' });
+    expect(byKeyword.items.map((r) => r.ticketNumber)).toEqual([a1Ticket]);
+
+    // `te%st` must match the literal row only — never the `texst` lookalike.
+    const byLiteral = await listAllReports(db!, { search: 'te%st' });
+    const tickets = byLiteral.items.map((r) => r.ticketNumber);
+    const a3Ticket = (await getAdminReportDetail(db!, a3Id)).report.ticketNumber;
+    expect(tickets).toContain(a3Ticket);
+    const b2Ticket = (await getAdminReportDetail(db!, b2Id)).report.ticketNumber;
+    expect(tickets).not.toContain(b2Ticket);
+  });
+
+  it('orders tied reported_at rows by id asc (deterministic pagination)', async () => {
+    const tied = new Date();
+    for (const id of [a1Id, a2Id, a3Id]) {
+      await db!.update(maintenanceReports).set({ reportedAt: tied }).where(eq(maintenanceReports.id, id));
+    }
+    const page = await listMyReports(db!, reporterA, { sort: 'reported_desc' });
+    expect(page.items.map((r) => r.id)).toEqual([a1Id, a2Id, a3Id].sort());
+  });
+
+  it('narrows by status + category + date range + priority', async () => {
+    await db!.update(maintenanceReports).set({ status: 'VERIFIED' }).where(eq(maintenanceReports.id, a2Id));
+    await db!
+      .update(maintenanceReports)
+      .set({ reportedAt: new Date(Date.now() - 5 * 24 * 3_600_000), finalPriority: 'HIGH' })
+      .where(eq(maintenanceReports.id, a1Id));
+
+    const byStatusCategory = await listAllReports(db!, {
+      status: 'REPORTED',
+      categoryId: catA,
+    });
+    expect(byStatusCategory.total).toBe(2);
+
+    const multiStatus = await listMyReports(db!, reporterA, {
+      status: ['REPORTED', 'VERIFIED'],
+      categoryId: catA,
+    });
+    expect(multiStatus.total).toBe(3);
+
+    const recent = await listMyReports(db!, reporterA, {
+      from: new Date(Date.now() - 2 * 24 * 3_600_000).toISOString(),
+    });
+    expect(recent.total).toBe(2);
+    expect(recent.items.map((r) => r.id)).not.toContain(a1Id);
+
+    const old = await listMyReports(db!, reporterA, {
+      to: new Date(Date.now() - 2 * 24 * 3_600_000).toISOString(),
+    });
+    expect(old.items.map((r) => r.id)).toEqual([a1Id]);
+
+    const byPriority = await listAllReports(db!, { priority: 'HIGH' });
+    expect(byPriority.items.map((r) => r.id)).toEqual([a1Id]);
+
+    const otherLocation = await listAllReports(db!, { locationId: randomUUID() });
+    expect(otherLocation.total).toBe(0);
+
+    const ticketAsc = await listMyReports(db!, reporterA, { sort: 'ticket_asc' });
+    const tickets = ticketAsc.items.map((r) => r.ticketNumber);
+    expect([...tickets].sort()).toEqual(tickets);
+  });
+
+  it('returns full detail (attachments, chronological events, relations, candidates)', async () => {
+    const detail = await getMyReportDetail(db!, reporterA, a1Id);
+    expect(detail.report.id).toBe(a1Id);
+    expect(detail.report.ticketNumber).toBe(a1Ticket);
+    expect(detail.attachments).toHaveLength(1);
+    expect(detail.attachments[0]).toMatchObject({
+      storageKey: 'p33/a1-photo-1',
+      originalFilename: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 1234,
+    });
+    expect(detail.events.length).toBeGreaterThanOrEqual(1);
+    expect(detail.events[0]?.eventType).toBe('REPORT_CREATED');
+    for (let i = 1; i < detail.events.length; i++) {
+      expect(detail.events[i - 1]?.createdAt.getTime()).toBeLessThanOrEqual(
+        detail.events[i]?.createdAt.getTime() as number,
+      );
+    }
+    expect(detail.relations).toEqual([]);
+    // Same-incident siblings warn; the row itself is excluded via excludeReportId.
+    const candidateTickets = detail.duplicateCandidates.map((c) => c.ticketNumber);
+    const a2Ticket = (await getAdminReportDetail(db!, a2Id)).report.ticketNumber;
+    const a3Ticket = (await getAdminReportDetail(db!, a3Id)).report.ticketNumber;
+    expect(candidateTickets).toContain(a2Ticket);
+    expect(candidateTickets).toContain(a3Ticket);
+    expect(candidateTickets).not.toContain(a1Ticket);
+  });
+
+  it('returns the reporter timeline chronologically with the documented shape', async () => {
+    await expect(getMyReportTimeline(db!, reporterB, a1Id)).rejects.toMatchObject({
+      status: 404,
+    });
+    await db!.insert(reportEvents).values({
+      reportId: a1Id,
+      eventType: 'INTERNAL_NOTE_ADDED',
+      actorId: reporterA,
+      metadata: { note: 'p33 timeline probe' },
+    });
+    const timeline = await getMyReportTimeline(db!, reporterA, a1Id);
+    expect(timeline).toHaveLength(2);
+    expect(timeline[0]).toMatchObject({ type: 'REPORT_CREATED', actorId: reporterA });
+    expect(timeline[1]).toMatchObject({ type: 'INTERNAL_NOTE_ADDED', actorId: reporterA });
+    for (const entry of timeline) {
+      expect(Object.keys(entry).sort()).toEqual(
+        ['actorId', 'createdAt', 'fromValue', 'metadata', 'toValue', 'type'].sort(),
+      );
+    }
+    expect(timeline[0]?.createdAt.getTime()).toBeLessThanOrEqual(
+      timeline[1]?.createdAt.getTime() as number,
+    );
+  });
+
+  it('uses an index scan for filtered reporter lists (EXPLAIN spot-check)', async () => {
+    const conn = postgres(url, { max: 1 });
+    try {
+      await conn`SET enable_seqscan = off`;
+      const rows = await conn`EXPLAIN SELECT id FROM maintenance_reports WHERE reporter_id = ${reporterA} AND status = 'REPORTED' ORDER BY reported_at DESC, id ASC LIMIT 50`;
+      const plan = rows
+        .map((row) => String((row as Record<string, unknown>)['QUERY PLAN'] ?? ''))
+        .join('\n');
+      expect(plan).toMatch(/Index Scan/);
+    } finally {
+      await conn.end();
+    }
+  });
+
+  it('links B1→A1 as SUPPORTING without touching status, events, or jobs', async () => {
+    const statusBefore = new Map(
+      (await db!.select().from(maintenanceReports)).map((r) => [r.id, r.status] as const),
+    );
+    const eventsBefore = await db!.select().from(reportEvents);
+    const outboxBefore = await db!.select().from(outboxEvents);
+
+    const link = await linkSupportingReport(db!, {
+      sourceReportId: b1Id,
+      targetReportId: a1Id,
+      relationType: 'SUPPORTING',
+      createdBy: reporterB,
+    });
+    expect(link).toMatchObject({
+      sourceReportId: b1Id,
+      targetReportId: a1Id,
+      relationType: 'SUPPORTING',
+    });
+
+    // Both submissions remain independently queryable.
+    expect((await listMyReports(db!, reporterA, {})).total).toBe(3);
+    expect((await listMyReports(db!, reporterB, {})).total).toBe(2);
+
+    // Metadata only: statuses unchanged, no new events, no repair job outbox row.
+    for (const row of await db!.select().from(maintenanceReports)) {
+      expect(row.status).toBe(statusBefore.get(row.id));
+    }
+    expect((await db!.select().from(reportEvents)).length).toBe(eventsBefore.length);
+    expect((await db!.select().from(outboxEvents)).length).toBe(outboxBefore.length);
+
+    // The reverse triple is a distinct row (no auto-mirror); the same triple 409s.
+    const reverse = await linkSupportingReport(db!, {
+      sourceReportId: a1Id,
+      targetReportId: b1Id,
+      relationType: 'RELATED',
+      createdBy: reporterA,
+    });
+    expect(reverse.relationType).toBe('RELATED');
+    await expect(
+      linkSupportingReport(db!, {
+        sourceReportId: b1Id,
+        targetReportId: a1Id,
+        relationType: 'SUPPORTING',
+        createdBy: reporterB,
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const detail = await getAdminReportDetail(db!, a1Id);
+    expect(detail.relations).toHaveLength(2);
+  });
+
+  it('counts affected reporters across the incident plus links (terminal rows collapse)', async () => {
+    await db!
+      .update(maintenanceReports)
+      .set({ status: 'DUPLICATE', duplicateOfReportId: a1Id })
+      .where(eq(maintenanceReports.id, a3Id));
+    // Same-reporter DUPLICATE row collapses: reporter A still counts once.
+    // Linked reporter B counts via the B1→A1 SUPPORTING link.
+    expect(
+      await countAffectedReporters(db!, {
+        assetId: null,
+        locationId: locA,
+        categoryId: catA,
+        issueTypeId: null,
+      }),
+    ).toBe(2);
+
+    // An unlinked terminal row from a third reporter contributes nothing.
+    const c1 = await createReport(
+      db!,
+      {
+        reporterId: reporterC,
+        locationId: locA,
+        assetId: null,
+        submittedCategoryId: catA,
+        submittedIssueTypeId: null,
+        description: 'Keran wastafel patah dan air mengucur terus menerus.',
+        occurredAt: null,
+      },
+      randomUUID(),
+    );
+    await db!
+      .update(maintenanceReports)
+      .set({ status: 'REJECTED' })
+      .where(eq(maintenanceReports.id, c1.report.id));
+    expect(
+      await countAffectedReporters(db!, {
+        assetId: null,
+        locationId: locA,
+        categoryId: catA,
+        issueTypeId: null,
+      }),
+    ).toBe(2);
+
+    // The link pulls the other way too: the catB incident sees B directly + A via link.
+    expect(
+      await countAffectedReporters(db!, {
+        assetId: null,
+        locationId: locA,
+        categoryId: catB,
+        issueTypeId: null,
+      }),
+    ).toBe(2);
+  });
 });

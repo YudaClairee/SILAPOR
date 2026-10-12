@@ -11,10 +11,11 @@
 // reference, 409 mapped to idempotent replay on a key race). This module logs
 // nothing and carries no PII in messages.
 
-import { and, desc, eq, gte, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
   badRequest,
+  conflict,
   internal,
   isAppError,
   notFound,
@@ -22,9 +23,12 @@ import {
 import {
   ACTIVE_REPORT_STATUSES,
   DUPLICATE_LOOKBACK_DAYS,
+  RELATION_TYPE,
+  REPORT_STATUS,
   formatTicketNumber,
 } from '@silapor/domain';
 import * as schema from './schema.js';
+import { normalizeListOptions } from './master-data.js';
 
 type Database = PostgresJsDatabase<typeof schema>;
 
@@ -149,16 +153,24 @@ export interface DuplicateCandidate {
   readonly reportedAt: Date;
 }
 
-function candidateConditions(
-  filter: DuplicateCandidateFilter,
-  since: Date | null,
-): ReturnType<typeof and> {
+// Incident-matching core shared by `findDuplicateCandidates` (P3-2, same
+// reporter) and `countAffectedReporters` (P3-3, all reporters): ACTIVE statuses
+// only, same asset/location scope, same submitted-or-final category, same
+// issue type (null-safe). Single definition — callers only add their own
+// extra conditions (reporter, lookback, exclusion) around it.
+interface IncidentScope {
+  readonly assetId?: string | null | undefined;
+  readonly locationId: string;
+  readonly categoryId: string;
+  readonly issueTypeId?: string | null | undefined;
+}
+
+function incidentConditions(filter: IncidentScope) {
   const scope =
     filter.assetId !== undefined && filter.assetId !== null
       ? sql`${schema.maintenanceReports.assetId} IS NOT DISTINCT FROM ${filter.assetId}`
       : eq(schema.maintenanceReports.locationId, filter.locationId);
-  const conditions = [
-    eq(schema.maintenanceReports.reporterId, filter.reporterId),
+  return [
     inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
     scope,
     or(
@@ -166,6 +178,16 @@ function candidateConditions(
       eq(schema.maintenanceReports.finalCategoryId, filter.categoryId),
     ),
     sql`${schema.maintenanceReports.submittedIssueTypeId} IS NOT DISTINCT FROM ${filter.issueTypeId ?? null}`,
+  ];
+}
+
+function candidateConditions(
+  filter: DuplicateCandidateFilter,
+  since: Date | null,
+): ReturnType<typeof and> {
+  const conditions = [
+    eq(schema.maintenanceReports.reporterId, filter.reporterId),
+    ...incidentConditions(filter),
   ];
   if (since !== null) {
     conditions.push(gte(schema.maintenanceReports.reportedAt, since));
@@ -439,4 +461,557 @@ export async function createReport(
     }
     throw error;
   }
+}
+
+// ---------------------------------------------------------------------------
+// P3-3 report queries + supporting links.
+//
+// Reporter read paths (`listMyReports`, `getMyReportDetail`,
+// `getMyReportTimeline`) take `reporterId` and filter by it — that IS the
+// enforcement (the repo performs no role checks; callers own ADMIN gating).
+// `getMy*` returns an identical 404 for missing vs foreign rows so existence
+// of another reporter's ticket is never revealed. Admin paths
+// (`listAllReports`, `getAdminReportDetail`) add reporter/search filters and
+// skip ownership. `linkSupportingReport` is metadata only: no status change,
+// no repair job. `countAffectedReporters` counts DISTINCT reporters over the
+// shared incident predicate above plus one hop of SUPPORTING/RELATED links.
+//
+// Pagination ALWAYS reuses `normalizeListOptions` (default 50, max 200) and
+// every sort ALWAYS tiebreaks by id asc so pages are stable. Errors use
+// `AppError` (400 validation, 404 missing, 409 duplicate link) with no PII.
+// ---------------------------------------------------------------------------
+
+const REPORT_STATUS_SET: ReadonlySet<string> = new Set(REPORT_STATUS);
+const RELATION_TYPE_SET: ReadonlySet<string> = new Set(RELATION_TYPE);
+const PRIORITY_SET: ReadonlySet<string> = new Set(['LOW', 'MEDIUM', 'HIGH']);
+
+export const REPORT_SORTS = [
+  'reported_desc',
+  'reported_asc',
+  'ticket_asc',
+  'ticket_desc',
+] as const;
+
+export type ReportSort = (typeof REPORT_SORTS)[number];
+
+export interface ReportOrderSpec {
+  readonly column: 'reportedAt' | 'ticketNumber' | 'id';
+  readonly direction: 'asc' | 'desc';
+}
+
+// Validates `sort` (default `reported_desc`, anything else → 400).
+export function resolveReportSort(sort: unknown): ReportSort {
+  if (sort === undefined || sort === null) {
+    return 'reported_desc';
+  }
+  if (typeof sort === 'string' && (REPORT_SORTS as readonly string[]).includes(sort)) {
+    return sort as ReportSort;
+  }
+  throw badRequest('Invalid report sort');
+}
+
+// Pure order spec for a validated sort. The trailing `{ column: 'id',
+// direction: 'asc' }` tiebreak is what keeps pagination deterministic when
+// rows share `reported_at` / `ticket_number`.
+export function reportOrderBy(sort: unknown): readonly ReportOrderSpec[] {
+  const resolved = resolveReportSort(sort);
+  switch (resolved) {
+    case 'reported_asc':
+      return [
+        { column: 'reportedAt', direction: 'asc' },
+        { column: 'id', direction: 'asc' },
+      ];
+    case 'ticket_asc':
+      return [
+        { column: 'ticketNumber', direction: 'asc' },
+        { column: 'id', direction: 'asc' },
+      ];
+    case 'ticket_desc':
+      return [
+        { column: 'ticketNumber', direction: 'desc' },
+        { column: 'id', direction: 'asc' },
+      ];
+    case 'reported_desc':
+    default:
+      return [
+        { column: 'reportedAt', direction: 'desc' },
+        { column: 'id', direction: 'asc' },
+      ];
+  }
+}
+
+function drizzleOrderBy(sort: ReportSort): ReturnType<typeof asc>[] {
+  switch (sort) {
+    case 'reported_asc':
+      return [asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id)];
+    case 'ticket_asc':
+      return [asc(schema.maintenanceReports.ticketNumber), asc(schema.maintenanceReports.id)];
+    case 'ticket_desc':
+      return [desc(schema.maintenanceReports.ticketNumber), asc(schema.maintenanceReports.id)];
+    case 'reported_desc':
+    default:
+      return [desc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id)];
+  }
+}
+
+// Validates a `search` value into a parameterized ILIKE pattern (`%q%` with
+// `%_\` escaped) or `null` when there is no search filter. Blank/omitted
+// search is NOT an error; non-blank must be 2–100 chars after trimming.
+export function buildSearchPattern(search: unknown): string | null {
+  if (search === undefined || search === null) {
+    return null;
+  }
+  if (typeof search !== 'string') {
+    throw badRequest('Invalid report search');
+  }
+  const query = search.trim();
+  if (query === '') {
+    return null;
+  }
+  if (query.length < 2 || query.length > 100) {
+    throw badRequest('Search must be 2-100 characters');
+  }
+  const escaped = query
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+  return `%${escaped}%`;
+}
+
+function requireUuid(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !UUID_RE.test(value)) {
+    throw badRequest(`${field} must be a valid UUID`);
+  }
+  return value;
+}
+
+function optionalUuid(value: unknown, field: string): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return requireUuid(value, field);
+}
+
+function parseStatusFilter(status: unknown): Array<(typeof REPORT_STATUS)[number]> | undefined {
+  if (status === undefined || status === null) {
+    return undefined;
+  }
+  const values = Array.isArray(status) ? status : [status];
+  for (const value of values) {
+    if (typeof value !== 'string' || !REPORT_STATUS_SET.has(value)) {
+      throw badRequest('Invalid report status filter');
+    }
+  }
+  return values as Array<(typeof REPORT_STATUS)[number]>;
+}
+
+function parsePriorityFilter(priority: unknown): string | undefined {
+  if (priority === undefined || priority === null) {
+    return undefined;
+  }
+  if (typeof priority !== 'string' || !PRIORITY_SET.has(priority)) {
+    throw badRequest('Invalid report priority filter');
+  }
+  return priority;
+}
+
+function parseDateBound(value: unknown, field: string): Date | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    throw badRequest(`Invalid ${field} date`);
+  }
+  return date;
+}
+
+export interface ListMyReportsOptions {
+  readonly status?: string | readonly string[] | undefined;
+  readonly categoryId?: string | undefined;
+  readonly locationId?: string | undefined;
+  readonly priority?: string | undefined;
+  readonly from?: string | Date | undefined;
+  readonly to?: string | Date | undefined;
+  readonly limit?: number | undefined;
+  readonly offset?: number | undefined;
+  readonly sort?: string | undefined;
+}
+
+export interface ListAllReportsOptions extends ListMyReportsOptions {
+  readonly reporterId?: string | undefined;
+  readonly search?: string | undefined;
+}
+
+export interface ReportListResult {
+  readonly items: schema.Report[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+// Shared filtered list: identical WHERE for the page query and the COUNT so
+// `total` always matches the filter. All option validation throws (400)
+// before the first query.
+async function queryReportList(
+  db: ReportQueryDb,
+  filter: {
+    readonly reporterId?: string | undefined;
+    readonly status?: unknown;
+    readonly categoryId?: unknown;
+    readonly locationId?: unknown;
+    readonly priority?: unknown;
+    readonly from?: unknown;
+    readonly to?: unknown;
+    readonly search?: unknown;
+    readonly limit?: number | undefined;
+    readonly offset?: number | undefined;
+    readonly sort?: unknown;
+  },
+): Promise<ReportListResult> {
+  const reporterId =
+    filter.reporterId === undefined ? undefined : requireUuid(filter.reporterId, 'reporterId');
+  const statuses = parseStatusFilter(filter.status);
+  const categoryId = optionalUuid(filter.categoryId, 'categoryId');
+  const locationId = optionalUuid(filter.locationId, 'locationId');
+  const priority = parsePriorityFilter(filter.priority);
+  const from = parseDateBound(filter.from, 'from');
+  const to = parseDateBound(filter.to, 'to');
+  const pattern = buildSearchPattern(filter.search);
+  const sort = resolveReportSort(filter.sort);
+  const page = normalizeListOptions({ limit: filter.limit, offset: filter.offset });
+
+  const conditions = [];
+  if (reporterId !== undefined) {
+    conditions.push(eq(schema.maintenanceReports.reporterId, reporterId));
+  }
+  if (statuses !== undefined) {
+    conditions.push(inArray(schema.maintenanceReports.status, statuses));
+  }
+  if (categoryId !== undefined) {
+    // Verification may retarget the category, so the filter matches either.
+    conditions.push(
+      or(
+        eq(schema.maintenanceReports.submittedCategoryId, categoryId),
+        eq(schema.maintenanceReports.finalCategoryId, categoryId),
+      ),
+    );
+  }
+  if (locationId !== undefined) {
+    conditions.push(eq(schema.maintenanceReports.locationId, locationId));
+  }
+  if (priority !== undefined) {
+    conditions.push(eq(schema.maintenanceReports.finalPriority, priority));
+  }
+  if (from !== undefined) {
+    conditions.push(gte(schema.maintenanceReports.reportedAt, from));
+  }
+  if (to !== undefined) {
+    conditions.push(lte(schema.maintenanceReports.reportedAt, to));
+  }
+  if (pattern !== null) {
+    conditions.push(
+      or(
+        ilike(schema.maintenanceReports.ticketNumber, pattern),
+        ilike(schema.maintenanceReports.description, pattern),
+      ),
+    );
+  }
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const items = await db
+    .select()
+    .from(schema.maintenanceReports)
+    .where(where)
+    .orderBy(...drizzleOrderBy(sort))
+    .limit(page.limit)
+    .offset(page.offset);
+  const counted = await db
+    .select({ value: count() })
+    .from(schema.maintenanceReports)
+    .where(where);
+  return { items, total: counted[0]?.value ?? 0, limit: page.limit, offset: page.offset };
+}
+
+// Reporter list: rows with `reporter_id = :reporterId` only — no
+// cross-reporter leakage by construction.
+export async function listMyReports(
+  db: ReportQueryDb,
+  reporterId: string,
+  opts?: ListMyReportsOptions,
+): Promise<ReportListResult> {
+  return await queryReportList(db, { ...(opts ?? {}), reporterId });
+}
+
+// Admin list: same filters plus `reporterId?` and `search?`. The caller
+// enforces the ADMIN role — this repo does not check roles.
+export async function listAllReports(
+  db: ReportQueryDb,
+  opts?: ListAllReportsOptions,
+): Promise<ReportListResult> {
+  return await queryReportList(db, { ...(opts ?? {}) });
+}
+
+export interface ReportDetail {
+  readonly report: schema.Report;
+  readonly attachments: schema.ReportAttachment[];
+  readonly events: schema.ReportEvent[];
+  readonly relations: schema.ReportRelation[];
+  readonly duplicateCandidates: DuplicateCandidate[];
+}
+
+async function loadReportDetail(
+  db: ReportQueryDb,
+  row: schema.Report,
+): Promise<ReportDetail> {
+  const attachments = await db
+    .select()
+    .from(schema.reportAttachments)
+    .where(eq(schema.reportAttachments.reportId, row.id))
+    .orderBy(asc(schema.reportAttachments.createdAt), asc(schema.reportAttachments.id));
+  const events = await db
+    .select()
+    .from(schema.reportEvents)
+    .where(eq(schema.reportEvents.reportId, row.id))
+    .orderBy(asc(schema.reportEvents.createdAt), asc(schema.reportEvents.id));
+  const relations = await db
+    .select()
+    .from(schema.reportRelations)
+    .where(
+      or(
+        eq(schema.reportRelations.sourceReportId, row.id),
+        eq(schema.reportRelations.targetReportId, row.id),
+      ),
+    )
+    .orderBy(asc(schema.reportRelations.createdAt), asc(schema.reportRelations.id));
+  // Warning only (same contract as createReport): the row itself is excluded
+  // so it never matches itself; nothing is auto-marked or auto-linked.
+  const duplicateCandidates = await findDuplicateCandidates(db, {
+    reporterId: row.reporterId,
+    assetId: row.assetId,
+    locationId: row.locationId,
+    categoryId: row.submittedCategoryId,
+    issueTypeId: row.submittedIssueTypeId,
+    excludeReportId: row.id,
+  });
+  return { report: row, attachments, events, relations, duplicateCandidates };
+}
+
+// Reporter detail: identical 404 when the row is missing OR belongs to
+// another reporter (never reveal another reporter's ticket).
+export async function getMyReportDetail(
+  db: ReportQueryDb,
+  reporterId: string,
+  reportId: string,
+): Promise<ReportDetail> {
+  requireUuid(reporterId, 'reporterId');
+  const id = requireUuid(reportId, 'reportId');
+  const rows = await db
+    .select()
+    .from(schema.maintenanceReports)
+    .where(eq(schema.maintenanceReports.id, id));
+  const row = rows[0];
+  if (row === undefined || row.reporterId !== reporterId) {
+    throw notFound('Report not found');
+  }
+  return await loadReportDetail(db, row);
+}
+
+// Admin detail: same shape, no ownership check (404 only when truly missing).
+export async function getAdminReportDetail(
+  db: ReportQueryDb,
+  reportId: string,
+): Promise<ReportDetail> {
+  const id = requireUuid(reportId, 'reportId');
+  const rows = await db
+    .select()
+    .from(schema.maintenanceReports)
+    .where(eq(schema.maintenanceReports.id, id));
+  const row = rows[0];
+  if (row === undefined) {
+    throw notFound('Report not found');
+  }
+  return await loadReportDetail(db, row);
+}
+
+export interface ReportTimelineEntry {
+  readonly type: string;
+  readonly actorId: string | null;
+  readonly fromValue: unknown;
+  readonly toValue: unknown;
+  readonly metadata: unknown;
+  readonly createdAt: Date;
+}
+
+// Reporter timeline: ownership check first (same 404 rule as detail), then
+// the raw `report_events` rows chronologically. Public/internal note
+// separation lands in Phase 5 — sanitization happens at the service layer.
+export async function getMyReportTimeline(
+  db: ReportQueryDb,
+  reporterId: string,
+  reportId: string,
+): Promise<ReportTimelineEntry[]> {
+  requireUuid(reporterId, 'reporterId');
+  const id = requireUuid(reportId, 'reportId');
+  const rows = await db
+    .select({ id: schema.maintenanceReports.id, reporterId: schema.maintenanceReports.reporterId })
+    .from(schema.maintenanceReports)
+    .where(eq(schema.maintenanceReports.id, id));
+  const row = rows[0];
+  if (row === undefined || row.reporterId !== reporterId) {
+    throw notFound('Report not found');
+  }
+  const events = await db
+    .select()
+    .from(schema.reportEvents)
+    .where(eq(schema.reportEvents.reportId, id))
+    .orderBy(asc(schema.reportEvents.createdAt), asc(schema.reportEvents.id));
+  return events.map((event) => ({
+    type: event.eventType,
+    actorId: event.actorId,
+    fromValue: event.fromValue,
+    toValue: event.toValue,
+    metadata: event.metadata,
+    createdAt: event.createdAt,
+  }));
+}
+
+export interface LinkSupportingReportInput {
+  readonly sourceReportId: string;
+  readonly targetReportId: string;
+  readonly relationType: string;
+  readonly createdBy: string;
+}
+
+// Admin supporting link: metadata only — changes neither report's status and
+// creates no repair job. Duplicate triples → 409; the reverse triple is a
+// distinct row (no auto-mirror) and stays allowed.
+export async function linkSupportingReport(
+  db: ReportQueryDb,
+  input: LinkSupportingReportInput,
+): Promise<schema.ReportRelation> {
+  if (typeof input !== 'object' || input === null) {
+    throw badRequest('Invalid supporting-link input');
+  }
+  if (typeof input.relationType !== 'string' || !RELATION_TYPE_SET.has(input.relationType)) {
+    throw badRequest('Invalid relation type');
+  }
+  const sourceId = requireUuid(input.sourceReportId, 'sourceReportId');
+  const targetId = requireUuid(input.targetReportId, 'targetReportId');
+  const createdBy = requireUuid(input.createdBy, 'createdBy');
+  if (sourceId === targetId) {
+    throw badRequest('A report cannot link to itself');
+  }
+  const source = await db
+    .select({ id: schema.maintenanceReports.id })
+    .from(schema.maintenanceReports)
+    .where(eq(schema.maintenanceReports.id, sourceId));
+  if (source.length === 0) {
+    throw notFound('Report not found');
+  }
+  const target = await db
+    .select({ id: schema.maintenanceReports.id })
+    .from(schema.maintenanceReports)
+    .where(eq(schema.maintenanceReports.id, targetId));
+  if (target.length === 0) {
+    throw notFound('Report not found');
+  }
+  try {
+    const inserted = await db
+      .insert(schema.reportRelations)
+      .values({
+        sourceReportId: sourceId,
+        targetReportId: targetId,
+        relationType: input.relationType,
+        createdBy,
+      })
+      .returning();
+    const row = inserted[0];
+    if (row === undefined) {
+      throw internal('Failed to create report link');
+    }
+    return row;
+  } catch (error) {
+    if (isAppError(error)) {
+      throw error;
+    }
+    if (isUniqueViolation(error)) {
+      throw conflict('Supporting link already exists');
+    }
+    throw error;
+  }
+}
+
+export interface AffectedCountFilter {
+  readonly assetId?: string | null | undefined;
+  readonly locationId: string;
+  readonly categoryId: string;
+  readonly issueTypeId?: string | null | undefined;
+}
+
+// Distinct reporters over the shared incident predicate (ACTIVE statuses
+// only) PLUS reporters of rows linked as SUPPORTING/RELATED source/target of
+// those matches (one hop). DISTINCT collapses same-reporter DUPLICATE rows
+// to one; terminal rows contribute nothing unless linked to an active match.
+export async function countAffectedReporters(
+  db: ReportQueryDb,
+  filter: AffectedCountFilter,
+): Promise<number> {
+  if (typeof filter !== 'object' || filter === null) {
+    throw badRequest('Invalid affected-count filter');
+  }
+  const locationId = requireUuid(filter.locationId, 'locationId');
+  const categoryId = requireUuid(filter.categoryId, 'categoryId');
+  const assetId =
+    filter.assetId === undefined || filter.assetId === null
+      ? filter.assetId
+      : requireUuid(filter.assetId, 'assetId');
+  const issueTypeId =
+    filter.issueTypeId === undefined || filter.issueTypeId === null
+      ? filter.issueTypeId
+      : requireUuid(filter.issueTypeId, 'issueTypeId');
+  const matched = await db
+    .select({
+      id: schema.maintenanceReports.id,
+      reporterId: schema.maintenanceReports.reporterId,
+    })
+    .from(schema.maintenanceReports)
+    .where(and(...incidentConditions({ assetId, locationId, categoryId, issueTypeId })));
+  if (matched.length === 0) {
+    return 0;
+  }
+  const reporters = new Set(matched.map((row) => row.reporterId));
+  const matchedIds = matched.map((row) => row.id);
+  const matchedSet = new Set(matchedIds);
+  const links = await db
+    .select({
+      sourceReportId: schema.reportRelations.sourceReportId,
+      targetReportId: schema.reportRelations.targetReportId,
+    })
+    .from(schema.reportRelations)
+    .where(
+      or(
+        inArray(schema.reportRelations.sourceReportId, matchedIds),
+        inArray(schema.reportRelations.targetReportId, matchedIds),
+      ),
+    );
+  const neighborIds = new Set<string>();
+  for (const link of links) {
+    if (!matchedSet.has(link.sourceReportId)) {
+      neighborIds.add(link.sourceReportId);
+    }
+    if (!matchedSet.has(link.targetReportId)) {
+      neighborIds.add(link.targetReportId);
+    }
+  }
+  if (neighborIds.size > 0) {
+    const neighbors = await db
+      .select({ reporterId: schema.maintenanceReports.reporterId })
+      .from(schema.maintenanceReports)
+      .where(inArray(schema.maintenanceReports.id, [...neighborIds]));
+    for (const neighbor of neighbors) {
+      reporters.add(neighbor.reporterId);
+    }
+  }
+  return reporters.size;
 }
