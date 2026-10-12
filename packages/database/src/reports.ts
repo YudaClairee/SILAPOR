@@ -245,7 +245,8 @@ export interface CreateReportResult {
 
 // Drizzle wraps storage errors in `DrizzleQueryError` with the postgres
 // error nested under `.cause`, so unwrap a few levels before matching.
-function isUniqueViolation(error: unknown): boolean {
+// Exported for unit-testing the error mapper (Fix 2) without a live race.
+export function isUniqueViolation(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 4; depth++) {
     if (typeof current !== 'object' || current === null) {
@@ -255,6 +256,34 @@ function isUniqueViolation(error: unknown): boolean {
       return true;
     }
     if (current instanceof Error && current.message.includes('duplicate key')) {
+      return true;
+    }
+    const next = (current as Record<string, unknown>)['cause'];
+    if (next === undefined || next === null) {
+      break;
+    }
+    current = next;
+  }
+  return false;
+}
+
+// Same unwrapping for FK violations (SQLSTATE 23503). Residual FK failures
+// (e.g. a referenced row deleted mid-transaction) must surface as AppError,
+// never as a raw driver error.
+export function isForeignKeyViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth++) {
+    if (typeof current !== 'object' || current === null) {
+      break;
+    }
+    if ((current as Record<string, unknown>)['code'] === '23503') {
+      return true;
+    }
+    if (
+      current instanceof Error &&
+      (current.message.includes('foreign key') ||
+        current.message.includes('violates foreign key'))
+    ) {
       return true;
     }
     const next = (current as Record<string, unknown>)['cause'];
@@ -297,6 +326,16 @@ export async function createReport(
     throw badRequest('Idempotency key is required');
   }
   const key = idempotencyKey.trim();
+
+  // Replay-before-validation (Fix 1): a same-key retry must replay the
+  // original ticket even when the retried payload drifted (e.g. edited
+  // description). The in-transaction lookup below still covers the race
+  // where the key lands between this fast-path check and the transaction.
+  const fastReplay = await findReportByKey(db, key);
+  if (fastReplay !== undefined) {
+    const replayCandidates = await findDuplicateCandidates(db, toFilterInput(fastReplay));
+    return { report: fastReplay, duplicateCandidates: replayCandidates, idempotentReplay: true };
+  }
 
   const shapeErrors = validateCreateReportInput(input);
   if (shapeErrors.length > 0) {
@@ -449,6 +488,8 @@ export async function createReport(
   } catch (error) {
     // Concurrent same-key race: the unique constraint let exactly one
     // transaction win; the loser replays the winner instead of 409ing.
+    // Residual failures NEVER escape raw (SQL/PII leak risk): known FK
+    // violations map to 404, everything else to a generic 500.
     if (isAppError(error)) {
       throw error;
     }
@@ -458,8 +499,12 @@ export async function createReport(
         const replayCandidates = await findDuplicateCandidates(db, toFilterInput(winner));
         return { report: winner, duplicateCandidates: replayCandidates, idempotentReplay: true };
       }
+      throw internal('Failed to create report');
     }
-    throw error;
+    if (isForeignKeyViolation(error)) {
+      throw notFound('Referenced record not found');
+    }
+    throw internal('Failed to create report');
   }
 }
 
@@ -885,7 +930,10 @@ export interface LinkSupportingReportInput {
 
 // Admin supporting link: metadata only — changes neither report's status and
 // creates no repair job. Duplicate triples → 409; the reverse triple is a
-// distinct row (no auto-mirror) and stays allowed.
+// distinct row (no auto-mirror) and stays allowed. Existence checks + insert
+// run atomically inside a transaction when the handle supports it, so a
+// report deleted mid-link cannot leave a half-checked insert; residual FK
+// violations map to 404 alongside the 409 path, never raw.
 export async function linkSupportingReport(
   db: ReportQueryDb,
   input: LinkSupportingReportInput,
@@ -902,44 +950,67 @@ export async function linkSupportingReport(
   if (sourceId === targetId) {
     throw badRequest('A report cannot link to itself');
   }
-  const source = await db
-    .select({ id: schema.maintenanceReports.id })
-    .from(schema.maintenanceReports)
-    .where(eq(schema.maintenanceReports.id, sourceId));
-  if (source.length === 0) {
-    throw notFound('Report not found');
-  }
-  const target = await db
-    .select({ id: schema.maintenanceReports.id })
-    .from(schema.maintenanceReports)
-    .where(eq(schema.maintenanceReports.id, targetId));
-  if (target.length === 0) {
-    throw notFound('Report not found');
-  }
-  try {
-    const inserted = await db
-      .insert(schema.reportRelations)
-      .values({
-        sourceReportId: sourceId,
-        targetReportId: targetId,
-        relationType: input.relationType,
-        createdBy,
-      })
-      .returning();
-    const row = inserted[0];
-    if (row === undefined) {
+
+  const run = async (conn: ReportQueryDb): Promise<schema.ReportRelation> => {
+    const source = await conn
+      .select({ id: schema.maintenanceReports.id })
+      .from(schema.maintenanceReports)
+      .where(eq(schema.maintenanceReports.id, sourceId));
+    if (source.length === 0) {
+      throw notFound('Report not found');
+    }
+    const target = await conn
+      .select({ id: schema.maintenanceReports.id })
+      .from(schema.maintenanceReports)
+      .where(eq(schema.maintenanceReports.id, targetId));
+    if (target.length === 0) {
+      throw notFound('Report not found');
+    }
+    // Mirror the createReport reporter guard: UUID-shaped but nonexistent
+    // (or inactive) link creators must 404/400, never surface raw FK 23503.
+    const creator = (
+      await conn.select().from(schema.users).where(eq(schema.users.id, createdBy))
+    )[0];
+    if (creator === undefined) {
+      throw notFound('Link creator not found');
+    }
+    if (!creator.isActive) {
+      throw badRequest('Link creator is inactive');
+    }
+    try {
+      const inserted = await conn
+        .insert(schema.reportRelations)
+        .values({
+          sourceReportId: sourceId,
+          targetReportId: targetId,
+          relationType: input.relationType,
+          createdBy,
+        })
+        .returning();
+      const row = inserted[0];
+      if (row === undefined) {
+        throw internal('Failed to create report link');
+      }
+      return row;
+    } catch (error) {
+      if (isAppError(error)) {
+        throw error;
+      }
+      if (isUniqueViolation(error)) {
+        throw conflict('Supporting link already exists');
+      }
+      if (isForeignKeyViolation(error)) {
+        throw notFound('Referenced record not found');
+      }
       throw internal('Failed to create report link');
     }
-    return row;
-  } catch (error) {
-    if (isAppError(error)) {
-      throw error;
-    }
-    if (isUniqueViolation(error)) {
-      throw conflict('Supporting link already exists');
-    }
-    throw error;
+  };
+
+  const maybeTx = (db as Partial<Database>)['transaction'];
+  if (typeof maybeTx === 'function') {
+    return await (db as Database).transaction(async (tx) => run(tx));
   }
+  return await run(db);
 }
 
 export interface AffectedCountFilter {

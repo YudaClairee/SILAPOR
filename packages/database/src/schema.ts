@@ -291,6 +291,7 @@ export const maintenanceReports = pgTable(
     index('maintenance_reports_reporter_reported_idx').on(table.reporterId, table.reportedAt),
     index('maintenance_reports_status_reported_idx').on(table.status, table.reportedAt),
     index('maintenance_reports_final_category_idx').on(table.finalCategoryId),
+    index('maintenance_reports_submitted_category_idx').on(table.submittedCategoryId),
     index('maintenance_reports_location_idx').on(table.locationId),
     index('maintenance_reports_asset_idx').on(table.assetId),
     index('maintenance_reports_duplicate_of_idx').on(table.duplicateOfReportId),

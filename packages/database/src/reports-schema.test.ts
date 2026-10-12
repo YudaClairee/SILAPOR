@@ -123,6 +123,43 @@ describe.skipIf(!enabled)('reports schema (requires reachable PostgreSQL)', () =
     return row;
   }
 
+  // Drizzle wraps PG failures in `DrizzleQueryError` ("Failed query: ...")
+  // with the postgres error (SQLSTATE `code`) nested under `.cause`, so
+  // assertions match against the whole chain, not just the top message.
+  function errorChainText(error: unknown): string {
+    const parts: string[] = [];
+    let current: unknown = error;
+    for (let depth = 0; depth < 5; depth++) {
+      if (typeof current !== 'object' || current === null) {
+        break;
+      }
+      if (current instanceof Error) {
+        parts.push(current.message);
+      }
+      const code = (current as Record<string, unknown>)['code'];
+      if (code !== undefined && code !== null) {
+        parts.push(String(code));
+      }
+      const next = (current as Record<string, unknown>)['cause'];
+      if (next === undefined || next === null) {
+        break;
+      }
+      current = next;
+    }
+    return parts.join('\n');
+  }
+
+  async function expectDbError(promise: Promise<unknown>, pattern: RegExp): Promise<void> {
+    let error: unknown;
+    try {
+      await promise;
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error, 'expected the query to fail').toBeDefined();
+    expect(errorChainText(error)).toMatch(pattern);
+  }
+
   it('migrates an empty database with all report tables present and empty', async () => {
     expect(await db!.select().from(maintenanceReports)).toEqual([]);
     expect(await db!.select().from(ticketCounters)).toEqual([]);
@@ -143,12 +180,13 @@ describe.skipIf(!enabled)('reports schema (requires reachable PostgreSQL)', () =
       ticketNumber: 'MNT-2026-000002',
       idempotencyKey: '22222222-2222-4222-8222-222222222222',
     });
-    await expect(
+    await expectDbError(
       insertReport({
         ticketNumber: 'MNT-2026-000002',
         idempotencyKey: '33333333-3333-4333-8333-333333333333',
       }),
-    ).rejects.toThrow();
+      /23505|duplicate key/,
+    );
   });
 
   it('enforces unique idempotency_key', async () => {
@@ -156,12 +194,13 @@ describe.skipIf(!enabled)('reports schema (requires reachable PostgreSQL)', () =
       ticketNumber: 'MNT-2026-000003',
       idempotencyKey: '44444444-4444-4444-8444-444444444444',
     });
-    await expect(
+    await expectDbError(
       insertReport({
         ticketNumber: 'MNT-2026-000004',
         idempotencyKey: '44444444-4444-4444-8444-444444444444',
       }),
-    ).rejects.toThrow();
+      /23505|duplicate key/,
+    );
   });
 
   it('enforces the report_relations unique (source, target, type) triple', async () => {
@@ -179,14 +218,15 @@ describe.skipIf(!enabled)('reports schema (requires reachable PostgreSQL)', () =
       relationType: 'SUPPORTING',
       createdBy: reporterId,
     });
-    await expect(
+    await expectDbError(
       db!.insert(reportRelations).values({
         sourceReportId: source.id,
         targetReportId: target.id,
         relationType: 'SUPPORTING',
         createdBy: reporterId,
       }),
-    ).rejects.toThrow();
+      /23505|duplicate key/,
+    );
   });
 
   it('rejects an invalid relation_type', async () => {
@@ -198,24 +238,26 @@ describe.skipIf(!enabled)('reports schema (requires reachable PostgreSQL)', () =
       ticketNumber: 'MNT-2026-000008',
       idempotencyKey: '88888888-8888-4888-8888-888888888888',
     });
-    await expect(
+    await expectDbError(
       db!.insert(reportRelations).values({
         sourceReportId: source.id,
         targetReportId: target.id,
         relationType: 'BOGUS',
         createdBy: reporterId,
       }),
-    ).rejects.toThrow();
+      /23514|check constraint/,
+    );
   });
 
   it('rejects priority_score 101 but accepts the 0..100 boundaries', async () => {
-    await expect(
+    await expectDbError(
       insertReport({
         ticketNumber: 'MNT-2026-000009',
         idempotencyKey: '99999999-9999-4999-8999-999999999999',
         priorityScore: 101,
       }),
-    ).rejects.toThrow();
+      /23514|check constraint/,
+    );
     const low = await insertReport({
       ticketNumber: 'MNT-2026-000010',
       idempotencyKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',

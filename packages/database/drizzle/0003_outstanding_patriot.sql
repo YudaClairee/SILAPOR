@@ -1,0 +1,1 @@
+CREATE INDEX "maintenance_reports_submitted_category_idx" ON "maintenance_reports" USING btree ("submitted_category_id");

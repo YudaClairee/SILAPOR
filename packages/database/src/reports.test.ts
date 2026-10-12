@@ -32,6 +32,8 @@ import {
   getJakartaYear,
   getMyReportDetail,
   getMyReportTimeline,
+  isForeignKeyViolation,
+  isUniqueViolation,
   linkSupportingReport,
   listAllReports,
   listMyReports,
@@ -162,6 +164,30 @@ describe('getJakartaYear (pure)', () => {
     // 2025-12-31T18:00:00Z == 2026-01-01T01:00:00+07:00.
     expect(getJakartaYear(new Date('2025-12-31T18:00:00.000Z'))).toBe(2026);
     expect(getJakartaYear(new Date('2026-06-15T12:00:00.000Z'))).toBe(2026);
+  });
+});
+
+describe('error-code mappers (pure)', () => {
+  it('detects unique violations by code, nested cause, and message', () => {
+    expect(isUniqueViolation({ code: '23505' })).toBe(true);
+    expect(isUniqueViolation(new Error('duplicate key value violates unique constraint'))).toBe(
+      true,
+    );
+    expect(isUniqueViolation({ cause: { code: '23505' } })).toBe(true);
+    expect(isUniqueViolation(new Error('connection reset'))).toBe(false);
+    expect(isUniqueViolation(null)).toBe(false);
+  });
+
+  it('detects foreign-key violations by 23503 code (direct or nested)', () => {
+    expect(isForeignKeyViolation({ code: '23503' })).toBe(true);
+    expect(
+      isForeignKeyViolation(
+        new Error('violates foreign key constraint "maintenance_reports_reporter_id_users_id_fk"'),
+      ),
+    ).toBe(true);
+    expect(isForeignKeyViolation({ cause: { cause: { code: '23503' } } })).toBe(true);
+    expect(isForeignKeyViolation(new Error('duplicate key value'))).toBe(false);
+    expect(isForeignKeyViolation(undefined)).toBe(false);
   });
 });
 
@@ -405,6 +431,48 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
     expect(await db!.select().from(outboxEvents)).toHaveLength(outboxBefore.length);
   });
 
+  it('replays the same key even when the retried payload drifted past validation', async () => {
+    const key = randomUUID();
+    const first = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetElec1,
+        submittedCategoryId: catElec,
+        submittedIssueTypeId: itElec,
+        description: 'Kabel stop kontak terkelupas dan terlihat berbahaya bagi penghuni.',
+        occurredAt: null,
+      },
+      key,
+    );
+    const reportsBefore = await db!.select().from(maintenanceReports);
+    const eventsBefore = await db!.select().from(reportEvents);
+    const outboxBefore = await db!.select().from(outboxEvents);
+
+    // Drifted retry: shape-INVALID payload (too-short description) under the
+    // same key must still replay the original ticket, never 400.
+    const replay = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetElec1,
+        submittedCategoryId: catElec,
+        submittedIssueTypeId: itElec,
+        description: 'pendek',
+        occurredAt: null,
+      },
+      key,
+    );
+    expect(replay.idempotentReplay).toBe(true);
+    expect(replay.report.id).toBe(first.report.id);
+    expect(replay.report.ticketNumber).toBe(first.report.ticketNumber);
+    expect(await db!.select().from(maintenanceReports)).toHaveLength(reportsBefore.length);
+    expect(await db!.select().from(reportEvents)).toHaveLength(eventsBefore.length);
+    expect(await db!.select().from(outboxEvents)).toHaveLength(outboxBefore.length);
+  });
+
   it('warns on active same-reporter/same-asset repeat; CLOSED clears the warning', async () => {
     const input = {
       reporterId: reporterA,
@@ -532,6 +600,18 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       .update(maintenanceReports)
       .set({ status: 'DUPLICATE' })
       .where(eq(maintenanceReports.id, probe.report.id));
+
+    // RESOLVED rows are terminal too: store one and assert exclusion.
+    const resolvedFixture = await createReport(
+      db!,
+      { ...input, description: 'Unit outdoor AC sudah diperbaiki namun masih termonitor.' },
+      randomUUID(),
+    );
+    expect(resolvedFixture.duplicateCandidates).toEqual([]);
+    await db!
+      .update(maintenanceReports)
+      .set({ status: 'RESOLVED' })
+      .where(eq(maintenanceReports.id, resolvedFixture.report.id));
 
     const direct = await findDuplicateCandidates(db!, {
       reporterId: reporterA,
@@ -1279,6 +1359,45 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
 
     const detail = await getAdminReportDetail(db!, a1Id);
     expect(detail.relations).toHaveLength(2);
+  });
+
+  it('rejects links with unknown/inactive creators (404/400, never raw FK); duplicates still 409', async () => {
+    // UUID-shaped but nonexistent creator → 404, not a raw 23503.
+    await expect(
+      linkSupportingReport(db!, {
+        sourceReportId: b2Id,
+        targetReportId: a2Id,
+        relationType: 'SUPPORTING',
+        createdBy: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+
+    // Inactive creator → 400 (mirrors the createReport reporter guard).
+    const ghostId = (
+      await db!
+        .insert(users)
+        .values({ username: 'p33-ghost-creator', role: 'REPORTER' })
+        .returning({ id: users.id })
+    )[0]?.id as string;
+    await db!.update(users).set({ isActive: false }).where(eq(users.id, ghostId));
+    await expect(
+      linkSupportingReport(db!, {
+        sourceReportId: b2Id,
+        targetReportId: a2Id,
+        relationType: 'SUPPORTING',
+        createdBy: ghostId,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    // Duplicate triple (B1→A1 SUPPORTING linked above) still 409s.
+    await expect(
+      linkSupportingReport(db!, {
+        sourceReportId: b1Id,
+        targetReportId: a1Id,
+        relationType: 'SUPPORTING',
+        createdBy: reporterB,
+      }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 
   it('counts affected reporters across the incident plus links (terminal rows collapse)', async () => {
