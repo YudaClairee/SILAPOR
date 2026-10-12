@@ -4,7 +4,8 @@
 // and server-side pagination (limit 50, prev/next, total count).
 // Read-only rows keyed by report id; changing filters resets offset to 0.
 // Loading (role=status), empty, error-with-retry, and 403-forbidden states;
-// 401 redirects to /login. Indonesian copy, no styling framework.
+// 401 redirects to /login. Indonesian copy. Styled per DESIGN.md (Task D-3):
+// AppShell admin nav, secondary filter bar, ruled table, D-1 primitives.
 import { useEffect, useState } from 'react';
 import {
   Link,
@@ -16,11 +17,21 @@ import {
 import {
   buildAdminListParams,
   pageRange,
-  priorityLabel,
-  statusLabel,
   toAdminListQuery,
 } from '../lib/admin-reports.js';
 import type { FormOptions } from '../server/reports.js';
+import {
+  Button,
+  EmptyState,
+  ErrorPanel,
+  Input,
+  LoadingState,
+  Select,
+  StatusBadge,
+  TicketMono,
+  buttonBaseClasses,
+  buttonVariantClasses,
+} from '../components/index.js';
 
 interface AdminReportRow {
   readonly id: string;
@@ -180,9 +191,13 @@ export const Route = createFileRoute('/admin/reports/')({
 
 function AdminReportsPending() {
   return (
-    <section aria-labelledby="admin-reports-title">
-      <h1 id="admin-reports-title">Semua Laporan</h1>
-      <p role="status">Memuat laporan…</p>
+    <section aria-labelledby="admin-reports-title" className="w-full">
+      <h1 id="admin-reports-title" className="text-2xl font-semibold text-text">
+        Semua Laporan
+      </h1>
+      <div className="mt-4">
+        <LoadingState message="Memuat laporan…" />
+      </div>
     </section>
   );
 }
@@ -194,6 +209,9 @@ function formatReportedAt(value: string): string {
   }
   return date.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
 }
+
+const FILTER_LABEL_CLASSES = 'mb-1 block text-sm font-medium text-text';
+const FILTER_HINT_CLASSES = 'mt-1 text-xs text-muted';
 
 function AdminReportsPage() {
   const loaderData = Route.useLoaderData() as AdminListLoaderData;
@@ -268,8 +286,10 @@ function AdminReportsPage() {
   }
 
   return (
-    <section aria-labelledby="admin-reports-title">
-      <h1 id="admin-reports-title">Semua Laporan</h1>
+    <section aria-labelledby="admin-reports-title" className="w-full">
+      <h1 id="admin-reports-title" className="text-2xl font-semibold text-text">
+        Semua Laporan
+      </h1>
 
       <form
         aria-label="Filter laporan"
@@ -291,208 +311,293 @@ function AdminReportsPage() {
             },
           });
         }}
+        className="mt-4 rounded-md border border-border bg-surface p-4"
       >
-        <div>
-          <label htmlFor="admin-reports-search">Cari</label>
-          <input
-            id="admin-reports-search"
-            name="search"
-            type="search"
-            placeholder="Nomor tiket atau deskripsi"
-            value={fields.search}
-            onChange={(event) => setField('search', event.target.value)}
-          />
-          <p>Minimal 2 karakter. Kosong berarti tanpa filter pencarian.</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label htmlFor="admin-reports-search" className={FILTER_LABEL_CLASSES}>
+              Cari
+            </label>
+            <Input
+              id="admin-reports-search"
+              name="search"
+              type="search"
+              placeholder="Nomor tiket atau deskripsi"
+              value={fields.search}
+              onChange={(event) => setField('search', event.target.value)}
+            />
+            <p className={FILTER_HINT_CLASSES}>
+              Minimal 2 karakter. Kosong berarti tanpa filter pencarian.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="admin-reports-status" className={FILTER_LABEL_CLASSES}>
+              Status
+            </label>
+            <Select
+              id="admin-reports-status"
+              value={fields.status}
+              onChange={(event) => setField('status', event.target.value)}
+            >
+              <option value="">Semua status</option>
+              <option value="REPORTED">Dilaporkan</option>
+              <option value="VERIFIED">Terverifikasi</option>
+              <option value="ASSIGNED">Ditugaskan</option>
+              <option value="INSPECTION">Inspeksi</option>
+              <option value="IN_REPAIR">Dalam perbaikan</option>
+              <option value="RESOLVED">Selesai</option>
+              <option value="CLOSED">Ditutup</option>
+              <option value="REJECTED">Ditolak</option>
+              <option value="DUPLICATE">Duplikat</option>
+            </Select>
+          </div>
+          <div>
+            <label htmlFor="admin-reports-category" className={FILTER_LABEL_CLASSES}>
+              Kategori
+            </label>
+            <Select
+              id="admin-reports-category"
+              value={fields.categoryId}
+              onChange={(event) => setField('categoryId', event.target.value)}
+            >
+              <option value="">Semua kategori</option>
+              {(options?.categories ?? []).map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label htmlFor="admin-reports-location" className={FILTER_LABEL_CLASSES}>
+              Lokasi
+            </label>
+            <Select
+              id="admin-reports-location"
+              value={fields.locationId}
+              onChange={(event) => setField('locationId', event.target.value)}
+            >
+              <option value="">Semua lokasi</option>
+              {(options?.locations ?? []).map((location) => (
+                <option key={location.id} value={location.id}>
+                  {location.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label htmlFor="admin-reports-priority" className={FILTER_LABEL_CLASSES}>
+              Prioritas
+            </label>
+            <Select
+              id="admin-reports-priority"
+              value={fields.priority}
+              onChange={(event) => setField('priority', event.target.value)}
+            >
+              <option value="">Semua prioritas</option>
+              <option value="LOW">Rendah</option>
+              <option value="MEDIUM">Sedang</option>
+              <option value="HIGH">Tinggi</option>
+            </Select>
+          </div>
+          <div>
+            <label htmlFor="admin-reports-reporter" className={FILTER_LABEL_CLASSES}>
+              ID Pelapor
+            </label>
+            <Input
+              id="admin-reports-reporter"
+              name="reporterId"
+              type="text"
+              value={fields.reporterId}
+              onChange={(event) => setField('reporterId', event.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="admin-reports-from" className={FILTER_LABEL_CLASSES}>
+              Dari tanggal
+            </label>
+            <Input
+              id="admin-reports-from"
+              name="from"
+              type="date"
+              value={fields.from}
+              onChange={(event) => setField('from', event.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="admin-reports-to" className={FILTER_LABEL_CLASSES}>
+              Sampai tanggal
+            </label>
+            <Input
+              id="admin-reports-to"
+              name="to"
+              type="date"
+              value={fields.to}
+              onChange={(event) => setField('to', event.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="admin-reports-sort" className={FILTER_LABEL_CLASSES}>
+              Urutkan
+            </label>
+            <Select
+              id="admin-reports-sort"
+              value={fields.sort}
+              onChange={(event) => setField('sort', event.target.value)}
+            >
+              <option value="reported_desc">Terbaru dulu</option>
+              <option value="reported_asc">Terlama dulu</option>
+              <option value="ticket_asc">Nomor tiket A–Z</option>
+              <option value="ticket_desc">Nomor tiket Z–A</option>
+            </Select>
+          </div>
         </div>
-        <div>
-          <label htmlFor="admin-reports-status">Status</label>
-          <select
-            id="admin-reports-status"
-            value={fields.status}
-            onChange={(event) => setField('status', event.target.value)}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="submit">Terapkan</Button>
+          <Link
+            to="/admin/reports"
+            search={{ ...DEFAULT_SEARCH }}
+            className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
           >
-            <option value="">Semua status</option>
-            <option value="REPORTED">Dilaporkan</option>
-            <option value="VERIFIED">Terverifikasi</option>
-            <option value="ASSIGNED">Ditugaskan</option>
-            <option value="INSPECTION">Inspeksi</option>
-            <option value="IN_REPAIR">Dalam perbaikan</option>
-            <option value="RESOLVED">Selesai</option>
-            <option value="CLOSED">Ditutup</option>
-            <option value="REJECTED">Ditolak</option>
-            <option value="DUPLICATE">Duplikat</option>
-          </select>
+            Atur ulang
+          </Link>
         </div>
-        <div>
-          <label htmlFor="admin-reports-category">Kategori</label>
-          <select
-            id="admin-reports-category"
-            value={fields.categoryId}
-            onChange={(event) => setField('categoryId', event.target.value)}
-          >
-            <option value="">Semua kategori</option>
-            {(options?.categories ?? []).map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="admin-reports-location">Lokasi</label>
-          <select
-            id="admin-reports-location"
-            value={fields.locationId}
-            onChange={(event) => setField('locationId', event.target.value)}
-          >
-            <option value="">Semua lokasi</option>
-            {(options?.locations ?? []).map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="admin-reports-priority">Prioritas</label>
-          <select
-            id="admin-reports-priority"
-            value={fields.priority}
-            onChange={(event) => setField('priority', event.target.value)}
-          >
-            <option value="">Semua prioritas</option>
-            <option value="LOW">Rendah</option>
-            <option value="MEDIUM">Sedang</option>
-            <option value="HIGH">Tinggi</option>
-          </select>
-        </div>
-        <div>
-          <label htmlFor="admin-reports-reporter">ID Pelapor</label>
-          <input
-            id="admin-reports-reporter"
-            name="reporterId"
-            type="text"
-            value={fields.reporterId}
-            onChange={(event) => setField('reporterId', event.target.value)}
-          />
-        </div>
-        <div>
-          <label htmlFor="admin-reports-from">Dari tanggal</label>
-          <input
-            id="admin-reports-from"
-            name="from"
-            type="date"
-            value={fields.from}
-            onChange={(event) => setField('from', event.target.value)}
-          />
-        </div>
-        <div>
-          <label htmlFor="admin-reports-to">Sampai tanggal</label>
-          <input
-            id="admin-reports-to"
-            name="to"
-            type="date"
-            value={fields.to}
-            onChange={(event) => setField('to', event.target.value)}
-          />
-        </div>
-        <div>
-          <label htmlFor="admin-reports-sort">Urutkan</label>
-          <select
-            id="admin-reports-sort"
-            value={fields.sort}
-            onChange={(event) => setField('sort', event.target.value)}
-          >
-            <option value="reported_desc">Terbaru dulu</option>
-            <option value="reported_asc">Terlama dulu</option>
-            <option value="ticket_asc">Nomor tiket A–Z</option>
-            <option value="ticket_desc">Nomor tiket Z–A</option>
-          </select>
-        </div>
-        <button type="submit">Terapkan</button>{' '}
-        <Link to="/admin/reports" search={{ ...DEFAULT_SEARCH }}>
-          Atur ulang
-        </Link>
       </form>
 
-      {clientPending ? <p role="status">Memuat laporan…</p> : null}
+      {clientPending ? (
+        <div className="mt-4">
+          <LoadingState message="Memuat laporan…" />
+        </div>
+      ) : null}
 
       {!clientPending && forbidden ? (
-        <>
-          <h2>Akses ditolak</h2>
-          <p>Halaman ini hanya untuk admin.</p>
-        </>
+        <div className="mt-4 rounded-md border border-border bg-surface px-4 py-3">
+          <h2 className="text-base font-semibold text-text">Akses ditolak</h2>
+          <p className="mt-1 text-sm text-muted">Halaman ini hanya untuk admin.</p>
+        </div>
       ) : null}
 
       {!clientPending && !forbidden && loadError !== null ? (
-        <>
-          <p role="alert">{loadError}</p>
-          <button type="button" onClick={() => void router.invalidate()}>
-            Coba lagi
-          </button>
-        </>
+        <div className="mt-4">
+          <ErrorPanel
+            message={loadError}
+            retry={
+              <Button type="button" variant="secondary" onClick={() => void router.invalidate()}>
+                Coba lagi
+              </Button>
+            }
+          />
+        </div>
       ) : null}
 
       {!clientPending && !forbidden && loadError === null && reports !== null ? (
         reports.items.length === 0 ? (
-          <p>Tidak ada laporan yang cocok. Ubah filter lalu coba lagi.</p>
+          <div className="mt-4">
+            <EmptyState
+              title="Tidak ada laporan yang cocok."
+              description="Ubah filter lalu coba lagi."
+            />
+          </div>
         ) : (
           <>
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Tiket</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Prioritas</th>
-                  <th scope="col">Kategori</th>
-                  <th scope="col">Lokasi</th>
-                  <th scope="col">Pelapor</th>
-                  <th scope="col">Waktu lapor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reports.items.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <Link
-                        to="/admin/reports/$ticket"
-                        params={{ ticket: item.ticketNumber }}
-                      >
-                        {item.ticketNumber}
-                      </Link>
-                    </td>
-                    <td>{statusLabel(item.status)}</td>
-                    <td>{priorityLabel(item.finalPriority)}</td>
-                    <td>
-                      {categoryNames.get(item.finalCategoryId ?? item.submittedCategoryId) ??
-                        (item.finalCategoryId ?? item.submittedCategoryId)}
-                    </td>
-                    <td>{locationNames.get(item.locationId) ?? item.locationId}</td>
-                    <td>{item.reporterId}</td>
-                    <td>
-                      <time>{formatReportedAt(item.reportedAt)}</time>
-                    </td>
+            <div className="mt-4 overflow-x-auto rounded-md border border-border bg-surface">
+              <table className="w-full min-w-[880px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
+                      Tiket
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
+                      Status
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
+                      Prioritas
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
+                      Kategori
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
+                      Lokasi
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
+                      Pelapor
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
+                      Waktu lapor
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <p>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {reports.items.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-3 py-2">
+                        <Link
+                          to="/admin/reports/$ticket"
+                          params={{ ticket: item.ticketNumber }}
+                          className="text-accent underline underline-offset-2"
+                        >
+                          <TicketMono>{item.ticketNumber}</TicketMono>
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={item.status} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge priority={item.finalPriority} />
+                      </td>
+                      <td className="px-3 py-2 text-muted">
+                        {categoryNames.get(item.finalCategoryId ?? item.submittedCategoryId) ??
+                          (item.finalCategoryId ?? item.submittedCategoryId)}
+                      </td>
+                      <td className="px-3 py-2 text-muted">
+                        {locationNames.get(item.locationId) ?? item.locationId}
+                      </td>
+                      <td className="px-3 py-2 text-muted">{item.reporterId}</td>
+                      <td className="px-3 py-2">
+                        <TicketMono className="text-xs text-subtle">
+                          <time>{formatReportedAt(item.reportedAt)}</time>
+                        </TicketMono>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3 text-sm text-muted">
               Menampilkan {range.from}–{range.to} dari {total}
             </p>
-            <p>
+            <p className="mt-2 flex gap-2">
               {range.hasPrev ? (
-                <Link to="/admin/reports" search={{ ...search, offset: offset - limit }}>
+                <Link
+                  to="/admin/reports"
+                  search={{ ...search, offset: offset - limit }}
+                  className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
+                >
                   Sebelumnya
                 </Link>
               ) : (
-                <span>Sebelumnya</span>
-              )}{' '}
+                <span
+                  aria-disabled="true"
+                  className={`${buttonBaseClasses} cursor-not-allowed text-subtle opacity-50`}
+                >
+                  Sebelumnya
+                </span>
+              )}
               {range.hasNext ? (
-                <Link to="/admin/reports" search={{ ...search, offset: offset + limit }}>
+                <Link
+                  to="/admin/reports"
+                  search={{ ...search, offset: offset + limit }}
+                  className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
+                >
                   Berikutnya
                 </Link>
               ) : (
-                <span>Berikutnya</span>
+                <span
+                  aria-disabled="true"
+                  className={`${buttonBaseClasses} cursor-not-allowed text-subtle opacity-50`}
+                >
+                  Berikutnya
+                </span>
               )}
             </p>
           </>
