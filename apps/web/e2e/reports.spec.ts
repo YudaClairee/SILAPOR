@@ -185,12 +185,17 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
     const submit = page.getByRole('button', { name: /Kirim laporan|Tetap kirim/ });
     await expect(submit).toBeVisible();
 
-    // Same form instance = same idempotency key; count the POSTs. Request
-    // events fire synchronously, so the count is final once success renders.
+    // Same form instance = same idempotency key; count the POSTs and capture
+    // the key + body. Request events fire synchronously, so the count is
+    // final once success renders.
     let postCount = 0;
+    let capturedKey: string | null = null;
+    let capturedBody: string | null = null;
     page.on('request', (request) => {
       if (request.method() === 'POST' && request.url().endsWith('/api/reports')) {
         postCount += 1;
+        capturedKey = request.headers()['x-idempotency-key'] ?? null;
+        capturedBody = request.postData();
       }
     });
     await submit.dblclick();
@@ -205,6 +210,25 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
       throw new Error('ticket number missing from success status');
     }
     ticketB = match[0];
+
+    // Server-replay half: re-POST the SAME payload with the SAME form-instance
+    // key (captured off the wire above). Both responses must carry the same
+    // ticket number; the key-replay path is exercised deterministically,
+    // without racing the browser.
+    if (capturedKey === null || capturedBody === null) {
+      throw new Error('idempotency key/body not captured from the form POST');
+    }
+    const replay = await context.request.post(`${BASE_URL}/api/reports`, {
+      headers: { 'x-idempotency-key': capturedKey },
+      data: JSON.parse(capturedBody) as Record<string, unknown>,
+    });
+    expect(replay.ok(), 'replay with the same idempotency key succeeds').toBe(true);
+    const replayBody = (await replay.json()) as {
+      report?: { ticketNumber?: unknown };
+      idempotentReplay?: unknown;
+    };
+    expect(replayBody.report?.ticketNumber, 'replay returns the same ticket').toBe(ticketB);
+    expect(replayBody.idempotentReplay, 'replay is flagged as idempotent').toBe(true);
 
     // Exactly one new row for the ticket in the reporter's list.
     await page.goto('/reporter/reports');
