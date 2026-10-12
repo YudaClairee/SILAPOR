@@ -14,19 +14,26 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiReportsRouteImport } from './routes/api/reports'
 import { Route as ApiAdminAssetsRouteImport } from './routes/api/admin/assets'
 import { Route as ApiAdminCategoriesRouteImport } from './routes/api/admin/categories'
 import { Route as ApiAdminIssueTypesRouteImport } from './routes/api/admin/issue-types'
 import { Route as ApiAdminLocationsRouteImport } from './routes/api/admin/locations'
+import { Route as ApiAdminReportsRouteImport } from './routes/api/admin/reports'
 import { Route as ApiAdminTechniciansRouteImport } from './routes/api/admin/technicians'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
+import { Route as ApiReportsIdRouteImport } from './routes/api/reports.$id'
+import { Route as ApiReportsDuplicateCheckRouteImport } from './routes/api/reports.duplicate-check'
+import { Route as ApiReportsFormOptionsRouteImport } from './routes/api/reports.form-options'
 import { Route as ApiAdminAssetsIdRouteImport } from './routes/api/admin/assets.$id'
 import { Route as ApiAdminCategoriesIdRouteImport } from './routes/api/admin/categories.$id'
 import { Route as ApiAdminIssueTypesIdRouteImport } from './routes/api/admin/issue-types.$id'
 import { Route as ApiAdminLocationsIdRouteImport } from './routes/api/admin/locations.$id'
+import { Route as ApiAdminReportsIdRouteImport } from './routes/api/admin/reports.$id'
 import { Route as ApiAdminTechniciansIdRouteImport } from './routes/api/admin/technicians.$id'
+import { Route as ApiReportsIdTimelineRouteImport } from './routes/api/reports.$id.timeline'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -53,6 +60,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiReportsRoute = ApiReportsRouteImport.update({
+  id: '/api/reports',
+  path: '/api/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAdminAssetsRoute = ApiAdminAssetsRouteImport.update({
   id: '/api/admin/assets',
   path: '/api/admin/assets',
@@ -71,6 +83,11 @@ const ApiAdminIssueTypesRoute = ApiAdminIssueTypesRouteImport.update({
 const ApiAdminLocationsRoute = ApiAdminLocationsRouteImport.update({
   id: '/api/admin/locations',
   path: '/api/admin/locations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdminReportsRoute = ApiAdminReportsRouteImport.update({
+  id: '/api/admin/reports',
+  path: '/api/admin/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAdminTechniciansRoute = ApiAdminTechniciansRouteImport.update({
@@ -93,6 +110,22 @@ const ApiAuthMeRoute = ApiAuthMeRouteImport.update({
   path: '/api/auth/me',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiReportsIdRoute = ApiReportsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ApiReportsRoute,
+} as any)
+const ApiReportsDuplicateCheckRoute =
+  ApiReportsDuplicateCheckRouteImport.update({
+    id: '/duplicate-check',
+    path: '/duplicate-check',
+    getParentRoute: () => ApiReportsRoute,
+  } as any)
+const ApiReportsFormOptionsRoute = ApiReportsFormOptionsRouteImport.update({
+  id: '/form-options',
+  path: '/form-options',
+  getParentRoute: () => ApiReportsRoute,
+} as any)
 const ApiAdminAssetsIdRoute = ApiAdminAssetsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -113,10 +146,20 @@ const ApiAdminLocationsIdRoute = ApiAdminLocationsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => ApiAdminLocationsRoute,
 } as any)
+const ApiAdminReportsIdRoute = ApiAdminReportsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ApiAdminReportsRoute,
+} as any)
 const ApiAdminTechniciansIdRoute = ApiAdminTechniciansIdRouteImport.update({
   id: '/$id',
   path: '/$id',
   getParentRoute: () => ApiAdminTechniciansRoute,
+} as any)
+const ApiReportsIdTimelineRoute = ApiReportsIdTimelineRouteImport.update({
+  id: '/timeline',
+  path: '/timeline',
+  getParentRoute: () => ApiReportsIdRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -125,19 +168,26 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
   '/api/admin/issue-types': typeof ApiAdminIssueTypesRouteWithChildren
   '/api/admin/locations': typeof ApiAdminLocationsRouteWithChildren
+  '/api/admin/reports': typeof ApiAdminReportsRouteWithChildren
   '/api/admin/technicians': typeof ApiAdminTechniciansRouteWithChildren
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
+  '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
+  '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
+  '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
+  '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -145,19 +195,26 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
   '/api/admin/issue-types': typeof ApiAdminIssueTypesRouteWithChildren
   '/api/admin/locations': typeof ApiAdminLocationsRouteWithChildren
+  '/api/admin/reports': typeof ApiAdminReportsRouteWithChildren
   '/api/admin/technicians': typeof ApiAdminTechniciansRouteWithChildren
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
+  '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
+  '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
+  '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
+  '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -166,19 +223,26 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
   '/api/admin/issue-types': typeof ApiAdminIssueTypesRouteWithChildren
   '/api/admin/locations': typeof ApiAdminLocationsRouteWithChildren
+  '/api/admin/reports': typeof ApiAdminReportsRouteWithChildren
   '/api/admin/technicians': typeof ApiAdminTechniciansRouteWithChildren
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
+  '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
+  '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
+  '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
+  '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -188,19 +252,26 @@ export interface FileRouteTypes {
     | '/login'
     | '/reporter'
     | '/api/health'
+    | '/api/reports'
     | '/api/admin/assets'
     | '/api/admin/categories'
     | '/api/admin/issue-types'
     | '/api/admin/locations'
+    | '/api/admin/reports'
     | '/api/admin/technicians'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/me'
+    | '/api/reports/$id'
+    | '/api/reports/duplicate-check'
+    | '/api/reports/form-options'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
     | '/api/admin/issue-types/$id'
     | '/api/admin/locations/$id'
+    | '/api/admin/reports/$id'
     | '/api/admin/technicians/$id'
+    | '/api/reports/$id/timeline'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -208,19 +279,26 @@ export interface FileRouteTypes {
     | '/login'
     | '/reporter'
     | '/api/health'
+    | '/api/reports'
     | '/api/admin/assets'
     | '/api/admin/categories'
     | '/api/admin/issue-types'
     | '/api/admin/locations'
+    | '/api/admin/reports'
     | '/api/admin/technicians'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/me'
+    | '/api/reports/$id'
+    | '/api/reports/duplicate-check'
+    | '/api/reports/form-options'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
     | '/api/admin/issue-types/$id'
     | '/api/admin/locations/$id'
+    | '/api/admin/reports/$id'
     | '/api/admin/technicians/$id'
+    | '/api/reports/$id/timeline'
   id:
     | '__root__'
     | '/'
@@ -228,19 +306,26 @@ export interface FileRouteTypes {
     | '/login'
     | '/reporter'
     | '/api/health'
+    | '/api/reports'
     | '/api/admin/assets'
     | '/api/admin/categories'
     | '/api/admin/issue-types'
     | '/api/admin/locations'
+    | '/api/admin/reports'
     | '/api/admin/technicians'
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/me'
+    | '/api/reports/$id'
+    | '/api/reports/duplicate-check'
+    | '/api/reports/form-options'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
     | '/api/admin/issue-types/$id'
     | '/api/admin/locations/$id'
+    | '/api/admin/reports/$id'
     | '/api/admin/technicians/$id'
+    | '/api/reports/$id/timeline'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -249,10 +334,12 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ReporterRoute: typeof ReporterRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiReportsRoute: typeof ApiReportsRouteWithChildren
   ApiAdminAssetsRoute: typeof ApiAdminAssetsRouteWithChildren
   ApiAdminCategoriesRoute: typeof ApiAdminCategoriesRouteWithChildren
   ApiAdminIssueTypesRoute: typeof ApiAdminIssueTypesRouteWithChildren
   ApiAdminLocationsRoute: typeof ApiAdminLocationsRouteWithChildren
+  ApiAdminReportsRoute: typeof ApiAdminReportsRouteWithChildren
   ApiAdminTechniciansRoute: typeof ApiAdminTechniciansRouteWithChildren
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
@@ -296,6 +383,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/reports': {
+      id: '/api/reports'
+      path: '/api/reports'
+      fullPath: '/api/reports'
+      preLoaderRoute: typeof ApiReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/admin/assets': {
       id: '/api/admin/assets'
       path: '/api/admin/assets'
@@ -322,6 +416,13 @@ declare module '@tanstack/react-router' {
       path: '/api/admin/locations'
       fullPath: '/api/admin/locations'
       preLoaderRoute: typeof ApiAdminLocationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/reports': {
+      id: '/api/admin/reports'
+      path: '/api/admin/reports'
+      fullPath: '/api/admin/reports'
+      preLoaderRoute: typeof ApiAdminReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/admin/technicians': {
@@ -352,6 +453,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthMeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/reports/$id': {
+      id: '/api/reports/$id'
+      path: '/$id'
+      fullPath: '/api/reports/$id'
+      preLoaderRoute: typeof ApiReportsIdRouteImport
+      parentRoute: typeof ApiReportsRoute
+    }
+    '/api/reports/duplicate-check': {
+      id: '/api/reports/duplicate-check'
+      path: '/duplicate-check'
+      fullPath: '/api/reports/duplicate-check'
+      preLoaderRoute: typeof ApiReportsDuplicateCheckRouteImport
+      parentRoute: typeof ApiReportsRoute
+    }
+    '/api/reports/form-options': {
+      id: '/api/reports/form-options'
+      path: '/form-options'
+      fullPath: '/api/reports/form-options'
+      preLoaderRoute: typeof ApiReportsFormOptionsRouteImport
+      parentRoute: typeof ApiReportsRoute
+    }
     '/api/admin/assets/$id': {
       id: '/api/admin/assets/$id'
       path: '/$id'
@@ -380,6 +502,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminLocationsIdRouteImport
       parentRoute: typeof ApiAdminLocationsRoute
     }
+    '/api/admin/reports/$id': {
+      id: '/api/admin/reports/$id'
+      path: '/$id'
+      fullPath: '/api/admin/reports/$id'
+      preLoaderRoute: typeof ApiAdminReportsIdRouteImport
+      parentRoute: typeof ApiAdminReportsRoute
+    }
     '/api/admin/technicians/$id': {
       id: '/api/admin/technicians/$id'
       path: '/$id'
@@ -387,8 +516,43 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminTechniciansIdRouteImport
       parentRoute: typeof ApiAdminTechniciansRoute
     }
+    '/api/reports/$id/timeline': {
+      id: '/api/reports/$id/timeline'
+      path: '/timeline'
+      fullPath: '/api/reports/$id/timeline'
+      preLoaderRoute: typeof ApiReportsIdTimelineRouteImport
+      parentRoute: typeof ApiReportsIdRoute
+    }
   }
 }
+
+interface ApiReportsIdRouteChildren {
+  ApiReportsIdTimelineRoute: typeof ApiReportsIdTimelineRoute
+}
+
+const ApiReportsIdRouteChildren: ApiReportsIdRouteChildren = {
+  ApiReportsIdTimelineRoute: ApiReportsIdTimelineRoute,
+}
+
+const ApiReportsIdRouteWithChildren = ApiReportsIdRoute._addFileChildren(
+  ApiReportsIdRouteChildren,
+)
+
+interface ApiReportsRouteChildren {
+  ApiReportsIdRoute: typeof ApiReportsIdRouteWithChildren
+  ApiReportsDuplicateCheckRoute: typeof ApiReportsDuplicateCheckRoute
+  ApiReportsFormOptionsRoute: typeof ApiReportsFormOptionsRoute
+}
+
+const ApiReportsRouteChildren: ApiReportsRouteChildren = {
+  ApiReportsIdRoute: ApiReportsIdRouteWithChildren,
+  ApiReportsDuplicateCheckRoute: ApiReportsDuplicateCheckRoute,
+  ApiReportsFormOptionsRoute: ApiReportsFormOptionsRoute,
+}
+
+const ApiReportsRouteWithChildren = ApiReportsRoute._addFileChildren(
+  ApiReportsRouteChildren,
+)
 
 interface ApiAdminAssetsRouteChildren {
   ApiAdminAssetsIdRoute: typeof ApiAdminAssetsIdRoute
@@ -435,6 +599,18 @@ const ApiAdminLocationsRouteChildren: ApiAdminLocationsRouteChildren = {
 const ApiAdminLocationsRouteWithChildren =
   ApiAdminLocationsRoute._addFileChildren(ApiAdminLocationsRouteChildren)
 
+interface ApiAdminReportsRouteChildren {
+  ApiAdminReportsIdRoute: typeof ApiAdminReportsIdRoute
+}
+
+const ApiAdminReportsRouteChildren: ApiAdminReportsRouteChildren = {
+  ApiAdminReportsIdRoute: ApiAdminReportsIdRoute,
+}
+
+const ApiAdminReportsRouteWithChildren = ApiAdminReportsRoute._addFileChildren(
+  ApiAdminReportsRouteChildren,
+)
+
 interface ApiAdminTechniciansRouteChildren {
   ApiAdminTechniciansIdRoute: typeof ApiAdminTechniciansIdRoute
 }
@@ -452,10 +628,12 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ReporterRoute: ReporterRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiReportsRoute: ApiReportsRouteWithChildren,
   ApiAdminAssetsRoute: ApiAdminAssetsRouteWithChildren,
   ApiAdminCategoriesRoute: ApiAdminCategoriesRouteWithChildren,
   ApiAdminIssueTypesRoute: ApiAdminIssueTypesRouteWithChildren,
   ApiAdminLocationsRoute: ApiAdminLocationsRouteWithChildren,
+  ApiAdminReportsRoute: ApiAdminReportsRouteWithChildren,
   ApiAdminTechniciansRoute: ApiAdminTechniciansRouteWithChildren,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
