@@ -3,6 +3,9 @@
 // and never leaks stacks to the client. Full UX lands in later phases.
 import type { ReactNode } from 'react';
 import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router';
+// Global stylesheet (Task D-1): Tailwind v4 theme + base layer. Imported here
+// so TanStack Start applies it to SSR + dev + build output alike.
+import '../styles.css';
 
 export const Route = createRootRoute({
   head: () => ({

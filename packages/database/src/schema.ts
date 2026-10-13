@@ -16,6 +16,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
@@ -227,3 +228,171 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 export type NewOutboxEvent = typeof outboxEvents.$inferInsert;
+
+// Phase 3 P3-1: report tables + ticket sequence. Values mirror
+// `REPORT_STATUS` / `RELATION_TYPE` in `@silapor/domain` (verbatim).
+
+export const reportStatusEnum = pgEnum('report_status', [
+  'REPORTED',
+  'VERIFIED',
+  'ASSIGNED',
+  'INSPECTION',
+  'IN_REPAIR',
+  'RESOLVED',
+  'CLOSED',
+  'REJECTED',
+  'DUPLICATE',
+]);
+
+export const maintenanceReports = pgTable(
+  'maintenance_reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ticketNumber: text('ticket_number').notNull().unique(),
+    // Client UUID per form instance (safe retries).
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    reporterId: uuid('reporter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    locationId: uuid('location_id')
+      .notNull()
+      .references(() => locations.id, { onDelete: 'restrict' }),
+    assetId: uuid('asset_id').references(() => facilityAssets.id, { onDelete: 'restrict' }),
+    submittedCategoryId: uuid('submitted_category_id')
+      .notNull()
+      .references(() => facilityCategories.id, { onDelete: 'restrict' }),
+    submittedIssueTypeId: uuid('submitted_issue_type_id').references(() => issueTypes.id, {
+      onDelete: 'restrict',
+    }),
+    finalCategoryId: uuid('final_category_id').references(() => facilityCategories.id, {
+      onDelete: 'restrict',
+    }),
+    finalIssueTypeId: uuid('final_issue_type_id').references(() => issueTypes.id, {
+      onDelete: 'restrict',
+    }),
+    description: text('description').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }),
+    status: reportStatusEnum('status').notNull().default('REPORTED'),
+    duplicateOfReportId: uuid('duplicate_of_report_id').references(
+      (): AnyPgColumn => maintenanceReports.id,
+      { onDelete: 'restrict' },
+    ),
+    priorityScore: integer('priority_score'),
+    priorityFactors: jsonb('priority_factors'),
+    // LOW|MEDIUM|HIGH enforced by validator, NOT pgEnum (Phase 5 owns scoring).
+    finalPriority: text('final_priority'),
+    // Optimistic locking; P3-2+ increments on every mutation.
+    version: integer('version').notNull().default(1),
+    reportedAt: timestamp('reported_at', { withTimezone: true }).notNull().defaultNow(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('maintenance_reports_reporter_reported_idx').on(table.reporterId, table.reportedAt),
+    index('maintenance_reports_status_reported_idx').on(table.status, table.reportedAt),
+    index('maintenance_reports_final_category_idx').on(table.finalCategoryId),
+    index('maintenance_reports_submitted_category_idx').on(table.submittedCategoryId),
+    index('maintenance_reports_location_idx').on(table.locationId),
+    index('maintenance_reports_asset_idx').on(table.assetId),
+    index('maintenance_reports_duplicate_of_idx').on(table.duplicateOfReportId),
+    index('maintenance_reports_reporter_asset_status_idx').on(
+      table.reporterId,
+      table.assetId,
+      table.status,
+    ),
+    index('maintenance_reports_resolved_at_idx').on(table.resolvedAt),
+    check(
+      'maintenance_reports_priority_score_check',
+      sql`${table.priorityScore} IS NULL OR (${table.priorityScore} >= 0 AND ${table.priorityScore} <= 100)`,
+    ),
+  ],
+);
+
+export const reportAttachments = pgTable(
+  'report_attachments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    // Random storage key, never the original filename.
+    storageKey: text('storage_key').notNull(),
+    // Metadata only.
+    originalFilename: text('original_filename').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    checksum: text('checksum').notNull(),
+    uploadedBy: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('report_attachments_report_id_idx').on(table.reportId)],
+);
+
+// Append-only: NO update/delete repo functions (P3-2+ writes inserts only).
+export const reportEvents = pgTable(
+  'report_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    fromValue: jsonb('from_value'),
+    toValue: jsonb('to_value'),
+    metadata: jsonb('metadata'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('report_events_report_created_idx').on(table.reportId, table.createdAt)],
+);
+
+export const reportRelations = pgTable(
+  'report_relations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceReportId: uuid('source_report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    targetReportId: uuid('target_report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    relationType: text('relation_type').notNull(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('report_relations_source_target_type_unique').on(
+      table.sourceReportId,
+      table.targetReportId,
+      table.relationType,
+    ),
+    index('report_relations_target_type_idx').on(table.targetReportId, table.relationType),
+    check(
+      'report_relations_type_check',
+      sql`${table.relationType} IN ('SUPPORTING', 'RELATED')`,
+    ),
+  ],
+);
+
+export const ticketCounters = pgTable('ticket_counters', {
+  year: integer('year').primaryKey(),
+  lastSeq: integer('last_seq').notNull().default(0),
+});
+
+export type Report = typeof maintenanceReports.$inferSelect;
+export type NewReport = typeof maintenanceReports.$inferInsert;
+export type ReportAttachment = typeof reportAttachments.$inferSelect;
+export type NewReportAttachment = typeof reportAttachments.$inferInsert;
+export type ReportEvent = typeof reportEvents.$inferSelect;
+export type NewReportEvent = typeof reportEvents.$inferInsert;
+export type ReportRelation = typeof reportRelations.$inferSelect;
+export type NewReportRelation = typeof reportRelations.$inferInsert;
+export type TicketCounter = typeof ticketCounters.$inferSelect;
+export type NewTicketCounter = typeof ticketCounters.$inferInsert;

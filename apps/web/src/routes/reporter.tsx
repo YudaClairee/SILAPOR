@@ -7,8 +7,9 @@
 // and redirects anonymous users to /login and non-reporters away per
 // `redirectForRole`. A failed fetch (e.g. SSR relative-URL fetch, offline)
 // is non-definitive, so it abstains instead of redirecting.
-import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
+import { Outlet, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { redirectForRole, type GuardUser } from '../server/guard';
+import { AppShell } from '../components/index.js';
 
 interface MeResponse {
   readonly user?: { readonly role?: unknown } | null;
@@ -49,5 +50,26 @@ export const Route = createFileRoute('/reporter')({
 });
 
 function ReporterLayout() {
-  return <Outlet />;
+  const navigate = useNavigate();
+
+  // Presentational shell adoption (Task D-2): the redirect-only guard above
+  // is unchanged and authoritative navigation-wise; this layout only owns
+  // the logout POST. The route tree guarantees REPORTER here post-guard
+  // (anonymous/non-reporters redirect), so the shell role is static.
+  function handleLogout(): void {
+    void (async () => {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch {
+        // Logout is best-effort — navigation proceeds regardless.
+      }
+      await navigate({ to: '/login' });
+    })();
+  }
+
+  return (
+    <AppShell user={{ role: 'REPORTER' }} onLogout={handleLogout}>
+      <Outlet />
+    </AppShell>
+  );
 }
