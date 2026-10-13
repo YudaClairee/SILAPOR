@@ -160,8 +160,9 @@ body > a:focus {
 }
 
 .auth-logo-shell {
-  width: 64px;
-  height: 64px;
+  box-sizing: border-box;
+  width: 74px;
+  height: 74px;
   margin: 0 auto 20px;
   padding: 5px;
   border: 1px solid #d1e6e9;
@@ -173,7 +174,6 @@ body > a:focus {
   display: block;
   width: 64px;
   height: 64px;
-  margin: -5px;
   border-radius: 12px;
 }
 
@@ -327,16 +327,10 @@ body > a:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   margin-top: 14px;
   color: #64748b;
   font-size: 12px;
   line-height: 16px;
-}
-
-.security-note img {
-  width: 14px;
-  height: 14px;
 }
 
 .login-guidance {

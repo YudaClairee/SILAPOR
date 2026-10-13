@@ -138,7 +138,6 @@ function LoginPage() {
             </form>
 
             <div className="security-note">
-              <img src="/assets/login/security.svg" alt="" aria-hidden="true" />
               <span>
                 Autentikasi terenkripsi resmi melalui protokol SSO Universitas
                 <br />
