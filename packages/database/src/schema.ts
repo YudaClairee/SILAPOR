@@ -64,7 +64,7 @@ export const locations = pgTable(
     parentId: uuid('parent_id').references((): AnyPgColumn => locations.id, {
       onDelete: 'restrict',
     }),
-    // CAMPUS|BUILDING|FLOOR|ROOM (check constraint below).
+    // CAMPUS|BUILDING|FLOOR|ROOM|SHARED_AREA (check constraint below).
     type: text('type').notNull(),
     // building_code e.g. 'C'; room_code e.g. '22.4C.02.015'.
     code: text('code').notNull().unique(),
@@ -83,7 +83,10 @@ export const locations = pgTable(
     index('locations_parent_id_idx').on(table.parentId),
     index('locations_building_code_idx').on(table.buildingCode),
     index('locations_is_active_idx').on(table.isActive),
-    check('locations_type_check', sql`${table.type} IN ('CAMPUS', 'BUILDING', 'FLOOR', 'ROOM')`),
+    check(
+      'locations_type_check',
+      sql`${table.type} IN ('CAMPUS', 'BUILDING', 'FLOOR', 'ROOM', 'SHARED_AREA')`,
+    ),
     check(
       'locations_tier_score_check',
       sql`${table.tierScore} IS NULL OR (${table.tierScore} >= 0 AND ${table.tierScore} <= 30)`,

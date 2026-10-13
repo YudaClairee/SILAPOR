@@ -17,6 +17,8 @@ dokumen resmi dan dikonfirmasi oleh UMPER/admin.
 - `issue-types.csv`: taxonomy jenis masalah sementara untuk form.
 - `asset-profiles.csv`: aturan/perlengkapan umum berdasarkan tipe ruangan atau
   gedung; ini belum menjadi inventaris aset individual.
+- `shared-areas.csv`: area bersama yang bukan ruangan bernomor, misalnya
+  lorong; area ini dapat menjadi lokasi fasilitas agregat.
 - `technicians.csv`: lima teknisi dummy untuk pengembangan dan pengujian MVP;
   harus diganti atau dilengkapi dengan data resmi sebelum production.
 - `assets.csv`: template inventaris aset individual, masih kosong sampai kode
@@ -39,6 +41,9 @@ AC, lampu, stop kontak, dan perlengkapan toilet dicatat lebih dulu di
 - Ruang lift (`room_name` mengandung `LIFT`) hanya dapat dilaporkan melalui
   alur admin (tidak tampil pada form reporter); ruang server, listrik, dan
   gudang tetap dapat dilaporkan reporter umum.
+- Area bersama yang memiliki fasilitas sendiri dimodelkan sebagai `shared
+  area`, bukan dipaksakan menjadi ruangan. Lorong luar ballroom lantai 5
+  Gedung C adalah contoh area bersama.
 - Setiap ruang kelas memiliki satu fasilitas agregat `Meja dosen`.
 - Laboratorium yang memiliki penanda `IOT` dapat memiliki fasilitas agregat
   `Komputer lab`; jumlah unit sengaja dikosongkan sampai inventaris lab
@@ -69,8 +74,9 @@ AC, lampu, stop kontak, dan perlengkapan toilet dicatat lebih dulu di
 ## Catatan
 
 `rooms_lengkap.csv` sudah diverifikasi oleh pengguna dan menjadi acuan baru.
-Ballroom Gedung C sementara dimodelkan memiliki enam AC central sesuai
-keputusan produk saat ini. Jika verifikasi fisik berbeda, ubah profile tanpa
+Ballroom Gedung C dimodelkan memiliki sembilan AC central di dalam ruangan.
+Lorong luar ballroom pada lantai 5 dimodelkan sebagai `shared area` terpisah
+dengan dua AC central. Jika pemetaan fisik berubah, ubah profile/lokasi tanpa
 mengubah histori laporan. Data kategori, issue type, bobot, threshold, status
 operasional, dan kode aset individual tetap dapat dilengkapi setelah keputusan
 produk disahkan.
@@ -82,7 +88,10 @@ produk disahkan.
 - Tidak ditemukan `room_code` duplikat.
 - Semua `building_code` pada rooms memiliki pasangan di `buildings.csv`.
 - Semua gedung dan ruangan saat ini memiliki `is_active=true`.
-- Ballroom `22.4C.05.064` tersedia dan memakai asumsi enam AC central.
+- Ballroom `22.4C.05.064` tersedia dan memiliki sembilan AC central di dalam
+  ruangan.
+- Shared area `C-05-CORRIDOR` tersedia untuk lorong luar ballroom dan memiliki
+  dua AC central.
 - Profil ruang kelas sudah mencakup fasilitas agregat TV, HDMI, papan tulis,
   meja dosen, kursi mahasiswa, lampu, stop kontak, dan AC sesuai gedung.
 - Profil Lab IoT mencakup komputer agregat dengan jumlah yang belum ditentukan.

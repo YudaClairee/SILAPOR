@@ -240,8 +240,10 @@ Classroom baseline:
 #### HVAC
 
 - Building C classroom: one central AC facility per room;
-- Ballroom `22.4C.05.064`: six central AC units as the current working
-  assumption; update the profile if physical verification differs;
+- Ballroom `22.4C.05.064`: nine central AC units inside the ballroom;
+- Shared area `C-05-CORRIDOR`: two central AC units in the corridor outside
+  the ballroom on floor 5 of Building C. This is modeled as a shared area,
+  not as part of the ballroom or another numbered room;
 - other classroom buildings: one conventional/split AC per room, provisional.
 
 #### Classroom and laboratory additions
@@ -797,7 +799,7 @@ Every data page and important component must specify:
 
 | ID | Decision | Status | Owner |
 |---|---|---|---|
-| D-01 | Ballroom C has six central AC units | Working assumption for MVP | UMPER/admin |
+| D-01 | Ballroom C has nine internal AC units and two corridor AC units on floor 5 | Confirmed working model | UMPER/admin |
 | D-02 | All 27 rooms with `KULIAH` in the name (24 in C + 3 in I) share the classroom baseline | Decided for pilot | UMPER/admin |
 | D-03 | Non-classroom facility profiles | Open | UMPER/admin |
 | D-04 | Facility categories: 6 active (ELECTRICAL, HVAC, FURNITURE, ELECTRONIC, PLUMBING, OTHER); 9 old codes kept as inactive | Team-approved, pending UMPER/admin | UMPER/admin |

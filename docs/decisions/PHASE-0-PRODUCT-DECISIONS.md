@@ -165,8 +165,11 @@ Gunakan `TBD` untuk bagian yang belum diputuskan. Hapus `TBD` setelah keputusan 
   v1; kalibrasi final menunggu UMPER/admin.
 - **Aturan archive/nonaktif:** gedung, ruangan, fasilitas, kategori, dan teknisi
   dinonaktifkan secara soft-delete; histori laporan tidak dihapus.
-- **Pengecualian yang diputuskan:** Ballroom Gedung C sementara menggunakan
-  enam AC central; ruang kelas (nama mengandung `KULIAH`, 27 ruangan) memiliki
+- **Pengecualian yang diputuskan:** Ballroom Gedung C memiliki sembilan AC
+  central di dalam ruangan; dua AC central lain berada di lorong luar ballroom
+  pada lantai 5 dan dimodelkan sebagai fasilitas pada `shared area`
+  `C-05-CORRIDOR`, bukan sebagai bagian dari ballroom; ruang kelas (nama
+  mengandung `KULIAH`, 27 ruangan) memiliki
   TV, HDMI, papan tulis, meja dosen, kursi mahasiswa agregat, lampu agregat,
   empat stop kontak, dan AC sesuai gedung; Lab IoT memiliki profil komputer
   agregat dengan jumlah unit menunggu inventaris; urinal hanya ada pada toilet

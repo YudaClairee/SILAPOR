@@ -15,6 +15,13 @@
       "when": 1791633465674,
       "tag": "0001_redundant_dagger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791803389685,
+      "tag": "0002_outgoing_ironclad",
+      "breakpoints": true
     }
   ]
 }

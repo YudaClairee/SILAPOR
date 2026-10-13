@@ -28,7 +28,7 @@ The distinctive bet is a visible maintenance rail: every report surface uses
 the same left alignment, status language, and location-to-facility hierarchy.
 
 Counterfactual test: this is not a generic blue SaaS dashboard. The identity is
-anchored by a campus service rail, a single signal-orange action accent, and
+anchored by a campus service rail, a dark-teal institutional action color, and
 document-like ruled sections used for status and evidence.
 
 ## Signature
@@ -43,6 +43,9 @@ Use it sparingly. Do not add decorative rails to unrelated content.
 
 ### Figma reference: SCMS UPI Tasikmalaya
 
+- source of truth: [SCMS tugas smt 7](https://www.figma.com/design/EzAw6vTYxyATdJgTYRzqTg/SCMS-tugas-smt-7);
+  implementation must follow its colors, typography, spacing, and component
+  hierarchy when this document does not specify a detail;
 - took: institutional header, UPI identity, SSO-first login, centered
   authentication card, report dashboard, KPI strip, quick action banner,
   status filters, two-column content, and clear reporter/admin separation;
@@ -58,14 +61,15 @@ Color values are normative. Do not introduce a second brand accent.
 
 | role | OKLCH | hex | use |
 |------|-------|-----|-----|
-| background | `oklch(0.975 0.012 245)` | `#F3F6F8` | application canvas |
-| surface | `oklch(0.995 0.006 245)` | `#FBFCFD` | cards and forms |
+| background | `oklch(0.977 0.009 245)` | `#F4F6F8` | application canvas |
+| surface | `oklch(1 0 0)` | `#FFFFFF` | cards and forms |
 | elevated | `oklch(1 0 0)` | `#FFFFFF` | modal, popover, focused surface |
-| text | `oklch(0.245 0.035 245)` | `#27323D` | primary text |
-| muted | `oklch(0.48 0.025 245)` | `#687580` | supporting text |
-| subtle | `oklch(0.62 0.018 245)` | `#919DA6` | placeholders and metadata |
-| border | `oklch(0.88 0.018 245)` | `#D7DEE3` | dividers and input borders |
-| accent | `oklch(0.68 0.15 55)` | `#D9772A` | primary action, active rail, links |
+| text | `oklch(0.279 0.035 237)` | `#1E293B` | primary text |
+| muted | `oklch(0.554 0.046 257)` | `#64748B` | supporting text |
+| subtle | `oklch(0.66 0.035 252)` | `#94A3B8` | placeholders and metadata |
+| border | `oklch(0.91 0.027 257)` | `#E2E8F0` | dividers and input borders |
+| accent | `oklch(0.28 0.07 220)` | `#0A3947` | primary action, active rail, links |
+| accent-secondary | `oklch(0.51 0.12 190)` | `#007B8A` | institutional highlights and accent details |
 | success | `oklch(0.62 0.13 150)` | `#258A5B` | resolved and closed |
 | warning | `oklch(0.72 0.14 82)` | `#B87512` | inspection, pending review |
 | danger | `oklch(0.58 0.16 25)` | `#B8453D` | rejected, destructive action |
@@ -73,10 +77,12 @@ Color values are normative. Do not introduce a second brand accent.
 
 Contrast requirements:
 
-- text `#27323D` on background `#F3F6F8`: target at least 10:1;
-- muted `#687580` on surface `#FBFCFD`: target at least 4.5:1;
-- accent `#D9772A` is not used as body text on white; use dark text on accent
-  buttons where required and verify at least 4.5:1;
+- text `#1E293B` on background `#F4F6F8`: target at least 10:1;
+- muted `#64748B` on surface `#FFFFFF`: target at least 4.5:1;
+- accent `#0A3947` uses white text on primary buttons and must meet at least
+  4.5:1;
+- accent-secondary `#007B8A` is reserved for short labels and highlights; do
+  not use it as long-form body text on white without verifying contrast;
 - semantic colors never communicate state alone. Pair with label and icon.
 
 Dark mode is out of MVP scope. If introduced later, derive a separate ramp and
