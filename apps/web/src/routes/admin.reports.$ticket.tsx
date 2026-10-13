@@ -16,14 +16,18 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router';
+import { REPORT_TRANSITIONS, requiresNote, type ReportStatus } from '@silapor/domain';
 import { eventLabel } from '../lib/report-helpers.js';
 import type { FormOptions } from '../server/reports.js';
 import {
   AttachmentGallery,
   Button,
   ErrorPanel,
+  Input,
   LoadingState,
+  Select,
   StatusBadge,
+  Textarea,
   TicketMono,
   Timeline,
   buttonBaseClasses,
@@ -49,6 +53,14 @@ interface AdminReportRow {
   readonly verifiedAt: string | null;
   readonly resolvedAt: string | null;
   readonly closedAt: string | null;
+  // Priority audit columns (migration 0004, full-row select): optional so
+  // older cached payloads still typecheck; all render with '—' fallbacks.
+  readonly priorityScore?: number | null;
+  readonly priorityFactors?: Record<string, unknown> | null;
+  readonly priorityOverrideReason?: string | null;
+  readonly priorityDecidedAt?: string | null;
+  readonly scoringConfigVersion?: number | null;
+  readonly duplicateOfReportId?: string | null;
 }
 
 interface AdminAttachmentRow {
@@ -203,6 +215,847 @@ function entryType(entry: AdminEventRow): string {
     return entry.type;
   }
   return 'UNKNOWN';
+}
+
+// ---------------------------------------------------------------------------
+// Admin workflow (Phase 5 P5-5): verify / priority / assign / transition /
+// updates forms + the full admin timeline. Every mutation sends the loaded
+// report.version as expectedVersion; a 409 surfaces the conflict panel
+// ("Laporan diubah admin lain — muat ulang") with a reload action that
+// re-invalidates the loader (fresh version). The static AI placeholder in
+// the page stays untouched (no polling — Phase 8 owns it).
+// ---------------------------------------------------------------------------
+
+interface WorkflowTimelineEntry {
+  readonly id: string;
+  readonly kind: string;
+  readonly at: string;
+  readonly actorId: string | null;
+  readonly label: string;
+  readonly detail: Record<string, unknown> | null;
+  readonly visibility?: string | null;
+}
+
+// Technician options carry display fields only (id + displayName + code) —
+// the list endpoint returns no contact PII, and nothing else is rendered.
+interface TechnicianOption {
+  readonly id: string;
+  readonly displayName: string;
+  readonly technicianCode: string;
+}
+
+const PRIORITY_EDITABLE_STATUSES: readonly string[] = [
+  'VERIFIED',
+  'ASSIGNED',
+  'INSPECTION',
+  'IN_REPAIR',
+  'RESOLVED',
+];
+
+const TERMINAL_CONFIRM_STATUSES: readonly string[] = ['CLOSED', 'REJECTED', 'DUPLICATE'];
+
+function validNextStatuses(status: string): readonly string[] {
+  const allowed = (REPORT_TRANSITIONS as Record<string, readonly string[]>)[status];
+  return allowed ?? [];
+}
+
+// `requiresNote` needs domain `ReportStatus` values — unknown runtime
+// strings (never expected from the matrix above) fall back to no-note.
+function noteRequiredFor(from: string, to: string): boolean {
+  const known = Object.keys(REPORT_TRANSITIONS);
+  if (!known.includes(from) || !known.includes(to)) {
+    return false;
+  }
+  return requiresNote(from as ReportStatus, to as ReportStatus);
+}
+
+async function postWorkflowAction(
+  path: string,
+  payload: Record<string, unknown>,
+): Promise<{ readonly ok: boolean; readonly status: number; readonly body: unknown }> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  return { ok: response.ok, status: response.status, body };
+}
+
+function workflowErrorMessage(body: unknown, fallback: string): string {
+  if (typeof body === 'object' && body !== null) {
+    const message = (body as { readonly error?: { readonly message?: unknown } }).error?.message;
+    if (typeof message === 'string' && message !== '') {
+      return message;
+    }
+  }
+  return fallback;
+}
+
+// Latest PRIORITY_CHANGED suggestion from the admin timeline (the report
+// row stores score/factors but not the suggested level).
+function suggestedPriorityFrom(timeline: readonly WorkflowTimelineEntry[] | null): string | null {
+  if (timeline === null) {
+    return null;
+  }
+  for (let index = timeline.length - 1; index >= 0; index--) {
+    const entry = timeline[index];
+    if (entry === undefined || entry.kind !== 'event' || entry.detail === null) {
+      continue;
+    }
+    if (entry.detail['eventType'] !== 'PRIORITY_CHANGED') {
+      continue;
+    }
+    const metadata = entry.detail['metadata'];
+    if (typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
+      const suggested = (metadata as Record<string, unknown>)['suggestedPriority'];
+      if (typeof suggested === 'string') {
+        return suggested;
+      }
+    }
+  }
+  return null;
+}
+
+// Latest still-active assignment (unassignedAt null) → technician id.
+function currentTechnicianOf(timeline: readonly WorkflowTimelineEntry[] | null): string | null {
+  if (timeline === null) {
+    return null;
+  }
+  for (let index = timeline.length - 1; index >= 0; index--) {
+    const entry = timeline[index];
+    if (entry === undefined || entry.kind !== 'assignment' || entry.detail === null) {
+      continue;
+    }
+    if (entry.detail['unassignedAt'] !== null && entry.detail['unassignedAt'] !== undefined) {
+      continue;
+    }
+    const technicianId = entry.detail['technicianId'];
+    return typeof technicianId === 'string' ? technicianId : null;
+  }
+  return null;
+}
+
+function workflowEntryLabel(entry: WorkflowTimelineEntry): string {
+  if (entry.kind === 'event') {
+    const eventType = entry.detail !== null ? entry.detail['eventType'] : undefined;
+    return eventLabel(typeof eventType === 'string' ? eventType : entry.label);
+  }
+  if (entry.kind === 'update') {
+    const visibility = entry.visibility ?? entry.detail?.['visibility'];
+    return visibility === 'PUBLIC' ? 'Pembaruan publik' : 'Catatan internal';
+  }
+  if (entry.kind === 'assignment') {
+    return 'Penugasan teknisi';
+  }
+  if (entry.kind === 'relation') {
+    return 'Relasi laporan';
+  }
+  return entry.label;
+}
+
+const fieldLabelClasses = 'block text-sm font-medium text-text';
+const fieldHintClasses = 'mt-1 text-xs text-muted';
+
+function AdminWorkflow({
+  ticket,
+  report,
+  options,
+  fallbackEvents,
+  onChanged,
+}: {
+  readonly ticket: string;
+  readonly report: AdminReportRow;
+  readonly options: FormOptions | null;
+  readonly fallbackEvents: AdminEventRow[];
+  readonly onChanged: () => void;
+}) {
+  const [conflict, setConflict] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [timeline, setTimeline] = useState<readonly WorkflowTimelineEntry[] | null>(null);
+  const [technicians, setTechnicians] = useState<readonly TechnicianOption[] | null>(null);
+  const [techFailed, setTechFailed] = useState(false);
+
+  const [vCategory, setVCategory] = useState(report.finalCategoryId ?? report.submittedCategoryId);
+  const [vIssueType, setVIssueType] = useState(
+    report.finalIssueTypeId ?? report.submittedIssueTypeId ?? '',
+  );
+  const [vAsset, setVAsset] = useState(report.assetId ?? '');
+  const [vLocation, setVLocation] = useState(report.locationId);
+  const [vPriority, setVPriority] = useState(report.finalPriority ?? 'MEDIUM');
+  const [vOverride, setVOverride] = useState('');
+  const [vAffected, setVAffected] = useState('');
+  const [pPriority, setPPriority] = useState(report.finalPriority ?? 'MEDIUM');
+  const [pReason, setPReason] = useState('');
+  const [assignTech, setAssignTech] = useState('');
+  const [assignReason, setAssignReason] = useState('');
+  const [transitionNote, setTransitionNote] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
+  const [canonicalRef, setCanonicalRef] = useState('');
+  const [publicMessage, setPublicMessage] = useState('');
+  const [internalMessage, setInternalMessage] = useState('');
+
+  const ref = encodeURIComponent(ticket);
+  const actionBase = `/api/admin/reports/${ref}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTimeline(): Promise<void> {
+      try {
+        const response = await fetch(`${actionBase}/timeline`, { credentials: 'include' });
+        if (!response.ok) {
+          if (!cancelled) {
+            setTimeline(null);
+          }
+          return;
+        }
+        const data = (await response.json()) as { entries?: unknown };
+        if (!cancelled) {
+          setTimeline(Array.isArray(data.entries) ? (data.entries as WorkflowTimelineEntry[]) : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setTimeline(null);
+        }
+      }
+    }
+    async function loadTechnicians(): Promise<void> {
+      try {
+        const response = await fetch('/api/admin/technicians', { credentials: 'include' });
+        if (!response.ok) {
+          if (!cancelled) {
+            setTechFailed(true);
+          }
+          return;
+        }
+        const rows = (await response.json()) as Array<{
+          id?: unknown;
+          displayName?: unknown;
+          display_name?: unknown;
+          technicianCode?: unknown;
+          technician_code?: unknown;
+        }>;
+        if (!cancelled) {
+          if (!Array.isArray(rows)) {
+            setTechFailed(true);
+            return;
+          }
+          setTechnicians(
+            rows.flatMap((row) => {
+              const displayName =
+                typeof row.displayName === 'string'
+                  ? row.displayName
+                  : typeof row.display_name === 'string'
+                    ? row.display_name
+                    : null;
+              const technicianCode =
+                typeof row.technicianCode === 'string'
+                  ? row.technicianCode
+                  : typeof row.technician_code === 'string'
+                    ? row.technician_code
+                    : null;
+              return typeof row.id === 'string' && displayName !== null && technicianCode !== null
+                ? [{ id: row.id, displayName, technicianCode }]
+                : [];
+            }),
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setTechFailed(true);
+        }
+      }
+    }
+    void loadTimeline();
+    void loadTechnicians();
+    return () => {
+      cancelled = true;
+    };
+  }, [actionBase, refreshKey]);
+
+  async function runAction(
+    key: string,
+    path: string,
+    payload: Record<string, unknown>,
+  ): Promise<boolean> {
+    setBusy(key);
+    setNotice(null);
+    try {
+      const result = await postWorkflowAction(path, { ...payload, expectedVersion: report.version });
+      if (result.status === 409) {
+        setConflict(true);
+        return false;
+      }
+      if (!result.ok) {
+        setNotice(workflowErrorMessage(result.body, `Aksi gagal (${result.status}).`));
+        return false;
+      }
+      setConflict(false);
+      setRefreshKey((value) => value + 1);
+      onChanged();
+      return true;
+    } catch {
+      setNotice('Aksi gagal. Periksa koneksi Anda lalu coba lagi.');
+      return false;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const technicianNames = new Map((technicians ?? []).map((t) => [t.id, t.displayName] as const));
+  const suggested = suggestedPriorityFrom(timeline);
+  const currentTechId = currentTechnicianOf(timeline);
+  const nextStatuses = validNextStatuses(report.status);
+
+  return (
+    <>
+      {conflict ? (
+        <div className="mt-4" role="alert">
+          <ErrorPanel
+            message="Laporan diubah admin lain — muat ulang"
+            retry={
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setConflict(false);
+                  setRefreshKey((value) => value + 1);
+                  onChanged();
+                }}
+              >
+                Muat ulang
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
+
+      {notice !== null ? (
+        <div className="mt-4" role="alert">
+          <ErrorPanel message={notice} />
+        </div>
+      ) : null}
+
+      {report.status === 'REPORTED' ? (
+        <section
+          aria-labelledby="admin-verify-title"
+          className="mt-4 rounded-md border border-border bg-surface p-4"
+        >
+          <h2 id="admin-verify-title" className="text-base font-semibold text-text">
+            Verifikasi laporan
+          </h2>
+          <div className="mt-3 flex flex-col gap-3">
+            <label className={fieldLabelClasses}>
+              Kategori final
+              <Select
+                className="mt-1"
+                value={vCategory}
+                onChange={(event) => setVCategory(event.target.value)}
+              >
+                {(options?.categories ?? []).map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={fieldLabelClasses}>
+              Jenis masalah final
+              <Select
+                className="mt-1"
+                value={vIssueType}
+                onChange={(event) => setVIssueType(event.target.value)}
+              >
+                <option value="">— Pilih —</option>
+                {(options?.issueTypes ?? []).map((issueType) => (
+                  <option key={issueType.id} value={issueType.id}>
+                    {issueType.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={fieldLabelClasses}>
+              Asset
+              <Select
+                className="mt-1"
+                value={vAsset}
+                onChange={(event) => setVAsset(event.target.value)}
+              >
+                <option value="">Tanpa asset</option>
+                {(options?.assets ?? []).map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={fieldLabelClasses}>
+              Lokasi
+              <Select
+                className="mt-1"
+                value={vLocation}
+                onChange={(event) => setVLocation(event.target.value)}
+              >
+                {(options?.locations ?? []).map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <fieldset>
+              <legend className={fieldLabelClasses}>Prioritas final</legend>
+              <div className="mt-1 flex gap-4">
+                {['LOW', 'MEDIUM', 'HIGH'].map((level) => (
+                  <label key={level} className="flex items-center gap-1 text-sm text-text">
+                    <input
+                      type="radio"
+                      name="verify-priority"
+                      value={level}
+                      checked={vPriority === level}
+                      onChange={() => setVPriority(level)}
+                    />
+                    {level}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className={fieldLabelClasses}>
+              Alasan override (opsional)
+              <Textarea
+                className="mt-1"
+                rows={2}
+                value={vOverride}
+                onChange={(event) => setVOverride(event.target.value)}
+                placeholder="Wajib diisi bila prioritas final berbeda dari saran sistem"
+              />
+              <span className={fieldHintClasses}>
+                Wajib diisi bila prioritas final berbeda dari saran sistem (divalidasi server).
+              </span>
+            </label>
+            <label className={fieldLabelClasses}>
+              Jumlah pelapor terdampak (opsional)
+              <Input
+                className="mt-1"
+                type="number"
+                min={0}
+                value={vAffected}
+                onChange={(event) => setVAffected(event.target.value)}
+              />
+            </label>
+            <div>
+              <Button
+                type="button"
+                disabled={busy !== null}
+                onClick={() =>
+                  void runAction(`${actionBase}/verify`, `${actionBase}/verify`, {
+                    finalCategoryId: vCategory,
+                    finalIssueTypeId: vIssueType === '' ? null : vIssueType,
+                    assetId: vAsset === '' ? null : vAsset,
+                    locationId: vLocation,
+                    finalPriority: vPriority,
+                    overrideReason: vOverride === '' ? null : vOverride,
+                    affectedReporters: vAffected === '' ? null : Number(vAffected),
+                  })
+                }
+              >
+                {busy === `${actionBase}/verify` ? 'Memverifikasi…' : 'Verifikasi'}
+              </Button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {PRIORITY_EDITABLE_STATUSES.includes(report.status) ? (
+        <section
+          aria-labelledby="admin-priority-title"
+          className="mt-4 rounded-md border border-border bg-surface p-4"
+        >
+          <h2 id="admin-priority-title" className="text-base font-semibold text-text">
+            Prioritas
+          </h2>
+          <dl className="mt-2 flex flex-col gap-1 text-sm text-text">
+            <div className="flex gap-2">
+              <dt className="font-medium text-muted">Skor:</dt>
+              <dd>{report.priorityScore ?? '—'}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-medium text-muted">Faktor:</dt>
+              <dd>
+                {report.priorityFactors === null || report.priorityFactors === undefined
+                  ? '—'
+                  : Object.entries(report.priorityFactors)
+                      .map(([key, value]) => `${key}: ${String(value)}`)
+                      .join(', ')}
+              </dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-medium text-muted">Saran sistem:</dt>
+              <dd>{suggested ?? '—'}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="font-medium text-muted">Prioritas final:</dt>
+              <dd>{report.finalPriority ?? '—'}</dd>
+            </div>
+            {report.priorityOverrideReason !== null && report.priorityOverrideReason !== undefined ? (
+              <div className="flex gap-2">
+                <dt className="font-medium text-muted">Alasan override:</dt>
+                <dd>{report.priorityOverrideReason}</dd>
+              </div>
+            ) : null}
+          </dl>
+          <div className="mt-3 flex flex-col gap-3">
+            <fieldset>
+              <legend className={fieldLabelClasses}>Ubah prioritas final</legend>
+              <div className="mt-1 flex gap-4">
+                {['LOW', 'MEDIUM', 'HIGH'].map((level) => (
+                  <label key={level} className="flex items-center gap-1 text-sm text-text">
+                    <input
+                      type="radio"
+                      name="set-priority"
+                      value={level}
+                      checked={pPriority === level}
+                      onChange={() => setPPriority(level)}
+                    />
+                    {level}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className={fieldLabelClasses}>
+              Alasan (wajib, min 5 karakter)
+              <Textarea
+                className="mt-1"
+                rows={2}
+                value={pReason}
+                onChange={(event) => setPReason(event.target.value)}
+              />
+            </label>
+            <div>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy !== null}
+                onClick={() =>
+                  void runAction(`${actionBase}/priority`, `${actionBase}/priority`, {
+                    priority: pPriority,
+                    reason: pReason,
+                  })
+                }
+              >
+                {busy === `${actionBase}/priority` ? 'Menyimpan…' : 'Simpan prioritas'}
+              </Button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <section
+        aria-labelledby="admin-assign-title"
+        className="mt-4 rounded-md border border-border bg-surface p-4"
+      >
+        <h2 id="admin-assign-title" className="text-base font-semibold text-text">
+          Penugasan teknisi
+        </h2>
+        <p className="mt-1 text-sm text-text">
+          Teknisi saat ini:{' '}
+          {currentTechId === null
+            ? '—'
+            : (technicianNames.get(currentTechId) ?? 'Teknisi ditugaskan')}
+        </p>
+        <div className="mt-3 flex flex-col gap-3">
+          <label className={fieldLabelClasses}>
+            Teknisi
+            <Select
+              className="mt-1"
+              value={assignTech}
+              onChange={(event) => setAssignTech(event.target.value)}
+            >
+              <option value="">— Pilih teknisi —</option>
+              {(technicians ?? []).map((technician) => (
+                <option key={technician.id} value={technician.id}>
+                  {technician.displayName} ({technician.technicianCode})
+                </option>
+              ))}
+            </Select>
+            {techFailed ? (
+              <span className={fieldHintClasses}>Gagal memuat daftar teknisi.</span>
+            ) : null}
+          </label>
+          <label className={fieldLabelClasses}>
+            Alasan (opsional)
+            <Textarea
+              className="mt-1"
+              rows={2}
+              value={assignReason}
+              onChange={(event) => setAssignReason(event.target.value)}
+            />
+          </label>
+          <div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy !== null || assignTech === ''}
+              onClick={() =>
+                void runAction(`${actionBase}/assign`, `${actionBase}/assign`, {
+                  technicianId: assignTech,
+                  reason: assignReason === '' ? null : assignReason,
+                })
+              }
+            >
+              {busy === `${actionBase}/assign` ? 'Menugaskan…' : 'Tugaskan'}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {report.status === 'REPORTED' ? (
+        <>
+          <section
+            aria-labelledby="admin-reject-title"
+            className="mt-4 rounded-md border border-border bg-surface p-4"
+          >
+            <h2 id="admin-reject-title" className="text-base font-semibold text-text">
+              Tolak laporan
+            </h2>
+            <div className="mt-3 flex flex-col gap-3">
+              <label className={fieldLabelClasses}>
+                Alasan penolakan (wajib, min 5 karakter)
+                <Textarea
+                  className="mt-1"
+                  rows={2}
+                  value={rejectReason}
+                  onChange={(event) => setRejectReason(event.target.value)}
+                />
+              </label>
+              <div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    if (!window.confirm('Tolak laporan ini?')) {
+                      return;
+                    }
+                    void runAction(`${actionBase}/reject`, `${actionBase}/reject`, {
+                      reason: rejectReason,
+                    });
+                  }}
+                >
+                  {busy === `${actionBase}/reject` ? 'Menolak…' : 'Tolak laporan'}
+                </Button>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-labelledby="admin-duplicate-title"
+            className="mt-4 rounded-md border border-border bg-surface p-4"
+          >
+            <h2 id="admin-duplicate-title" className="text-base font-semibold text-text">
+              Tandai duplikat
+            </h2>
+            <div className="mt-3 flex flex-col gap-3">
+              <label className={fieldLabelClasses}>
+                Tiket/ID laporan kanonis
+                <Input
+                  className="mt-1"
+                  value={canonicalRef}
+                  onChange={(event) => setCanonicalRef(event.target.value)}
+                  placeholder="MNT-2026-000001"
+                />
+              </label>
+              <div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy !== null || canonicalRef.trim() === ''}
+                  onClick={() => {
+                    if (!window.confirm('Tandai laporan ini sebagai duplikat?')) {
+                      return;
+                    }
+                    void runAction(`${actionBase}/duplicate`, `${actionBase}/duplicate`, {
+                      canonicalRef: canonicalRef.trim(),
+                    });
+                  }}
+                >
+                  {busy === `${actionBase}/duplicate` ? 'Menandai…' : 'Tandai duplikat'}
+                </Button>
+              </div>
+            </div>
+          </section>
+        </>
+      ) : (
+        <section
+          aria-labelledby="admin-transition-title"
+          className="mt-4 rounded-md border border-border bg-surface p-4"
+        >
+          <h2 id="admin-transition-title" className="text-base font-semibold text-text">
+            Ubah status
+          </h2>
+          {nextStatuses.length === 0 ? (
+            <p className="mt-1 text-sm text-muted">Status terminal — tidak ada transisi lanjutan.</p>
+          ) : (
+            <div className="mt-3 flex flex-col gap-3">
+              <label className={fieldLabelClasses}>
+                Catatan
+                <Textarea
+                  className="mt-1"
+                  rows={2}
+                  value={transitionNote}
+                  onChange={(event) => setTransitionNote(event.target.value)}
+                  placeholder="Wajib untuk inspeksi, perbaikan, penyelesaian, dan pembukaan ulang"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {nextStatuses.map((target) => {
+                  const noteRequired = noteRequiredFor(report.status, target);
+                  const key = `${actionBase}/transition:${target}`;
+                  return (
+                    <Button
+                      key={target}
+                      type="button"
+                      variant={
+                        TERMINAL_CONFIRM_STATUSES.includes(target) ? 'destructive' : 'secondary'
+                      }
+                      disabled={busy !== null}
+                      onClick={() => {
+                        if (
+                          TERMINAL_CONFIRM_STATUSES.includes(target) &&
+                          !window.confirm(`Ubah status ke ${target}?`)
+                        ) {
+                          return;
+                        }
+                        void runAction(key, `${actionBase}/transition`, {
+                          nextStatus: target,
+                          note: transitionNote === '' ? null : transitionNote,
+                        });
+                      }}
+                    >
+                      {busy === key ? 'Memproses…' : `${target}${noteRequired ? ' *' : ''}`}
+                    </Button>
+                  );
+                })}
+              </div>
+              <p className={fieldHintClasses}>Tanda * = catatan wajib (min 5 karakter).</p>
+            </div>
+          )}
+        </section>
+      )}
+
+      <section
+        aria-labelledby="admin-updates-title"
+        className="mt-4 rounded-md border border-border bg-surface p-4"
+      >
+        <h2 id="admin-updates-title" className="text-base font-semibold text-text">
+          Update &amp; catatan
+        </h2>
+        <div className="mt-3 flex flex-col gap-3">
+          <label className={fieldLabelClasses}>
+            Update publik (terlihat reporter)
+            <Textarea
+              className="mt-1"
+              rows={2}
+              value={publicMessage}
+              onChange={(event) => setPublicMessage(event.target.value)}
+            />
+          </label>
+          <div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy !== null || publicMessage.trim() === ''}
+              onClick={() => {
+                void (async () => {
+                  const ok = await runAction(
+                    `${actionBase}/updates:public`,
+                    `${actionBase}/updates`,
+                    { visibility: 'PUBLIC', message: publicMessage.trim() },
+                  );
+                  if (ok) {
+                    setPublicMessage('');
+                  }
+                })();
+              }}
+            >
+              {busy === `${actionBase}/updates:public` ? 'Mengirim…' : 'Kirim update publik'}
+            </Button>
+          </div>
+          <label className={fieldLabelClasses}>
+            Catatan internal (hanya admin)
+            <Textarea
+              className="mt-1"
+              rows={2}
+              value={internalMessage}
+              onChange={(event) => setInternalMessage(event.target.value)}
+            />
+          </label>
+          <div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy !== null || internalMessage.trim() === ''}
+              onClick={() => {
+                void (async () => {
+                  const ok = await runAction(
+                    `${actionBase}/updates:internal`,
+                    `${actionBase}/updates`,
+                    { visibility: 'INTERNAL', message: internalMessage.trim() },
+                  );
+                  if (ok) {
+                    setInternalMessage('');
+                  }
+                })();
+              }}
+            >
+              {busy === `${actionBase}/updates:internal` ? 'Menyimpan…' : 'Simpan catatan internal'}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="admin-detail-timeline-title" className="mt-6">
+        <h2 id="admin-detail-timeline-title" className="text-lg font-semibold text-text">
+          Riwayat laporan
+        </h2>
+        {timeline === null && fallbackEvents.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">Belum ada riwayat.</p>
+        ) : null}
+        {timeline !== null ? (
+          timeline.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">Belum ada riwayat.</p>
+          ) : (
+            <div className="mt-3">
+              <Timeline
+                items={timeline.map((entry) => ({
+                  id: entry.id,
+                  label: workflowEntryLabel(entry),
+                  timestamp: formatDateTime(entry.at),
+                }))}
+              />
+            </div>
+          )
+        ) : fallbackEvents.length > 0 ? (
+          <div className="mt-3">
+            <Timeline
+              items={fallbackEvents.map((entry, index) => ({
+                id: `${entry.createdAt}-${index}`,
+                label: eventLabel(entryType(entry)),
+                timestamp: formatDateTime(entry.createdAt),
+              }))}
+            />
+          </div>
+        ) : null}
+      </section>
+    </>
+  );
 }
 
 function AdminReportDetailPage() {
@@ -465,6 +1318,14 @@ function AdminReportDetailPage() {
             <p className="mt-1 text-sm text-text">Tinjauan AI: menunggu</p>
           </section>
 
+          <AdminWorkflow
+            ticket={detail.report.ticketNumber}
+            report={detail.report}
+            options={options}
+            fallbackEvents={detail.events}
+            onChanged={() => void router.invalidate()}
+          />
+
           {detail.duplicateCandidates.length > 0 ? (
             <section
               aria-labelledby="admin-detail-duplicate-title"
@@ -540,24 +1401,6 @@ function AdminReportDetailPage() {
             )}
           </section>
 
-          <section aria-labelledby="admin-detail-timeline-title" className="mt-6">
-            <h2 id="admin-detail-timeline-title" className="text-lg font-semibold text-text">
-              Riwayat laporan
-            </h2>
-            {detail.events.length === 0 ? (
-              <p className="mt-2 text-sm text-muted">Belum ada riwayat.</p>
-            ) : (
-              <div className="mt-3">
-                <Timeline
-                  items={detail.events.map((entry, index) => ({
-                    id: `${entry.createdAt}-${index}`,
-                    label: eventLabel(entryType(entry)),
-                    timestamp: formatDateTime(entry.createdAt),
-                  }))}
-                />
-              </div>
-            )}
-          </section>
         </>
       ) : null}
     </section>

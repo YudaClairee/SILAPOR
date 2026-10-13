@@ -44,9 +44,16 @@ interface ReportRow {
 }
 
 interface TimelineRow {
+  // Legacy detail shape (`eventType` + `createdAt`) and sanitized timeline
+  // shape (`kind` + `label` + `at`) — the server now ships the sanitized
+  // projection (no INTERNAL entries, no actor/author PII), and the renderer
+  // below accepts both without crashing.
   readonly eventType?: unknown;
   readonly type?: unknown;
-  readonly createdAt: string;
+  readonly kind?: unknown;
+  readonly label?: unknown;
+  readonly createdAt?: unknown;
+  readonly at?: unknown;
 }
 
 interface DetailAttachmentRow {
@@ -163,7 +170,9 @@ function formatDateTime(value: string | null): string {
 }
 
 // RAW event rows carry message/metadata blobs — only the type label and the
-// timestamp ever reach the DOM.
+// timestamp ever reach the DOM. Server detail is sanitized (no
+// INTERNAL_NOTE_ADDED, no actor PII); the filter below drops any such row
+// defensively should a stale/legacy payload still carry it.
 function entryType(entry: TimelineRow): string {
   if (typeof entry.eventType === 'string') {
     return entry.eventType;
@@ -172,6 +181,52 @@ function entryType(entry: TimelineRow): string {
     return entry.type;
   }
   return 'UNKNOWN';
+}
+
+function isInternalNoteEntry(entry: TimelineRow): boolean {
+  if (entryType(entry) === 'INTERNAL_NOTE_ADDED') {
+    return true;
+  }
+  if (typeof entry.type === 'string' && entry.type === 'INTERNAL_NOTE_ADDED') {
+    return true;
+  }
+  if (typeof entry.label === 'string' && entry.label === 'INTERNAL_NOTE_ADDED') {
+    return true;
+  }
+  return false;
+}
+
+// Sanitized timeline entries (`kind`/`label`/`at`) render through the same
+// label map; assignment entries show a static PII-free line (the technician
+// id stays opaque — no name/phone lookup on reporter surfaces), and legacy
+// rows fall back to `entryType`. Unknown shapes never crash.
+function timelineItemLabel(entry: TimelineRow): string {
+  if (typeof entry.kind === 'string') {
+    if (entry.kind === 'update') {
+      return 'Pembaruan';
+    }
+    if (entry.kind === 'assignment') {
+      return 'Teknisi ditugaskan';
+    }
+    if (entry.kind === 'relation') {
+      return 'Relasi laporan';
+    }
+    if (entry.kind === 'event' && typeof entry.label === 'string') {
+      return eventLabel(entry.label);
+    }
+    return typeof entry.label === 'string' ? entry.label : entry.kind;
+  }
+  return eventLabel(entryType(entry));
+}
+
+function timelineTimestamp(entry: TimelineRow): string {
+  if (typeof entry.createdAt === 'string') {
+    return entry.createdAt;
+  }
+  if (typeof entry.at === 'string') {
+    return entry.at;
+  }
+  return '';
 }
 
 function ReportDetailPage() {
@@ -390,16 +445,18 @@ function ReportDetailPage() {
             <h2 id="detail-timeline-title" className="text-lg font-semibold text-text">
               Riwayat laporan
             </h2>
-            {detail.events.length === 0 ? (
+            {detail.events.filter((entry) => !isInternalNoteEntry(entry)).length === 0 ? (
               <p className="mt-2 text-sm text-muted">Belum ada riwayat.</p>
             ) : (
               <div className="mt-3">
                 <Timeline
-                  items={detail.events.map((entry, index) => ({
-                    id: `${entry.createdAt}-${index}`,
-                    label: eventLabel(entryType(entry)),
-                    timestamp: formatDateTime(entry.createdAt),
-                  }))}
+                  items={detail.events
+                    .filter((entry) => !isInternalNoteEntry(entry))
+                    .map((entry, index) => ({
+                      id: `${timelineTimestamp(entry)}-${index}`,
+                      label: timelineItemLabel(entry),
+                      timestamp: formatDateTime(timelineTimestamp(entry)),
+                    }))}
                 />
               </div>
             )}

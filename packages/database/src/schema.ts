@@ -281,6 +281,13 @@ export const maintenanceReports = pgTable(
     priorityFactors: jsonb('priority_factors'),
     // LOW|MEDIUM|HIGH enforced by validator, NOT pgEnum (Phase 5 owns scoring).
     finalPriority: text('final_priority'),
+    // P5-2: priority audit — admin override reason + decider + config version.
+    priorityOverrideReason: text('priority_override_reason'),
+    priorityDecidedBy: uuid('priority_decided_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    priorityDecidedAt: timestamp('priority_decided_at', { withTimezone: true }),
+    scoringConfigVersion: integer('scoring_config_version').notNull().default(1),
     // Optimistic locking; P3-2+ increments on every mutation.
     version: integer('version').notNull().default(1),
     reportedAt: timestamp('reported_at', { withTimezone: true }).notNull().defaultNow(),
@@ -351,6 +358,55 @@ export const reportEvents = pgTable(
   (table) => [index('report_events_report_created_idx').on(table.reportId, table.createdAt)],
 );
 
+// P5-2: assignment history — one active technician at a time enforced in
+// code (P5-4), not via partial unique index (keeps migration simple).
+export const reportAssignments = pgTable(
+  'report_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    technicianId: uuid('technician_id')
+      .notNull()
+      .references(() => technicians.id, { onDelete: 'restrict' }),
+    assignedBy: uuid('assigned_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull().defaultNow(),
+    unassignedAt: timestamp('unassigned_at', { withTimezone: true }),
+    reason: text('reason'),
+  },
+  (table) => [
+    index('report_assignments_report_assigned_idx').on(table.reportId, table.assignedAt),
+    index('report_assignments_report_id_idx').on(table.reportId),
+  ],
+);
+
+// P5-2: PUBLIC vs INTERNAL append-only timeline entries.
+export const reportUpdates = pgTable(
+  'report_updates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    visibility: text('visibility').notNull(),
+    message: text('message').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('report_updates_report_created_idx').on(table.reportId, table.createdAt),
+    check(
+      'report_updates_visibility_check',
+      sql`${table.visibility} IN ('PUBLIC', 'INTERNAL')`,
+    ),
+  ],
+);
+
 export const reportRelations = pgTable(
   'report_relations',
   {
@@ -392,6 +448,10 @@ export type ReportAttachment = typeof reportAttachments.$inferSelect;
 export type NewReportAttachment = typeof reportAttachments.$inferInsert;
 export type ReportEvent = typeof reportEvents.$inferSelect;
 export type NewReportEvent = typeof reportEvents.$inferInsert;
+export type ReportAssignment = typeof reportAssignments.$inferSelect;
+export type NewReportAssignment = typeof reportAssignments.$inferInsert;
+export type ReportUpdate = typeof reportUpdates.$inferSelect;
+export type NewReportUpdate = typeof reportUpdates.$inferInsert;
 export type ReportRelation = typeof reportRelations.$inferSelect;
 export type NewReportRelation = typeof reportRelations.$inferInsert;
 export type TicketCounter = typeof ticketCounters.$inferSelect;

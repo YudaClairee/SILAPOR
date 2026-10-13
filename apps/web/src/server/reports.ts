@@ -14,8 +14,9 @@
 //   row, a foreign row (another reporter's ticket), and an unresolvable
 //   ticket/UUID reference produce byte-identical HTTP bodies (no existence
 //   oracle for other reporters' tickets).
-// - `getMyTimelineRoute` returns RAW `report_events` rows: Phase 5 owns
-//   sanitization, so the reporter UI must render a safe subset only.
+// - `getMyTimelineRoute` returns SANITIZED `TimelineEntry` rows (Phase 5
+//   reporter projection: no INTERNAL updates/notes, no actor/author PII);
+//   the reporter UI renders labels + timestamps only.
 // - Rate limiting is intentionally NOT applied here: the login rate-limit
 //   helper is login-specific (username+IP key) and not trivially reusable;
 //   Phase 9 owns report-creation rate limits.
@@ -28,7 +29,7 @@ import {
   getAdminReportDetail as repoGetAdminReportDetail,
   getDb,
   getMyReportDetail as repoGetMyReportDetail,
-  getMyReportTimeline as repoGetMyReportTimeline,
+  getReporterTimeline as repoGetReporterTimeline,
   listAllReports as repoListAllReports,
   listAssets as repoListAssets,
   listCategories as repoListCategories,
@@ -48,7 +49,7 @@ import {
   type ReportDetail,
   type ReportListResult,
   type ReportQueryDb,
-  type ReportTimelineEntry,
+  type TimelineEntry,
 } from '@silapor/database';
 import { badRequest, notFound } from '@silapor/shared';
 import { requireAdmin, requireUser } from './auth';
@@ -408,17 +409,17 @@ export async function getMyReportRoute(req: Request, ref: string): Promise<Repor
   }
 }
 
-// RAW `report_events` rows (Phase 5 sanitizes; reporter UI must render a
-// safe subset only).
+// SANITIZED reporter timeline (Phase 5 P5-5): INTERNAL updates/notes and
+// actor/author PII are stripped by the repo — safe to ship verbatim.
 export async function getMyTimelineRoute(
   req: Request,
   ref: string,
-): Promise<{ readonly events: ReportTimelineEntry[] }> {
+): Promise<{ readonly events: TimelineEntry[] }> {
   const user = await requireUser(req);
   const conn = getDb();
   try {
     const id = await resolveReportId(conn.db, user.id, ref);
-    const events = await repoGetMyReportTimeline(conn.db, user.id, id);
+    const events = await repoGetReporterTimeline(conn.db, id, user.id);
     return { events };
   } finally {
     await conn.close().catch(() => undefined);

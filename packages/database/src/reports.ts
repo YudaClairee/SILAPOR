@@ -857,7 +857,53 @@ async function loadReportDetail(
 }
 
 // Reporter detail: identical 404 when the row is missing OR belongs to
-// another reporter (never reveal another reporter's ticket).
+// another reporter (never reveal another reporter's ticket). Events are
+// sanitized for reporter consumption (P5-5 fix): INTERNAL_NOTE_ADDED rows
+// are excluded entirely; remaining rows ship with actorId=null,
+// metadata.note stripped except for public resolution notes
+// (REPORT_RESOLVED, or STATUS_CHANGED→RESOLVED which carries the public
+// RESOLVED note), and UUID-looking fromValue/toValue nulled (status
+// strings kept). Admin detail stays full — see getAdminReportDetail.
+function sanitizeDetailValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return UUID_RE.test(value) ? null : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeDetailValue);
+  }
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = sanitizeDetailValue(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
+function sanitizeReporterDetailEvent(event: schema.ReportEvent): schema.ReportEvent {
+  const keepsNote =
+    event.eventType === 'REPORT_RESOLVED' || (event.eventType === 'STATUS_CHANGED' && event.toValue === 'RESOLVED');
+  let metadata = event.metadata;
+  if (
+    !keepsNote &&
+    metadata !== null &&
+    typeof metadata === 'object' &&
+    !Array.isArray(metadata)
+  ) {
+    const rest = { ...(metadata as Record<string, unknown>) };
+    delete rest['note'];
+    metadata = rest;
+  }
+  return {
+    ...event,
+    actorId: null,
+    fromValue: sanitizeDetailValue(event.fromValue),
+    toValue: sanitizeDetailValue(event.toValue),
+    metadata,
+  };
+}
+
 export async function getMyReportDetail(
   db: ReportQueryDb,
   reporterId: string,
@@ -873,7 +919,11 @@ export async function getMyReportDetail(
   if (row === undefined || row.reporterId !== reporterId) {
     throw notFound('Report not found');
   }
-  return await loadReportDetail(db, row);
+  const detail = await loadReportDetail(db, row);
+  const events = detail.events
+    .filter((event) => event.eventType !== 'INTERNAL_NOTE_ADDED')
+    .map(sanitizeReporterDetailEvent);
+  return { ...detail, events };
 }
 
 // Admin detail: same shape, no ownership check (404 only when truly missing).
