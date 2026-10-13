@@ -25,7 +25,7 @@ import {
   technicians,
   users,
 } from './schema.js';
-import { linkSupportingReport } from './reports.js';
+import { getAdminReportDetail, getMyReportDetail, linkSupportingReport } from './reports.js';
 import { verifyReport, type VerifyReportInput } from './workflow.js';
 import {
   addInternalNote,
@@ -749,5 +749,82 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     await expect(
       addPublicUpdate(requireDb(), closed.id, 'Upaya pembaruan setelah tutup laporan', closed.version, actor()),
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('getMyReportDetail sanitizes INTERNAL notes/actor PII; admin detail stays full', async () => {
+    const UUID_RE_LOCAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const assigned = await makeAssigned();
+    const internalSecret = `Rahasia internal ${randomUUID()} jangan bocor`;
+    const afterAssign = await refresh(assigned.id);
+    await addInternalNote(requireDb(), assigned.id, internalSecret, afterAssign.version, actor());
+    const transitionSecret = `Catatan transisi rahasia ${randomUUID()} jangan bocor`;
+    const afterNote = await refresh(assigned.id);
+    await transitionReport(
+      requireDb(),
+      assigned.id,
+      'INSPECTION',
+      afterNote.version,
+      actor(),
+      transitionSecret,
+    );
+
+    const reporterDetail = await getMyReportDetail(requireDb(), reporterId, assigned.id);
+    const adminDetail = await getAdminReportDetail(requireDb(), assigned.id);
+
+    // Reporter: zero INTERNAL_NOTE_ADDED, actorId null, no internal note leak.
+    expect(reporterDetail.events.some((e) => e.eventType === 'INTERNAL_NOTE_ADDED')).toBe(false);
+    for (const event of reporterDetail.events) {
+      expect(event.actorId).toBeNull();
+      const metadata = event.metadata as Record<string, unknown> | null | undefined;
+      if (metadata !== null && metadata !== undefined && typeof metadata === 'object') {
+        const keepsNote =
+          event.eventType === 'REPORT_RESOLVED' ||
+          (event.eventType === 'STATUS_CHANGED' && event.toValue === 'RESOLVED');
+        if (!keepsNote) {
+          expect('note' in metadata).toBe(false);
+        }
+      }
+      for (const value of [event.fromValue, event.toValue]) {
+        if (typeof value === 'string') {
+          expect(UUID_RE_LOCAL.test(value)).toBe(false);
+        }
+      }
+    }
+    expect(JSON.stringify(reporterDetail)).not.toContain(internalSecret);
+    expect(JSON.stringify(reporterDetail)).not.toContain(transitionSecret);
+
+    // Admin stays full: internal rows + actor PII + notes intact.
+    // NOTE: pure internal update text lives in report_updates (surfaced via
+    // admin timeline), not in report_events; the transition note lives in
+    // STATUS_CHANGED metadata and must stay in admin detail events.
+    expect(adminDetail.events.some((e) => e.eventType === 'INTERNAL_NOTE_ADDED')).toBe(true);
+    expect(adminDetail.events.some((e) => e.actorId === adminId)).toBe(true);
+    expect(JSON.stringify(adminDetail)).toContain(transitionSecret);
+    const adminTimeline = await getAdminTimeline(requireDb(), assigned.id);
+    expect(JSON.stringify(adminTimeline)).toContain(internalSecret);
+    expect(JSON.stringify(adminTimeline)).toContain(transitionSecret);
+    const assignmentEvent = adminDetail.events.find((e) => e.eventType === 'ASSIGNMENT_CHANGED');
+    expect(assignmentEvent?.toValue).toBe(techAId);
+
+    // RESOLVED public note stays reporter-visible.
+    const inRepair = await transitionReport(
+      requireDb(),
+      assigned.id,
+      'IN_REPAIR',
+      (await refresh(assigned.id)).version,
+      actor(),
+      'Kerusakan dikonfirmasi, mulai perbaikan lanjutan',
+    );
+    const publicNote = `Perbaikan selesai publik ${randomUUID()} lampu menyala`;
+    await transitionReport(
+      requireDb(),
+      assigned.id,
+      'RESOLVED',
+      inRepair.version,
+      actor(),
+      publicNote,
+    );
+    const reporterAfter = await getMyReportDetail(requireDb(), reporterId, assigned.id);
+    expect(JSON.stringify(reporterAfter)).toContain(publicNote);
   });
 });

@@ -1,10 +1,10 @@
-// Reporter report timeline (Phase 3 P3-4): GET raw events for one of mine.
+// Reporter report timeline (Phase 5 P5-5): GET sanitized entries for one of mine.
 //
 // Reporter-only: `requireUser` inside the try (401 anonymous); the service
 // layer re-guards on the same request. `:id` accepts a row UUID or a ticket
 // number (`MNT-…`); ownership and 404 semantics match the detail route.
-// Returns `{ events }` RAW — Phase 5 owns sanitization, so the reporter UI
-// must render a safe subset only. See reports.ts for the guard/log
+// Returns `{ events }` SANITIZED (no INTERNAL entries, no actor/author PII)
+// — safe to render verbatim. See reports.ts for the guard/log
 // contract.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
