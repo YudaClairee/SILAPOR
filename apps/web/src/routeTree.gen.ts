@@ -38,7 +38,9 @@ import { Route as ApiAdminIssueTypesIdRouteImport } from './routes/api/admin/iss
 import { Route as ApiAdminLocationsIdRouteImport } from './routes/api/admin/locations.$id'
 import { Route as ApiAdminReportsIdRouteImport } from './routes/api/admin/reports.$id'
 import { Route as ApiAdminTechniciansIdRouteImport } from './routes/api/admin/technicians.$id'
+import { Route as ApiReportsIdAttachmentsRouteImport } from './routes/api/reports.$id.attachments'
 import { Route as ApiReportsIdTimelineRouteImport } from './routes/api/reports.$id.timeline'
+import { Route as ApiReportsIdAttachmentsAttachmentIdRouteImport } from './routes/api/reports.$id.attachments.$attachmentId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -186,11 +188,22 @@ const ApiAdminTechniciansIdRoute = ApiAdminTechniciansIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => ApiAdminTechniciansRoute,
 } as any)
+const ApiReportsIdAttachmentsRoute = ApiReportsIdAttachmentsRouteImport.update({
+  id: '/attachments',
+  path: '/attachments',
+  getParentRoute: () => ApiReportsIdRoute,
+} as any)
 const ApiReportsIdTimelineRoute = ApiReportsIdTimelineRouteImport.update({
   id: '/timeline',
   path: '/timeline',
   getParentRoute: () => ApiReportsIdRoute,
 } as any)
+const ApiReportsIdAttachmentsAttachmentIdRoute =
+  ApiReportsIdAttachmentsAttachmentIdRouteImport.update({
+    id: '/$attachmentId',
+    path: '/$attachmentId',
+    getParentRoute: () => ApiReportsIdAttachmentsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -222,7 +235,9 @@ export interface FileRoutesByFullPath {
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
   '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
+  '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/reports/$id/attachments/$attachmentId': typeof ApiReportsIdAttachmentsAttachmentIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -254,7 +269,9 @@ export interface FileRoutesByTo {
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
   '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
+  '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/reports/$id/attachments/$attachmentId': typeof ApiReportsIdAttachmentsAttachmentIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -287,7 +304,9 @@ export interface FileRoutesById {
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
   '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
+  '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/reports/$id/attachments/$attachmentId': typeof ApiReportsIdAttachmentsAttachmentIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -321,7 +340,9 @@ export interface FileRouteTypes {
     | '/api/admin/locations/$id'
     | '/api/admin/reports/$id'
     | '/api/admin/technicians/$id'
+    | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/reports/$id/attachments/$attachmentId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -353,7 +374,9 @@ export interface FileRouteTypes {
     | '/api/admin/locations/$id'
     | '/api/admin/reports/$id'
     | '/api/admin/technicians/$id'
+    | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/reports/$id/attachments/$attachmentId'
   id:
     | '__root__'
     | '/'
@@ -385,7 +408,9 @@ export interface FileRouteTypes {
     | '/api/admin/locations/$id'
     | '/api/admin/reports/$id'
     | '/api/admin/technicians/$id'
+    | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/reports/$id/attachments/$attachmentId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -611,12 +636,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminTechniciansIdRouteImport
       parentRoute: typeof ApiAdminTechniciansRoute
     }
+    '/api/reports/$id/attachments': {
+      id: '/api/reports/$id/attachments'
+      path: '/attachments'
+      fullPath: '/api/reports/$id/attachments'
+      preLoaderRoute: typeof ApiReportsIdAttachmentsRouteImport
+      parentRoute: typeof ApiReportsIdRoute
+    }
     '/api/reports/$id/timeline': {
       id: '/api/reports/$id/timeline'
       path: '/timeline'
       fullPath: '/api/reports/$id/timeline'
       preLoaderRoute: typeof ApiReportsIdTimelineRouteImport
       parentRoute: typeof ApiReportsIdRoute
+    }
+    '/api/reports/$id/attachments/$attachmentId': {
+      id: '/api/reports/$id/attachments/$attachmentId'
+      path: '/$attachmentId'
+      fullPath: '/api/reports/$id/attachments/$attachmentId'
+      preLoaderRoute: typeof ApiReportsIdAttachmentsAttachmentIdRouteImport
+      parentRoute: typeof ApiReportsIdAttachmentsRoute
     }
   }
 }
@@ -649,11 +688,28 @@ const ReporterRouteWithChildren = ReporterRoute._addFileChildren(
   ReporterRouteChildren,
 )
 
+interface ApiReportsIdAttachmentsRouteChildren {
+  ApiReportsIdAttachmentsAttachmentIdRoute: typeof ApiReportsIdAttachmentsAttachmentIdRoute
+}
+
+const ApiReportsIdAttachmentsRouteChildren: ApiReportsIdAttachmentsRouteChildren =
+  {
+    ApiReportsIdAttachmentsAttachmentIdRoute:
+      ApiReportsIdAttachmentsAttachmentIdRoute,
+  }
+
+const ApiReportsIdAttachmentsRouteWithChildren =
+  ApiReportsIdAttachmentsRoute._addFileChildren(
+    ApiReportsIdAttachmentsRouteChildren,
+  )
+
 interface ApiReportsIdRouteChildren {
+  ApiReportsIdAttachmentsRoute: typeof ApiReportsIdAttachmentsRouteWithChildren
   ApiReportsIdTimelineRoute: typeof ApiReportsIdTimelineRoute
 }
 
 const ApiReportsIdRouteChildren: ApiReportsIdRouteChildren = {
+  ApiReportsIdAttachmentsRoute: ApiReportsIdAttachmentsRouteWithChildren,
   ApiReportsIdTimelineRoute: ApiReportsIdTimelineRoute,
 }
 

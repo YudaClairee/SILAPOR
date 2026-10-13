@@ -1250,11 +1250,15 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
     expect(detail.report.ticketNumber).toBe(a1Ticket);
     expect(detail.attachments).toHaveLength(1);
     expect(detail.attachments[0]).toMatchObject({
-      storageKey: 'p33/a1-photo-1',
       originalFilename: 'photo.jpg',
       mimeType: 'image/jpeg',
       sizeBytes: 1234,
     });
+    // Public-safe projection: exact keys only — the opaque `storageKey`,
+    // `uploadedBy` (user id), and redundant `reportId` never leave the repo.
+    expect(Object.keys(detail.attachments[0] ?? {}).sort()).toEqual(
+      ['checksum', 'createdAt', 'id', 'mimeType', 'originalFilename', 'sizeBytes'].sort(),
+    );
     expect(detail.events.length).toBeGreaterThanOrEqual(1);
     expect(detail.events[0]?.eventType).toBe('REPORT_CREATED');
     for (let i = 1; i < detail.events.length; i++) {
@@ -1270,6 +1274,24 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
     expect(candidateTickets).toContain(a2Ticket);
     expect(candidateTickets).toContain(a3Ticket);
     expect(candidateTickets).not.toContain(a1Ticket);
+  });
+
+  it('never exposes storageKey/uploadedBy in reporter or admin detail payloads', async () => {
+    const reporterDetail = await getMyReportDetail(db!, reporterA, a1Id);
+    const adminDetail = await getAdminReportDetail(db!, a1Id);
+    for (const detail of [reporterDetail, adminDetail]) {
+      expect(detail.attachments).toHaveLength(1);
+      const serialized = JSON.stringify(detail.attachments);
+      expect(serialized).not.toContain('storageKey');
+      expect(serialized).not.toContain('uploadedBy');
+      // `reportId` lives on events/relations rows, but never on attachments.
+      expect(serialized).not.toContain('reportId');
+      for (const row of detail.attachments) {
+        expect('storageKey' in row).toBe(false);
+        expect('uploadedBy' in row).toBe(false);
+        expect('reportId' in row).toBe(false);
+      }
+    }
   });
 
   it('returns the reporter timeline chronologically with the documented shape', async () => {

@@ -6,7 +6,7 @@
 // role=status loading, disabled-while-pending submit, real buttons), no
 // styling framework (follows login.tsx). Server validation stays
 // authoritative: repo 400 messages render as-is; 401 redirects to /login.
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import {
   Button,
@@ -32,6 +32,7 @@ import {
   type ReportFormErrors,
   type ReportFormValues,
 } from '../lib/report-helpers.js';
+import { uploadReportAttachments, validateAttachmentFiles } from '../lib/attachments.js';
 import type { DuplicateCandidate } from '@silapor/database';
 import type { FormOptions } from '../server/reports.js';
 
@@ -116,6 +117,8 @@ type DupState = 'idle' | 'checking' | 'done' | 'error';
 interface SubmitResult {
   readonly ticketNumber: string;
   readonly replay: boolean;
+  readonly uploadedCount: number;
+  readonly uploadFailed: boolean;
 }
 
 function NewReportPage() {
@@ -138,6 +141,34 @@ function NewReportPage() {
   const [submitPending, setSubmitPending] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
+
+  // Phase 4 P4-4: optional photos, picked in the form, uploaded AFTER the
+  // ticket exists (same session; a fresh ticket needs no idempotency key).
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
+
+  function onPickPhotos(event: ChangeEvent<HTMLInputElement>): void {
+    const picked = Array.from(event.target.files ?? []);
+    // Reset so the same file can be re-picked after a rejection.
+    event.target.value = '';
+    if (picked.length === 0) {
+      return;
+    }
+    const combined = [...photoFiles, ...picked];
+    const errors = validateAttachmentFiles(combined);
+    if (errors.length > 0) {
+      setPhotoError(errors[0] ?? 'Foto tidak valid.');
+      return;
+    }
+    setPhotoError(null);
+    setPhotoFiles(combined);
+  }
+
+  function removePhoto(index: number): void {
+    setPhotoFiles((current) => current.filter((_, i) => i !== index));
+    setPhotoError(null);
+  }
 
   // Idempotency key per form INSTANCE: generated on mount, reused across
   // retries of the same payload; reset only via "Lapor masalah lain".
@@ -291,7 +322,25 @@ function NewReportPage() {
       };
       const ticketNumber =
         typeof data.report?.ticketNumber === 'string' ? data.report.ticketNumber : '';
-      setResult({ ticketNumber, replay: data.idempotentReplay === true });
+      // Photos upload AFTER the ticket exists. submitPending stays true
+      // throughout, so every button stays disabled while uploading. A failed
+      // upload never loses the ticket — the success screen keeps the files
+      // and offers a retry.
+      let uploadedCount = 0;
+      let uploadFailed = false;
+      if (photoFiles.length > 0) {
+        try {
+          uploadedCount = (await uploadReportAttachments(ticketNumber, photoFiles)).length;
+        } catch {
+          uploadFailed = true;
+        }
+      }
+      setResult({
+        ticketNumber,
+        replay: data.idempotentReplay === true,
+        uploadedCount,
+        uploadFailed,
+      });
       setPhase('success');
     } catch {
       setServerError('Jaringan bermasalah. Coba lagi — kunci idempotensi dipakai ulang.');
@@ -309,7 +358,25 @@ function NewReportPage() {
     setCandidates([]);
     setDupState('idle');
     setResult(null);
+    setPhotoFiles([]);
+    setPhotoError(null);
+    setRetryPending(false);
     setPhase('form');
+  }
+
+  async function retryUpload(): Promise<void> {
+    if (retryPending || result === null) {
+      return;
+    }
+    setRetryPending(true);
+    try {
+      const uploaded = await uploadReportAttachments(result.ticketNumber, photoFiles);
+      setResult({ ...result, uploadedCount: uploaded.length, uploadFailed: false });
+    } catch {
+      setResult({ ...result, uploadFailed: true });
+    } finally {
+      setRetryPending(false);
+    }
   }
 
   if (options === null) {
@@ -357,6 +424,24 @@ function NewReportPage() {
               {result.ticketNumber}
             </TicketMono>
           </p>
+          {photoFiles.length > 0 && result.uploadedCount > 0 ? (
+            <p className="mt-2 text-sm text-muted">{result.uploadedCount} foto terlampir.</p>
+          ) : null}
+          {result.uploadFailed ? (
+            <div className="mt-4">
+              <ErrorPanel message="Foto gagal diunggah, tetapi laporan tetap tersimpan." />
+              <p className="mt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void retryUpload()}
+                  disabled={retryPending}
+                >
+                  {retryPending ? 'Mengunggah…' : 'Coba unggah lagi'}
+                </Button>
+              </p>
+            </div>
+          ) : null}
           {result.replay ? (
             <p className="mt-2 text-sm text-muted">
               Laporan sudah tercatat dengan nomor tiket tersebut.
@@ -685,6 +770,39 @@ function NewReportPage() {
               }}
             />
             <FieldError id="report-occurred-at-error" message={fieldErrors.occurredAt} />
+          </div>
+
+          <div>
+            <label htmlFor="report-photos" className="mb-1 block text-sm font-medium text-text">
+              Foto (opsional)
+            </label>
+            <Input
+              id="report-photos"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={onPickPhotos}
+              aria-describedby={photoError !== null ? 'report-photos-error' : 'report-photos-hint'}
+            />
+            <p id="report-photos-hint" className="mt-1 text-sm text-muted">
+              Maksimal 3 foto, masing-masing ≤ 5 MB (JPG, PNG, WebP).
+            </p>
+            <FieldError id="report-photos-error" message={photoError ?? undefined} />
+            {photoFiles.length > 0 ? (
+              <ul className="mt-2 flex flex-col gap-1">
+                {photoFiles.map((file, index) => (
+                  <li
+                    key={`${file.name}-${file.size}-${index}`}
+                    className="flex items-center justify-between gap-2 text-sm text-text"
+                  >
+                    <span className="truncate">{file.name}</span>
+                    <Button type="button" variant="ghost" onClick={() => removePhoto(index)}>
+                      Hapus
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <Button type="submit">Lanjut ke review</Button>

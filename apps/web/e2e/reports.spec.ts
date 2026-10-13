@@ -281,3 +281,57 @@ test('8 worker offline: release gate holds with no worker process', async ({ req
   // submit → ticket → admin visibility works without one.
   expect(body.checks?.worker?.ok).toBe(false);
 });
+
+// Phase 4 P4-4 upload gate: valid PNG upload via the new-report file input is
+// stored (success shows the count), the reporter detail renders it as a
+// thumbnail through the authorized GET endpoint, and a revoked attachment id
+// degrades to the first-class broken-image placeholder (never raw errors).
+//
+// P4-4 env note: ran GREEN in the P4-4 release run (full e2e dir 10/10
+// incl. this scenario 9); needs the dev stack (`docker compose up -d`,
+// seeded DB, `pnpm dev` :3000) plus chromium system libs
+// (`LD_LIBRARY_PATH=/tmp/p37libs/...` per the P3-7 report §env).
+test('9 attachments: reporter uploads a photo, sees the thumbnail, broken image shows placeholder', async ({
+  browser,
+}) => {
+  // Minimal 1x1 PNG (decodable by the server sharp pipeline, verified
+  // offline): avoids shipping a binary fixture for the upload input.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const context = await loginContext(browser, '230001');
+  const page = await context.newPage();
+  try {
+    await fillReportForm(page, uniqueDescription('upload-gate'));
+    await page
+      .getByLabel('Foto (opsional)', { exact: true })
+      .setInputFiles([{ name: 'lampu-rusak.png', mimeType: 'image/png', buffer: png }]);
+    await expect(page.getByText('lampu-rusak.png')).toBeVisible();
+
+    const ticket = await submitFromReview(page);
+    await expect(page.getByText('1 foto terlampir.')).toBeVisible();
+
+    await page.getByRole('link', { name: 'Lihat detail laporan' }).click();
+    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    const thumb = page.getByRole('img', { name: 'lampu-rusak.png' });
+    await expect(thumb).toBeVisible();
+    expect(await thumb.getAttribute('src')).toContain(`/api/reports/${ticket}/attachments/`);
+
+    // Revoke every attachment byte response (simulates a deleted/revoked
+    // object id): the thumbnail must degrade to the placeholder state.
+    await page.route('**/attachments/*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: '{"error":{"code":"NOT_FOUND","message":"Attachment not found"}}',
+      }),
+    );
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Gambar tidak dapat dimuat' })).toBeVisible();
+    await expect(page.getByText('Gambar tidak dapat dimuat')).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});

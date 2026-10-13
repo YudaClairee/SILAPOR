@@ -9,6 +9,9 @@
 export { AppShell, navItemsForRole } from './AppShell';
 export type { AppShellNavItem, AppShellProps, AppShellRole, AppShellUser } from './AppShell';
 
+export { AttachmentGallery } from './AttachmentGallery';
+export type { AttachmentGalleryProps, GalleryAttachment } from './AttachmentGallery';
+
 export { Button, buttonBaseClasses, buttonVariantClasses } from './Button';
 export type { ButtonProps, ButtonVariant } from './Button';
 
