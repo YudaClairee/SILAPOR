@@ -19,6 +19,7 @@ import {
 import { eventLabel } from '../lib/report-helpers.js';
 import type { FormOptions } from '../server/reports.js';
 import {
+  AttachmentGallery,
   Button,
   ErrorPanel,
   LoadingState,
@@ -532,17 +533,10 @@ function AdminReportDetailPage() {
             {detail.attachments.length === 0 ? (
               <p className="mt-1 text-sm text-muted">Tidak ada lampiran.</p>
             ) : (
-              <>
-                <ul className="mt-2 flex flex-col gap-1">
-                  {detail.attachments.map((attachment) => (
-                    <li key={attachment.id} className="text-sm text-text">
-                      {attachment.originalFilename} ({attachment.mimeType},{' '}
-                      {attachment.sizeBytes} byte)
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-2 text-sm text-muted">Pratinjau tersedia di Fase 4.</p>
-              </>
+              <AttachmentGallery
+                ticketRef={detail.report.ticketNumber}
+                attachments={detail.attachments}
+              />
             )}
           </section>
 

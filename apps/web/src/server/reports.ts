@@ -57,7 +57,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // Single 404 message shared by every report lookup path (ticket miss, UUID
 // miss, foreign row, invalid reference) — identical bodies by construction.
-const REPORT_NOT_FOUND_MESSAGE = 'Report not found';
+// Exported for the attachment service (P4-3), which must reuse the exact
+// constant so reporter→foreign and missing references stay byte-identical.
+export const REPORT_NOT_FOUND_MESSAGE = 'Report not found';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

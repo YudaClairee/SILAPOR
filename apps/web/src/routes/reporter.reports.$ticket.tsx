@@ -19,6 +19,7 @@ import { eventLabel } from '../lib/report-helpers.js';
 import type { DuplicateCandidate } from '@silapor/database';
 import type { FormOptions } from '../server/reports.js';
 import {
+  AttachmentGallery,
   Button,
   EmptyState,
   ErrorPanel,
@@ -48,10 +49,21 @@ interface TimelineRow {
   readonly createdAt: string;
 }
 
+interface DetailAttachmentRow {
+  readonly id: string;
+  readonly originalFilename: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+}
+
 interface ReportDetailData {
   readonly report: ReportRow;
   readonly events: TimelineRow[];
   readonly duplicateCandidates: DuplicateCandidate[];
+  // Gallery metadata (id + display fields only — bytes come from the
+  // authorized GET url; the opaque storage key never leaves the server).
+  // Optional: older cached payloads may omit it.
+  readonly attachments?: readonly DetailAttachmentRow[];
 }
 
 interface DetailLoaderData {
@@ -334,8 +346,21 @@ function ReportDetailPage() {
             </dl>
           </div>
 
-          {detail.duplicateCandidates.length > 0 ? (
-            <section
+          <section aria-labelledby="detail-attachments-title" className="mt-4 rounded-md border border-border bg-surface p-4">
+            <h2 id="detail-attachments-title" className="text-base font-semibold text-text">
+              Lampiran
+            </h2>
+            {(detail.attachments ?? []).length === 0 ? (
+              <p className="mt-1 text-sm text-muted">Tidak ada lampiran.</p>
+            ) : (
+              <AttachmentGallery
+                ticketRef={detail.report.ticketNumber}
+                attachments={detail.attachments ?? []}
+              />
+            )}
+          </section>
+
+          {detail.duplicateCandidates.length > 0 ? (            <section
               aria-labelledby="detail-duplicate-title"
               className="mt-4 rounded-md border border-warning bg-tint-warning p-4"
             >

@@ -23,7 +23,18 @@ export type AppErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'UNAVAILABLE'
-  | 'INTERNAL';
+  | 'INTERNAL'
+  // Phase 4 P4-3 attachment codes (additive): the P4-1
+  // `AttachmentValidationCode` values surface verbatim as HTTP body codes
+  // so clients can distinguish oversize/type/corrupt/count failures without
+  // parsing messages. `toHttpResponse` passes them through unchanged.
+  | 'FILE_TOO_LARGE'
+  | 'TOO_MANY_FILES'
+  | 'UNSUPPORTED_TYPE'
+  | 'MIME_MISMATCH'
+  | 'CORRUPT_IMAGE'
+  | 'INVALID_FILENAME'
+  | 'EMPTY_FILE';
 
 export interface AppErrorInit {
   readonly code: AppErrorCode;
@@ -72,6 +83,13 @@ export function notFound(message = 'Not found', details?: unknown): AppError {
 
 export function conflict(message = 'Conflict', details?: unknown): AppError {
   return make('CONFLICT', 409, message, details);
+}
+
+// Phase 4 P4-3: the only 413 helper. Oversize attachments reject with code
+// `FILE_TOO_LARGE` (not `BAD_REQUEST`) so the body names the failure;
+// `toHttpResponse` maps the explicit status verbatim (no transport change).
+export function payloadTooLarge(message = 'Payload too large', details?: unknown): AppError {
+  return make('FILE_TOO_LARGE', 413, message, details);
 }
 
 export function unavailable(message = 'Service unavailable', details?: unknown): AppError {

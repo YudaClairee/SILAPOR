@@ -28,6 +28,7 @@ import {
   formatTicketNumber,
 } from '@silapor/domain';
 import * as schema from './schema.js';
+import { type AttachmentSummary } from './attachments.js';
 import { normalizeListOptions } from './master-data.js';
 
 type Database = PostgresJsDatabase<typeof schema>;
@@ -799,7 +800,13 @@ export async function listAllReports(
 
 export interface ReportDetail {
   readonly report: schema.Report;
-  readonly attachments: schema.ReportAttachment[];
+  // Public-safe projection only: id + display metadata + integrity fields.
+  // NEVER `storageKey` (opaque internal key), `uploadedBy` (user id), or
+  // `reportId` (redundant — the parent id is `report.id`). Mirrors the
+  // `listAttachments` projection; bytes stay behind the authorized
+  // download endpoint. No UI/consumer reads the dropped fields (reporter +
+  // admin galleries use id/filename/mime/size via the download URL).
+  readonly attachments: AttachmentSummary[];
   readonly events: schema.ReportEvent[];
   readonly relations: schema.ReportRelation[];
   readonly duplicateCandidates: DuplicateCandidate[];
@@ -810,7 +817,14 @@ async function loadReportDetail(
   row: schema.Report,
 ): Promise<ReportDetail> {
   const attachments = await db
-    .select()
+    .select({
+      id: schema.reportAttachments.id,
+      originalFilename: schema.reportAttachments.originalFilename,
+      mimeType: schema.reportAttachments.mimeType,
+      sizeBytes: schema.reportAttachments.sizeBytes,
+      checksum: schema.reportAttachments.checksum,
+      createdAt: schema.reportAttachments.createdAt,
+    })
     .from(schema.reportAttachments)
     .where(eq(schema.reportAttachments.reportId, row.id))
     .orderBy(asc(schema.reportAttachments.createdAt), asc(schema.reportAttachments.id));

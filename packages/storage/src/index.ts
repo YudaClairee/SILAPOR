@@ -3,3 +3,7 @@
 // AttachmentStorage interface.
 export * from './types';
 export * from './filesystem';
+export * from './attachments';
+export * from './s3';
+export * from './factory';
+export * from './list';
