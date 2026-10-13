@@ -1,0 +1,2 @@
+area_code,building_code,floor_number,area_name,area_type,is_active,verification_status,notes
+C-05-CORRIDOR,C,5,Lorong luar ballroom,COMMON_AREA,true,CONFIRMED,Area bersama di lantai 5 Gedung C; berada di luar ruang ballroom

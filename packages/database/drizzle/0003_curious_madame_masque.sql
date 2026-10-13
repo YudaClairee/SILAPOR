@@ -86,6 +86,7 @@ ALTER TABLE "report_relations" ADD CONSTRAINT "report_relations_created_by_users
 CREATE INDEX "maintenance_reports_reporter_reported_idx" ON "maintenance_reports" USING btree ("reporter_id","reported_at");--> statement-breakpoint
 CREATE INDEX "maintenance_reports_status_reported_idx" ON "maintenance_reports" USING btree ("status","reported_at");--> statement-breakpoint
 CREATE INDEX "maintenance_reports_final_category_idx" ON "maintenance_reports" USING btree ("final_category_id");--> statement-breakpoint
+CREATE INDEX "maintenance_reports_submitted_category_idx" ON "maintenance_reports" USING btree ("submitted_category_id");--> statement-breakpoint
 CREATE INDEX "maintenance_reports_location_idx" ON "maintenance_reports" USING btree ("location_id");--> statement-breakpoint
 CREATE INDEX "maintenance_reports_asset_idx" ON "maintenance_reports" USING btree ("asset_id");--> statement-breakpoint
 CREATE INDEX "maintenance_reports_duplicate_of_idx" ON "maintenance_reports" USING btree ("duplicate_of_report_id");--> statement-breakpoint

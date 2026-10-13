@@ -120,7 +120,13 @@ export function auditActionForUpdate(patchSetsInactive: boolean): string {
 // so patch-only callers must merge first — see `stripUndefined` below.
 // ---------------------------------------------------------------------------
 
-const LOCATION_TYPES: ReadonlySet<string> = new Set(['CAMPUS', 'BUILDING', 'FLOOR', 'ROOM']);
+const LOCATION_TYPES: ReadonlySet<string> = new Set([
+  'CAMPUS',
+  'BUILDING',
+  'FLOOR',
+  'ROOM',
+  'SHARED_AREA',
+]);
 const USAGE_TIERS: ReadonlySet<string> = new Set(['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -209,7 +215,7 @@ export function validateLocationInput(input: unknown): string[] {
   }
   const type = input['type'];
   if (typeof type !== 'string' || !LOCATION_TYPES.has(type)) {
-    errors.push('type must be one of CAMPUS, BUILDING, FLOOR, ROOM');
+    errors.push('type must be one of CAMPUS, BUILDING, FLOOR, ROOM, SHARED_AREA');
   }
   checkRequiredCode(input['code'], 64, errors);
   checkRequiredName(input['name'], 256, errors);

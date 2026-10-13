@@ -1,6 +1,7 @@
 // Idempotent master-data seed (Phase 2 P2-2). Seeds ALL Phase 2 master data
 // from data/master/*.csv: users, facility_categories (+ weights), issue_types,
-// locations hierarchy (campus -> buildings -> floors -> rooms + usage tiers),
+// locations hierarchy (campus -> buildings -> floors -> rooms/shared areas +
+// usage tiers),
 // facility_assets (derived from asset-profiles.csv rules), technicians.
 //
 // Idempotency: every table upserts on its natural code (username / code /
@@ -197,9 +198,19 @@ interface RoomSeed {
   readonly locationId: string;
 }
 
+interface FacilityTarget {
+  readonly roomCode: string;
+  readonly roomName: string;
+  readonly buildingCode: string;
+  readonly locationId: string;
+  readonly areaCode?: string;
+}
+
 function profileMatches(
   appliesTo: string,
-  room: Pick<RoomSeed, 'roomCode' | 'buildingCode'> & { readonly roomNameUpper: string },
+  target: Pick<FacilityTarget, 'roomCode' | 'buildingCode' | 'areaCode'> & {
+    readonly roomNameUpper: string;
+  },
 ): boolean {
   const conditions = appliesTo
     .split(';')
@@ -207,16 +218,21 @@ function profileMatches(
     .filter((part) => part.length > 0);
   return conditions.every((condition) => {
     if (condition.startsWith('ROOM_NAME_CONTAINS=')) {
-      return room.roomNameUpper.includes(condition.slice('ROOM_NAME_CONTAINS='.length).toUpperCase());
+      return target.roomNameUpper.includes(
+        condition.slice('ROOM_NAME_CONTAINS='.length).toUpperCase(),
+      );
     }
     if (condition.startsWith('ROOM_CODE=')) {
-      return room.roomCode === condition.slice('ROOM_CODE='.length).trim();
+      return target.roomCode === condition.slice('ROOM_CODE='.length).trim();
+    }
+    if (condition.startsWith('AREA_CODE=')) {
+      return target.areaCode === condition.slice('AREA_CODE='.length).trim();
     }
     if (condition.startsWith('BUILDING_CODE!=')) {
-      return room.buildingCode !== condition.slice('BUILDING_CODE!='.length).trim();
+      return target.buildingCode !== condition.slice('BUILDING_CODE!='.length).trim();
     }
     if (condition.startsWith('BUILDING_CODE=')) {
-      return room.buildingCode === condition.slice('BUILDING_CODE='.length).trim();
+      return target.buildingCode === condition.slice('BUILDING_CODE='.length).trim();
     }
     throw new Error(`db:seed: unsupported asset-profiles applies_to condition '${condition}'.`);
   });
@@ -514,12 +530,63 @@ async function runSeed(url: string): Promise<SeedDetail> {
       rooms.push({ roomCode, roomName, buildingCode, locationId });
     }
 
-    // 5. Facility assets from asset-profiles.csv rules (NOT the empty assets.csv).
+    // 5. Shared areas are locations without numbered rooms. They are seeded
+    // before facility assets so AREA_CODE profiles can target them.
+    const facilityTargets: FacilityTarget[] = rooms.map((room) => room);
+    for (const row of readCsvRows('shared-areas.csv')) {
+      const areaCode = col(row, 'area_code');
+      const buildingCode = col(row, 'building_code');
+      const floorNumber = parseIntField(
+        col(row, 'floor_number'),
+        `shared-areas.csv ${areaCode || '?'}`,
+      );
+      const areaName = col(row, 'area_name');
+      if (areaCode === '' || buildingCode === '' || areaName === '') {
+        throw new Error('db:seed: shared-areas.csv has a row with empty area_code/building_code/area_name.');
+      }
+      const floorId = locationIds.get(`${buildingCode}-F${floorNumber}`);
+      if (floorId === undefined) {
+        throw new Error(`db:seed: no FLOOR location for shared area ${areaCode}.`);
+      }
+      const isActive = parseBool(col(row, 'is_active'), `shared-areas.csv ${areaCode}`);
+      const locationId = await upsertLocation(
+        areaCode,
+        {
+          code: areaCode,
+          name: areaName,
+          type: 'SHARED_AREA',
+          parentId: floorId,
+          buildingCode,
+          floorNumber,
+          usageTier: null,
+          tierScore: null,
+          reporterHidden: false,
+          isActive,
+        },
+        {
+          name: areaName,
+          type: 'SHARED_AREA',
+          parentId: floorId,
+          buildingCode,
+          floorNumber,
+          reporterHidden: false,
+        },
+      );
+      facilityTargets.push({
+        roomCode: '',
+        roomName: areaName,
+        buildingCode,
+        locationId,
+        areaCode,
+      });
+    }
+
+    // 6. Facility assets from asset-profiles.csv rules (NOT the empty assets.csv).
     const profiles = loadAssetProfiles();
-    for (const room of rooms) {
-      const roomNameUpper = room.roomName.toUpperCase();
+    for (const target of facilityTargets) {
+      const roomNameUpper = target.roomName.toUpperCase();
       for (const profile of profiles) {
-        if (!profileMatches(profile.appliesTo, { ...room, roomNameUpper })) {
+        if (!profileMatches(profile.appliesTo, { ...target, roomNameUpper })) {
           continue;
         }
         const categoryCode = ASSET_TYPE_CATEGORY[profile.assetType];
@@ -538,7 +605,8 @@ async function runSeed(url: string): Promise<SeedDetail> {
             `db:seed: facility-weights.csv has no ASSET v1 row for '${profile.assetCode}'.`,
           );
         }
-        const assetCode = `${profile.assetCode}-${room.roomCode}`;
+        const targetCode = target.areaCode ?? target.roomCode;
+        const assetCode = `${profile.assetCode}-${targetCode}`;
         const existing = await db
           .select({ id: facilityAssets.id })
           .from(facilityAssets)
@@ -549,7 +617,7 @@ async function runSeed(url: string): Promise<SeedDetail> {
           .values({
             assetCode,
             categoryId,
-            locationId: room.locationId,
+            locationId: target.locationId,
             name: profile.assetName,
             weight,
             quantity: profile.quantity,
@@ -559,7 +627,7 @@ async function runSeed(url: string): Promise<SeedDetail> {
             target: facilityAssets.assetCode,
             set: {
               categoryId,
-              locationId: room.locationId,
+              locationId: target.locationId,
               name: profile.assetName,
               weight,
               quantity: profile.quantity,
@@ -569,7 +637,7 @@ async function runSeed(url: string): Promise<SeedDetail> {
       }
     }
 
-    // 6. Technicians.
+    // 7. Technicians.
     for (const row of readCsvRows('technicians.csv')) {
       const code = row['technician_code'] ?? '';
       const displayName = row['display_name'] ?? '';

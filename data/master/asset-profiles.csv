@@ -7,7 +7,8 @@ CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,STUDENT_CHAIR,Kursi mahasiswa,,FURN
 CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,LIGHTING,Lampu,1,ELECTRICAL,CONFIRMED,Satu aset agregat per ruangan; mencakup 2 titik lampu
 CLASSROOM_STANDARD,ROOM_NAME_CONTAINS=KULIAH,POWER_OUTLET,Stop kontak,4,ELECTRICAL,CONFIRMED,Per ruangan
 BUILDING_C_CLASSROOM,BUILDING_CODE=C;ROOM_NAME_CONTAINS=KULIAH,CENTRAL_AC,AC central,1,HVAC,PROVISIONAL,Satu sistem/unit AC central per ruangan
-BUILDING_C_BALLROOM,ROOM_CODE=22.4C.05.064,CENTRAL_AC,AC central ballroom,6,HVAC,PROVISIONAL,Asumsi kerja; gunakan 6 untuk MVP dan perbarui jika verifikasi fisik berbeda
+BUILDING_C_BALLROOM,ROOM_CODE=22.4C.05.064,CENTRAL_AC,AC central ballroom,9,HVAC,CONFIRMED,AC central yang berada di dalam ballroom
+BUILDING_C_FIFTH_FLOOR_CORRIDOR,AREA_CODE=C-05-CORRIDOR,CENTRAL_AC,AC central lorong lantai 5,2,HVAC,CONFIRMED,Dua AC central berada di area lorong luar ballroom pada lantai yang sama
 OTHER_CLASSROOM,BUILDING_CODE!=C;ROOM_NAME_CONTAINS=KULIAH,CONVENTIONAL_AC,AC biasa/split,1,HVAC,PROVISIONAL,Satu unit per ruangan; jumlah berdasarkan informasi awal
 IOT_LAB,ROOM_NAME_CONTAINS=IOT,COMPUTER,Komputer lab,,ELECTRONIC,PROVISIONAL,Dikelola sebagai aset agregat; jumlah unit menunggu inventaris Lab IoT
 TOILET,ROOM_NAME_CONTAINS=TOILET,SINK,Wastafel,1,PLUMBING,CONFIRMED,Satu per toilet (semua toilet)

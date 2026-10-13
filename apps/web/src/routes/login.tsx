@@ -3,11 +3,10 @@
 // by contract (`Kredensial salah`), so displaying them cannot enumerate
 // accounts; anything unparseable falls back to a generic failure line.
 // Accessible (label, role=alert error, disabled-while-pending) with
-// Indonesian copy. Styled per DESIGN.md (Task D-3): centered lg-radius auth
-// card with institutional header; D-1 Input + primary Button.
+// Indonesian copy. No styling dependencies.
 import { useState, type FormEvent } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { Button, Input } from '../components/index.js';
+import '../styles/login.css';
 
 export const Route = createFileRoute('/login')({
   component: LoginPage,
@@ -69,51 +68,105 @@ function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center bg-background px-4 py-16">
-      <section
-        aria-labelledby="login-title"
-        className="w-full max-w-md rounded-lg border border-border bg-surface px-6 py-8 shadow-sm"
-      >
-        <div>
-          <p className="text-lg font-semibold tracking-tight text-text">SILAPOR</p>
-          <p className="mt-1 text-sm text-muted">UPI Kampus Tasikmalaya</p>
-        </div>
-        <h1 id="login-title" className="mt-6 text-2xl font-semibold text-text">
-          Masuk SILAPOR
-        </h1>
-        <form
-          onSubmit={(event: FormEvent<HTMLFormElement>) => void onSubmit(event)}
-          className="mt-6 flex flex-col gap-4"
-        >
+    <section className="login-page" aria-labelledby="login-title">
+      <header className="institutional-header">
+        <div className="institutional-brand">
+          <img src="/assets/login/upi-tasikmalaya.png" alt="Logo UPI Kampus Tasikmalaya" />
           <div>
-            <label
-              htmlFor="login-username"
-              className="mb-1 block text-sm font-medium text-text"
-            >
-              Nama pengguna
-            </label>
-            <Input
-              id="login-username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              required
-              maxLength={128}
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              disabled={pending}
-            />
+            <strong>UNIVERSITAS PENDIDIKAN INDONESIA</strong>
+            <span>Kampus Daerah Tasikmalaya</span>
           </div>
-          {error !== null ? (
-            <p role="alert" className="text-sm text-danger">
-              {error}
+        </div>
+        <div className="header-actions">
+          <span className="connection-status">
+            <span aria-hidden="true" />
+            Sistem Terhubung SSO
+          </span>
+          <a href="#helpdesk">Bantuan Teknis</a>
+        </div>
+      </header>
+
+      <div className="login-main">
+        <div className="login-column">
+          <div className="auth-card">
+            <div className="auth-accent" aria-hidden="true" />
+            <div className="auth-logo-shell">
+              <img src="/assets/login/upi-tasikmalaya.png" alt="" />
+            </div>
+            <div className="auth-heading">
+              <h1 id="login-title">Smart Campus Maintenance System</h1>
+              <p>UPI KAMPUS TASIKMALAYA</p>
+            </div>
+            <p className="auth-description">
+              Portal terpadu sivitas akademika (Mahasiswa, Dosen, dan Tenaga Kependidikan) untuk
+              pelaporan kerusakan, inspeksi aset, dan monitoring pemeliharaan fasilitas kampus
+              secara berkala.
             </p>
-          ) : null}
-          <Button type="submit" disabled={pending}>
-            {pending ? 'Memeriksa…' : 'Masuk'}
-          </Button>
-        </form>
-      </section>
-    </div>
+            <div className="role-preview" aria-label="Cakupan akses">
+              <div>
+                <span>Mahasiswa, Dosen, &amp; Tendik</span>
+                <strong>Pelapor Fasilitas</strong>
+              </div>
+              <span className="role-divider" aria-hidden="true" />
+              <div>
+                <span>Unit UMPER</span>
+                <strong>Tim Operasional</strong>
+              </div>
+            </div>
+
+            <form onSubmit={(event: FormEvent<HTMLFormElement>) => void onSubmit(event)}>
+              <label className="username-field" htmlFor="login-username">
+                <span>ID SSO UPI</span>
+                <input
+                  id="login-username"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
+                  required
+                  maxLength={128}
+                  placeholder="Masukkan ID SSO UPI"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  disabled={pending}
+                />
+              </label>
+              {error !== null ? <p className="login-error" role="alert">{error}</p> : null}
+              <button className="sso-button" type="submit" disabled={pending}>
+                <img src="/assets/login/sso.svg" alt="" aria-hidden="true" />
+                <span>{pending ? 'Memeriksa…' : 'Masuk dengan Akun SSO UPI'}</span>
+              </button>
+            </form>
+
+            <div className="security-note">
+              <img src="/assets/login/security.svg" alt="" aria-hidden="true" />
+              <span>
+                Autentikasi terenkripsi resmi melalui protokol SSO Universitas
+                <br />
+                Pendidikan Indonesia.
+              </span>
+            </div>
+          </div>
+
+          <div className="login-guidance" id="helpdesk">
+            <p>
+              Mengalami kendala saat login akun UPI? Hubungi{' '}
+              <a href="mailto:helpdesk@upi.edu">Layanan Helpdesk TIK Kampus Tasikmalaya</a>.
+            </p>
+            <small>© 2025 Universitas Pendidikan Indonesia Kampus Daerah Tasikmalaya. All rights reserved.</small>
+          </div>
+        </div>
+      </div>
+
+      <footer className="login-footer">
+        <span>Unit Manajemen Pengelolaan Aset &amp; Fasilitas (UMPER) Kampus Tasikmalaya</span>
+        <nav aria-label="Tautan footer">
+          <a href="#guide">Panduan Sistem</a>
+          <span aria-hidden="true">•</span>
+          <a href="#privacy">Kebijakan Privasi</a>
+          <span aria-hidden="true">•</span>
+          <a href="#status">Status Server</a>
+        </nav>
+      </footer>
+    </section>
   );
 }
