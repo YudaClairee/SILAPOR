@@ -9,15 +9,16 @@
 @import 'tailwindcss';
 
 @theme {
-  /* DESIGN.md "Color (locked)" — hex values verbatim. */
-  --color-background: #f3f6f8;
-  --color-surface: #fbfcfd;
+  /* DESIGN.md "Color (locked)" — hex values verbatim (teal/slate). */
+  --color-background: #f4f6f8;
+  --color-surface: #ffffff;
   --color-elevated: #ffffff;
-  --color-text: #27323d;
-  --color-muted: #687580;
-  --color-subtle: #919da6;
-  --color-border: #d7dee3;
-  --color-accent: #d9772a;
+  --color-text: #1e293b;
+  --color-muted: #64748b;
+  --color-subtle: #94a3b8;
+  --color-border: #e2e8f0;
+  --color-accent: #0a3947;
+  --color-accent-secondary: #007b8a;
   --color-success: #258a5b;
   --color-warning: #b87512;
   --color-danger: #b8453d;
@@ -35,14 +36,21 @@
   --radius-lg: 12px;
   --radius-full: 9999px;
 
-  /* D-1 derived tokens (NOT in DESIGN.md — documented additions, same hues):
-     - accent-contrast: dark text on accent buttons. DESIGN.md forbids the
-       text token (#27323D, 4.11:1) as body text on accent and requires
-       >=4.5:1 dark-on-accent; #1B2530 measures 4.89:1 on #D9772A.
-     - tint-*: pale badge backgrounds (tints of the locked semantic hues).
-     - badge-*: darkened badge text on those tints (all >=5.6:1; the raw
-       semantic hues fail on pale tints, e.g. success 3.75:1). */
-  --color-accent-contrast: #1b2530;
+  /* D-5 derived tokens (NOT in DESIGN.md — documented additions):
+     - accent-contrast: white text on accent buttons. White on the teal
+       accent measures 12.43:1 (>=4.5 required). The previous dark
+       contrast value was correct for the old orange accent only.
+     - accent-secondary is reserved for short labels/highlights (white
+       text on it is 5.00:1); it is NOT used as body text anywhere.
+     - tint and badge ramps carry over UNCHANGED: the semantic hues they
+       derive from (success/warning/danger/info) are identical in the new
+       spec, so no re-derivation changes values. Recomputed badge pairs:
+       success 5.64 / warning 5.61 / danger 6.38 / info 6.31 /
+       muted 5.83 : 1 (all >=4.5; raw semantic hues still fail on pale
+       tints, e.g. success 3.75:1, hence the darkened badge text).
+     - text-accent links are now contrast-safe: teal on surface is
+       12.43:1 (>=4.5). */
+  --color-accent-contrast: #ffffff;
   --color-tint-success: #e6f2eb;
   --color-tint-warning: #f7edd8;
   --color-tint-danger: #f5e4e2;

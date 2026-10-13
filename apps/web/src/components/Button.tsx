@@ -8,8 +8,8 @@ export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
 export const buttonBaseClasses =
   'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50';
 
-/** Variant tone classes. Primary uses dark text on accent per DESIGN.md
- *  (accent-contrast, 4.89:1 — accent itself is never body text). */
+/** Variant tone classes. Primary uses white text on the teal accent per
+ *  DESIGN.md (accent-contrast, 12.43:1 — accent itself is never body text). */
 export const buttonVariantClasses: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-accent-contrast hover:brightness-95',
   secondary: 'border border-border bg-surface text-text hover:bg-background',

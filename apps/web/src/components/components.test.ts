@@ -19,7 +19,7 @@ describe('buttonVariantClasses', () => {
     ]);
   });
 
-  it('primary uses accent with dark contrast text (never accent body text)', () => {
+  it('primary uses accent with white contrast text (never accent body text)', () => {
     expect(buttonVariantClasses.primary).toBe(
       'bg-accent text-accent-contrast hover:brightness-95',
     );
