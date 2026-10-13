@@ -17,8 +17,11 @@
 // Timeline tiebreak: merged entries sort by `at` asc; ties resolve in the
 // stable order events → updates → assignments → relations, then id asc.
 // Reporter timeline: INTERNAL updates and INTERNAL_NOTE_ADDED events are
-// excluded, and every entry's `actorId` is nulled (label text only) so no
-// admin/technician PII leaks to reporters.
+// excluded, event `metadata.note` is stripped except for public-note events
+// (STATUS_CHANGED→RESOLVED, REPORT_RESOLVED, PUBLIC_UPDATE_ADDED), and every
+// entry's `actorId` plus `detail.authorId` / `detail.assignedBy` is nulled
+// (technicianId stays as an opaque id; UI resolves display name) so no
+// internal text or admin/technician PII leaks to reporters.
 
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -712,6 +715,45 @@ export async function getReporterTimeline(
     assignments: parts.assignments,
     relations: parts.relations,
   });
-  // Strip all actor PII for reporters: label text only.
-  return entries.map((entry) => ({ ...entry, actorId: null }));
+  // Strip reporter-invisible internals: event metadata.note (except
+  // public-note events), detail.authorId, detail.assignedBy, and actorId.
+  return entries.map(sanitizeReporterEntry);
+}
+
+function sanitizeReporterEntry(entry: TimelineEntry): TimelineEntry {
+  const base = { ...entry, actorId: null as string | null };
+  const detail = entry.detail;
+  if (detail === null) {
+    return base;
+  }
+  if (entry.kind === 'event') {
+    const eventType = detail['eventType'];
+    const toValue = detail['toValue'];
+    const keepsNote =
+      eventType === 'REPORT_RESOLVED' ||
+      eventType === 'PUBLIC_UPDATE_ADDED' ||
+      (eventType === 'STATUS_CHANGED' && toValue === 'RESOLVED');
+    if (!keepsNote) {
+      const metadata = detail['metadata'];
+      if (metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)) {
+        const rest = { ...(metadata as Record<string, unknown>) };
+        delete rest['note'];
+        return { ...base, detail: { ...detail, metadata: rest } };
+      }
+    }
+    return base;
+  }
+  if (entry.kind === 'update') {
+    if ('authorId' in detail) {
+      return { ...base, detail: { ...detail, authorId: null } };
+    }
+    return base;
+  }
+  if (entry.kind === 'assignment') {
+    if ('assignedBy' in detail) {
+      return { ...base, detail: { ...detail, assignedBy: null } };
+    }
+    return base;
+  }
+  return base;
 }

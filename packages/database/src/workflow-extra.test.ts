@@ -639,6 +639,67 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     ).rejects.toMatchObject({ status: 404 });
   });
 
+  it('reporter timeline strips internal transition note metadata but keeps RESOLVED public note', async () => {
+    const inspection = await makeInspection();
+    const internalNote = `Rahasia internal ${randomUUID()} jangan bocor`;
+    const inRepair = await transitionReport(
+      requireDb(),
+      inspection.id,
+      'IN_REPAIR',
+      inspection.version,
+      actor(),
+      internalNote,
+    );
+    expect(inRepair.status).toBe('IN_REPAIR');
+
+    const reporterView = await getReporterTimeline(requireDb(), inspection.id, reporterId);
+    expect(JSON.stringify(reporterView)).not.toContain(internalNote);
+    for (const entry of reporterView) {
+      expect(entry.actorId).toBeNull();
+      if (entry.kind === 'event') {
+        const detail = entry.detail as Record<string, unknown> | null;
+        const metadata = detail?.['metadata'] as Record<string, unknown> | null | undefined;
+        if (metadata !== null && metadata !== undefined && typeof metadata === 'object') {
+          expect(JSON.stringify(metadata)).not.toContain(internalNote);
+          const eventType = detail?.['eventType'];
+          const toValue = detail?.['toValue'];
+          const keepsNote =
+            eventType === 'REPORT_RESOLVED' ||
+            eventType === 'PUBLIC_UPDATE_ADDED' ||
+            (eventType === 'STATUS_CHANGED' && toValue === 'RESOLVED');
+          if (!keepsNote) {
+            expect('note' in metadata).toBe(false);
+          }
+        }
+      }
+      if (entry.kind === 'update') {
+        expect((entry.detail as Record<string, unknown>)?.['authorId']).toBeNull();
+      }
+      if (entry.kind === 'assignment') {
+        expect((entry.detail as Record<string, unknown>)?.['assignedBy']).toBeNull();
+        expect(typeof (entry.detail as Record<string, unknown>)?.['technicianId']).toBe(
+          'string',
+        );
+      }
+    }
+
+    const adminView = await getAdminTimeline(requireDb(), inspection.id);
+    expect(JSON.stringify(adminView)).toContain(internalNote);
+
+    const publicNote = `Perbaikan selesai publik ${randomUUID()} lampu menyala`;
+    const resolved = await transitionReport(
+      requireDb(),
+      inRepair.id,
+      'RESOLVED',
+      inRepair.version,
+      actor(),
+      publicNote,
+    );
+    expect(resolved.status).toBe('RESOLVED');
+    const reporterAfter = await getReporterTimeline(requireDb(), inspection.id, reporterId);
+    expect(JSON.stringify(reporterAfter)).toContain(publicNote);
+  });
+
   it('admin timeline is chronological and contains assignment + relation entries', async () => {
     const assigned = await makeAssigned();
     const other = await makeReport();
