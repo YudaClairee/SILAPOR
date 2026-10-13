@@ -44,9 +44,16 @@ interface ReportRow {
 }
 
 interface TimelineRow {
+  // Legacy detail shape (`eventType` + `createdAt`) and sanitized timeline
+  // shape (`kind` + `label` + `at`) — the server now ships the sanitized
+  // projection (no INTERNAL entries, no actor/author PII), and the renderer
+  // below accepts both without crashing.
   readonly eventType?: unknown;
   readonly type?: unknown;
-  readonly createdAt: string;
+  readonly kind?: unknown;
+  readonly label?: unknown;
+  readonly createdAt?: unknown;
+  readonly at?: unknown;
 }
 
 interface DetailAttachmentRow {
@@ -172,6 +179,39 @@ function entryType(entry: TimelineRow): string {
     return entry.type;
   }
   return 'UNKNOWN';
+}
+
+// Sanitized timeline entries (`kind`/`label`/`at`) render through the same
+// label map; assignment entries show a static PII-free line (the technician
+// id stays opaque — no name/phone lookup on reporter surfaces), and legacy
+// rows fall back to `entryType`. Unknown shapes never crash.
+function timelineItemLabel(entry: TimelineRow): string {
+  if (typeof entry.kind === 'string') {
+    if (entry.kind === 'update') {
+      return 'Pembaruan';
+    }
+    if (entry.kind === 'assignment') {
+      return 'Teknisi ditugaskan';
+    }
+    if (entry.kind === 'relation') {
+      return 'Relasi laporan';
+    }
+    if (entry.kind === 'event' && typeof entry.label === 'string') {
+      return eventLabel(entry.label);
+    }
+    return typeof entry.label === 'string' ? entry.label : entry.kind;
+  }
+  return eventLabel(entryType(entry));
+}
+
+function timelineTimestamp(entry: TimelineRow): string {
+  if (typeof entry.createdAt === 'string') {
+    return entry.createdAt;
+  }
+  if (typeof entry.at === 'string') {
+    return entry.at;
+  }
+  return '';
 }
 
 function ReportDetailPage() {
@@ -396,9 +436,9 @@ function ReportDetailPage() {
               <div className="mt-3">
                 <Timeline
                   items={detail.events.map((entry, index) => ({
-                    id: `${entry.createdAt}-${index}`,
-                    label: eventLabel(entryType(entry)),
-                    timestamp: formatDateTime(entry.createdAt),
+                    id: `${timelineTimestamp(entry)}-${index}`,
+                    label: timelineItemLabel(entry),
+                    timestamp: formatDateTime(timelineTimestamp(entry)),
                   }))}
                 />
               </div>

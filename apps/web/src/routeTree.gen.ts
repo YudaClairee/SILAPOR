@@ -40,6 +40,14 @@ import { Route as ApiAdminReportsIdRouteImport } from './routes/api/admin/report
 import { Route as ApiAdminTechniciansIdRouteImport } from './routes/api/admin/technicians.$id'
 import { Route as ApiReportsIdAttachmentsRouteImport } from './routes/api/reports.$id.attachments'
 import { Route as ApiReportsIdTimelineRouteImport } from './routes/api/reports.$id.timeline'
+import { Route as ApiAdminReportsIdAssignRouteImport } from './routes/api/admin/reports.$id.assign'
+import { Route as ApiAdminReportsIdDuplicateRouteImport } from './routes/api/admin/reports.$id.duplicate'
+import { Route as ApiAdminReportsIdPriorityRouteImport } from './routes/api/admin/reports.$id.priority'
+import { Route as ApiAdminReportsIdRejectRouteImport } from './routes/api/admin/reports.$id.reject'
+import { Route as ApiAdminReportsIdTimelineRouteImport } from './routes/api/admin/reports.$id.timeline'
+import { Route as ApiAdminReportsIdTransitionRouteImport } from './routes/api/admin/reports.$id.transition'
+import { Route as ApiAdminReportsIdUpdatesRouteImport } from './routes/api/admin/reports.$id.updates'
+import { Route as ApiAdminReportsIdVerifyRouteImport } from './routes/api/admin/reports.$id.verify'
 import { Route as ApiReportsIdAttachmentsAttachmentIdRouteImport } from './routes/api/reports.$id.attachments.$attachmentId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -198,6 +206,51 @@ const ApiReportsIdTimelineRoute = ApiReportsIdTimelineRouteImport.update({
   path: '/timeline',
   getParentRoute: () => ApiReportsIdRoute,
 } as any)
+const ApiAdminReportsIdAssignRoute = ApiAdminReportsIdAssignRouteImport.update({
+  id: '/assign',
+  path: '/assign',
+  getParentRoute: () => ApiAdminReportsIdRoute,
+} as any)
+const ApiAdminReportsIdDuplicateRoute =
+  ApiAdminReportsIdDuplicateRouteImport.update({
+    id: '/duplicate',
+    path: '/duplicate',
+    getParentRoute: () => ApiAdminReportsIdRoute,
+  } as any)
+const ApiAdminReportsIdPriorityRoute =
+  ApiAdminReportsIdPriorityRouteImport.update({
+    id: '/priority',
+    path: '/priority',
+    getParentRoute: () => ApiAdminReportsIdRoute,
+  } as any)
+const ApiAdminReportsIdRejectRoute = ApiAdminReportsIdRejectRouteImport.update({
+  id: '/reject',
+  path: '/reject',
+  getParentRoute: () => ApiAdminReportsIdRoute,
+} as any)
+const ApiAdminReportsIdTimelineRoute =
+  ApiAdminReportsIdTimelineRouteImport.update({
+    id: '/timeline',
+    path: '/timeline',
+    getParentRoute: () => ApiAdminReportsIdRoute,
+  } as any)
+const ApiAdminReportsIdTransitionRoute =
+  ApiAdminReportsIdTransitionRouteImport.update({
+    id: '/transition',
+    path: '/transition',
+    getParentRoute: () => ApiAdminReportsIdRoute,
+  } as any)
+const ApiAdminReportsIdUpdatesRoute =
+  ApiAdminReportsIdUpdatesRouteImport.update({
+    id: '/updates',
+    path: '/updates',
+    getParentRoute: () => ApiAdminReportsIdRoute,
+  } as any)
+const ApiAdminReportsIdVerifyRoute = ApiAdminReportsIdVerifyRouteImport.update({
+  id: '/verify',
+  path: '/verify',
+  getParentRoute: () => ApiAdminReportsIdRoute,
+} as any)
 const ApiReportsIdAttachmentsAttachmentIdRoute =
   ApiReportsIdAttachmentsAttachmentIdRouteImport.update({
     id: '/$attachmentId',
@@ -233,10 +286,18 @@ export interface FileRoutesByFullPath {
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
-  '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
+  '/api/admin/reports/$id': typeof ApiAdminReportsIdRouteWithChildren
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
   '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/admin/reports/$id/assign': typeof ApiAdminReportsIdAssignRoute
+  '/api/admin/reports/$id/duplicate': typeof ApiAdminReportsIdDuplicateRoute
+  '/api/admin/reports/$id/priority': typeof ApiAdminReportsIdPriorityRoute
+  '/api/admin/reports/$id/reject': typeof ApiAdminReportsIdRejectRoute
+  '/api/admin/reports/$id/timeline': typeof ApiAdminReportsIdTimelineRoute
+  '/api/admin/reports/$id/transition': typeof ApiAdminReportsIdTransitionRoute
+  '/api/admin/reports/$id/updates': typeof ApiAdminReportsIdUpdatesRoute
+  '/api/admin/reports/$id/verify': typeof ApiAdminReportsIdVerifyRoute
   '/api/reports/$id/attachments/$attachmentId': typeof ApiReportsIdAttachmentsAttachmentIdRoute
 }
 export interface FileRoutesByTo {
@@ -267,10 +328,18 @@ export interface FileRoutesByTo {
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
-  '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
+  '/api/admin/reports/$id': typeof ApiAdminReportsIdRouteWithChildren
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
   '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/admin/reports/$id/assign': typeof ApiAdminReportsIdAssignRoute
+  '/api/admin/reports/$id/duplicate': typeof ApiAdminReportsIdDuplicateRoute
+  '/api/admin/reports/$id/priority': typeof ApiAdminReportsIdPriorityRoute
+  '/api/admin/reports/$id/reject': typeof ApiAdminReportsIdRejectRoute
+  '/api/admin/reports/$id/timeline': typeof ApiAdminReportsIdTimelineRoute
+  '/api/admin/reports/$id/transition': typeof ApiAdminReportsIdTransitionRoute
+  '/api/admin/reports/$id/updates': typeof ApiAdminReportsIdUpdatesRoute
+  '/api/admin/reports/$id/verify': typeof ApiAdminReportsIdVerifyRoute
   '/api/reports/$id/attachments/$attachmentId': typeof ApiReportsIdAttachmentsAttachmentIdRoute
 }
 export interface FileRoutesById {
@@ -302,10 +371,18 @@ export interface FileRoutesById {
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
-  '/api/admin/reports/$id': typeof ApiAdminReportsIdRoute
+  '/api/admin/reports/$id': typeof ApiAdminReportsIdRouteWithChildren
   '/api/admin/technicians/$id': typeof ApiAdminTechniciansIdRoute
   '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/admin/reports/$id/assign': typeof ApiAdminReportsIdAssignRoute
+  '/api/admin/reports/$id/duplicate': typeof ApiAdminReportsIdDuplicateRoute
+  '/api/admin/reports/$id/priority': typeof ApiAdminReportsIdPriorityRoute
+  '/api/admin/reports/$id/reject': typeof ApiAdminReportsIdRejectRoute
+  '/api/admin/reports/$id/timeline': typeof ApiAdminReportsIdTimelineRoute
+  '/api/admin/reports/$id/transition': typeof ApiAdminReportsIdTransitionRoute
+  '/api/admin/reports/$id/updates': typeof ApiAdminReportsIdUpdatesRoute
+  '/api/admin/reports/$id/verify': typeof ApiAdminReportsIdVerifyRoute
   '/api/reports/$id/attachments/$attachmentId': typeof ApiReportsIdAttachmentsAttachmentIdRoute
 }
 export interface FileRouteTypes {
@@ -342,6 +419,14 @@ export interface FileRouteTypes {
     | '/api/admin/technicians/$id'
     | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/admin/reports/$id/assign'
+    | '/api/admin/reports/$id/duplicate'
+    | '/api/admin/reports/$id/priority'
+    | '/api/admin/reports/$id/reject'
+    | '/api/admin/reports/$id/timeline'
+    | '/api/admin/reports/$id/transition'
+    | '/api/admin/reports/$id/updates'
+    | '/api/admin/reports/$id/verify'
     | '/api/reports/$id/attachments/$attachmentId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -376,6 +461,14 @@ export interface FileRouteTypes {
     | '/api/admin/technicians/$id'
     | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/admin/reports/$id/assign'
+    | '/api/admin/reports/$id/duplicate'
+    | '/api/admin/reports/$id/priority'
+    | '/api/admin/reports/$id/reject'
+    | '/api/admin/reports/$id/timeline'
+    | '/api/admin/reports/$id/transition'
+    | '/api/admin/reports/$id/updates'
+    | '/api/admin/reports/$id/verify'
     | '/api/reports/$id/attachments/$attachmentId'
   id:
     | '__root__'
@@ -410,6 +503,14 @@ export interface FileRouteTypes {
     | '/api/admin/technicians/$id'
     | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/admin/reports/$id/assign'
+    | '/api/admin/reports/$id/duplicate'
+    | '/api/admin/reports/$id/priority'
+    | '/api/admin/reports/$id/reject'
+    | '/api/admin/reports/$id/timeline'
+    | '/api/admin/reports/$id/transition'
+    | '/api/admin/reports/$id/updates'
+    | '/api/admin/reports/$id/verify'
     | '/api/reports/$id/attachments/$attachmentId'
   fileRoutesById: FileRoutesById
 }
@@ -650,6 +751,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReportsIdTimelineRouteImport
       parentRoute: typeof ApiReportsIdRoute
     }
+    '/api/admin/reports/$id/assign': {
+      id: '/api/admin/reports/$id/assign'
+      path: '/assign'
+      fullPath: '/api/admin/reports/$id/assign'
+      preLoaderRoute: typeof ApiAdminReportsIdAssignRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
+    '/api/admin/reports/$id/duplicate': {
+      id: '/api/admin/reports/$id/duplicate'
+      path: '/duplicate'
+      fullPath: '/api/admin/reports/$id/duplicate'
+      preLoaderRoute: typeof ApiAdminReportsIdDuplicateRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
+    '/api/admin/reports/$id/priority': {
+      id: '/api/admin/reports/$id/priority'
+      path: '/priority'
+      fullPath: '/api/admin/reports/$id/priority'
+      preLoaderRoute: typeof ApiAdminReportsIdPriorityRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
+    '/api/admin/reports/$id/reject': {
+      id: '/api/admin/reports/$id/reject'
+      path: '/reject'
+      fullPath: '/api/admin/reports/$id/reject'
+      preLoaderRoute: typeof ApiAdminReportsIdRejectRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
+    '/api/admin/reports/$id/timeline': {
+      id: '/api/admin/reports/$id/timeline'
+      path: '/timeline'
+      fullPath: '/api/admin/reports/$id/timeline'
+      preLoaderRoute: typeof ApiAdminReportsIdTimelineRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
+    '/api/admin/reports/$id/transition': {
+      id: '/api/admin/reports/$id/transition'
+      path: '/transition'
+      fullPath: '/api/admin/reports/$id/transition'
+      preLoaderRoute: typeof ApiAdminReportsIdTransitionRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
+    '/api/admin/reports/$id/updates': {
+      id: '/api/admin/reports/$id/updates'
+      path: '/updates'
+      fullPath: '/api/admin/reports/$id/updates'
+      preLoaderRoute: typeof ApiAdminReportsIdUpdatesRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
+    '/api/admin/reports/$id/verify': {
+      id: '/api/admin/reports/$id/verify'
+      path: '/verify'
+      fullPath: '/api/admin/reports/$id/verify'
+      preLoaderRoute: typeof ApiAdminReportsIdVerifyRouteImport
+      parentRoute: typeof ApiAdminReportsIdRoute
+    }
     '/api/reports/$id/attachments/$attachmentId': {
       id: '/api/reports/$id/attachments/$attachmentId'
       path: '/$attachmentId'
@@ -778,12 +935,37 @@ const ApiAdminLocationsRouteChildren: ApiAdminLocationsRouteChildren = {
 const ApiAdminLocationsRouteWithChildren =
   ApiAdminLocationsRoute._addFileChildren(ApiAdminLocationsRouteChildren)
 
+interface ApiAdminReportsIdRouteChildren {
+  ApiAdminReportsIdAssignRoute: typeof ApiAdminReportsIdAssignRoute
+  ApiAdminReportsIdDuplicateRoute: typeof ApiAdminReportsIdDuplicateRoute
+  ApiAdminReportsIdPriorityRoute: typeof ApiAdminReportsIdPriorityRoute
+  ApiAdminReportsIdRejectRoute: typeof ApiAdminReportsIdRejectRoute
+  ApiAdminReportsIdTimelineRoute: typeof ApiAdminReportsIdTimelineRoute
+  ApiAdminReportsIdTransitionRoute: typeof ApiAdminReportsIdTransitionRoute
+  ApiAdminReportsIdUpdatesRoute: typeof ApiAdminReportsIdUpdatesRoute
+  ApiAdminReportsIdVerifyRoute: typeof ApiAdminReportsIdVerifyRoute
+}
+
+const ApiAdminReportsIdRouteChildren: ApiAdminReportsIdRouteChildren = {
+  ApiAdminReportsIdAssignRoute: ApiAdminReportsIdAssignRoute,
+  ApiAdminReportsIdDuplicateRoute: ApiAdminReportsIdDuplicateRoute,
+  ApiAdminReportsIdPriorityRoute: ApiAdminReportsIdPriorityRoute,
+  ApiAdminReportsIdRejectRoute: ApiAdminReportsIdRejectRoute,
+  ApiAdminReportsIdTimelineRoute: ApiAdminReportsIdTimelineRoute,
+  ApiAdminReportsIdTransitionRoute: ApiAdminReportsIdTransitionRoute,
+  ApiAdminReportsIdUpdatesRoute: ApiAdminReportsIdUpdatesRoute,
+  ApiAdminReportsIdVerifyRoute: ApiAdminReportsIdVerifyRoute,
+}
+
+const ApiAdminReportsIdRouteWithChildren =
+  ApiAdminReportsIdRoute._addFileChildren(ApiAdminReportsIdRouteChildren)
+
 interface ApiAdminReportsRouteChildren {
-  ApiAdminReportsIdRoute: typeof ApiAdminReportsIdRoute
+  ApiAdminReportsIdRoute: typeof ApiAdminReportsIdRouteWithChildren
 }
 
 const ApiAdminReportsRouteChildren: ApiAdminReportsRouteChildren = {
-  ApiAdminReportsIdRoute: ApiAdminReportsIdRoute,
+  ApiAdminReportsIdRoute: ApiAdminReportsIdRouteWithChildren,
 }
 
 const ApiAdminReportsRouteWithChildren = ApiAdminReportsRoute._addFileChildren(
