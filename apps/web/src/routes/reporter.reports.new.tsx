@@ -537,7 +537,7 @@ function NewReportPage() {
               id="report-building"
               value={values.buildingId}
               invalid={fieldErrors.buildingId !== undefined}
-              aria-describedby="report-building-error"
+              aria-describedby={fieldErrors.buildingId ? 'report-building-error' : undefined}
               onChange={(event) => {
                 patch({ buildingId: event.target.value, locationId: '', assetId: '' });
               }}
@@ -561,7 +561,7 @@ function NewReportPage() {
               value={values.locationId}
               disabled={values.buildingId === ''}
               invalid={fieldErrors.locationId !== undefined}
-              aria-describedby="report-room-error"
+              aria-describedby={fieldErrors.locationId ? 'report-room-error' : undefined}
               onChange={(event) => {
                 patch({ locationId: event.target.value, assetId: '' });
               }}
@@ -586,7 +586,7 @@ function NewReportPage() {
               id="report-category"
               value={values.categoryId}
               invalid={fieldErrors.categoryId !== undefined}
-              aria-describedby="report-category-error"
+              aria-describedby={fieldErrors.categoryId ? 'report-category-error' : undefined}
               onChange={(event) => {
                 patch({ categoryId: event.target.value, assetId: '' });
               }}
@@ -610,7 +610,7 @@ function NewReportPage() {
               value={values.assetId}
               disabled={values.categoryId === '' || values.locationId === ''}
               invalid={fieldErrors.assetId !== undefined}
-              aria-describedby="report-asset-error"
+              aria-describedby={fieldErrors.assetId ? 'report-asset-error' : undefined}
               onChange={(event) => {
                 patch({ assetId: event.target.value });
               }}
@@ -633,7 +633,7 @@ function NewReportPage() {
               id="report-issue-type"
               value={values.issueTypeId}
               invalid={fieldErrors.issueTypeId !== undefined}
-              aria-describedby="report-issue-type-error"
+              aria-describedby={fieldErrors.issueTypeId ? 'report-issue-type-error' : undefined}
               onChange={(event) => {
                 patch({ issueTypeId: event.target.value });
               }}
@@ -658,7 +658,7 @@ function NewReportPage() {
               maxLength={2000}
               rows={5}
               invalid={fieldErrors.description !== undefined}
-              aria-describedby="report-description-error"
+              aria-describedby={fieldErrors.description ? 'report-description-error' : undefined}
               onChange={(event) => {
                 patch({ description: event.target.value });
               }}
@@ -679,7 +679,7 @@ function NewReportPage() {
               type="datetime-local"
               value={values.occurredAt}
               invalid={fieldErrors.occurredAt !== undefined}
-              aria-describedby="report-occurred-at-error"
+              aria-describedby={fieldErrors.occurredAt ? 'report-occurred-at-error' : undefined}
               onChange={(event) => {
                 patch({ occurredAt: event.target.value });
               }}

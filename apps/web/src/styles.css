@@ -33,6 +33,7 @@
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --radius-full: 9999px;
 
   /* D-1 derived tokens (NOT in DESIGN.md — documented additions, same hues):
      - accent-contrast: dark text on accent buttons. DESIGN.md forbids the
