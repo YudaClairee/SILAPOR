@@ -58,3 +58,4 @@ export * from './workflow.js';
 export * from './workflow-extra.js';
 export * from './facilities.js';
 export * from './notifications.js';
+export * from './outbox-consumer.js';

@@ -17,6 +17,11 @@
 import { randomUUID } from 'node:crypto';
 import type { QueueMessage } from '@silapor/jobs';
 import { createLogger, getRuntimeConfig, recordWorkerBeat } from '@silapor/shared';
+import {
+  getDb,
+  type DatabaseConnection,
+} from '@silapor/database';
+import { startOutboxLoop, type OutboxLoopHandle } from './outbox-loop.js';
 
 const logger = createLogger({ service: 'worker' });
 
@@ -83,12 +88,34 @@ export interface WorkerHandle {
 
 export async function start(): Promise<WorkerHandle> {
   const config = getRuntimeConfig();
-  logger.info('worker start (stub, no broker wired yet; call processMessage() directly)', {
+  logger.info('worker start', {
     result: `port=${config.port}`,
   });
   await beat('start');
+
+  // Phase 6 P6-4: PostgreSQL outbox IS the pilot queue. The poll loop claims
+  // WORKFLOW_NOTIFICATION rows (AI rows stay PENDING for Phase 8) and never
+  // crashes on DB outages — failures retry on the next tick.
+  let outboxLoop: OutboxLoopHandle | null = null;
+  let dbHandle: DatabaseConnection | null = null;
+  if (config.databaseUrl === undefined || config.databaseUrl.trim() === '') {
+    logger.warn('worker start without DATABASE_URL; outbox loop disabled', {
+      route: 'worker/start',
+      result: 'outbox-loop-disabled',
+    });
+  } else {
+    dbHandle = getDb(config.databaseUrl);
+    outboxLoop = startOutboxLoop(dbHandle.db);
+  }
+
   return {
     stop: async () => {
+      if (outboxLoop !== null) {
+        await outboxLoop.stop();
+      }
+      if (dbHandle !== null) {
+        await dbHandle.close();
+      }
       logger.info('worker stop');
     },
     getWorkerHealth,

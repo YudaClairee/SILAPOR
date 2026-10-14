@@ -141,8 +141,12 @@ describe.skipIf(!enabled)('notification processing (requires reachable PostgreSQ
 
   beforeAll(async () => {
     const admin = postgres(baseUrl, { max: 1 });
-    await admin`CREATE DATABASE ${admin(SCRATCH_DB_NAME)}`;
-    await admin.end();
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS "${SCRATCH_DB_NAME}"`);
+      await admin.unsafe(`CREATE DATABASE "${SCRATCH_DB_NAME}"`);
+    } finally {
+      await admin.end();
+    }
     const handle = getDb(url);
     db = handle.db;
     close = handle.close;
