@@ -141,7 +141,16 @@ const FACILITY_SEVERITY: Readonly<Record<FacilityStatus, number>> = {
 };
 
 /**
+ * Operational severity ranking used for ordering/precedence comparisons:
+ * IN_REPAIR (3) > UNDER_INSPECTION (2) > REPORTED_ISSUE (1) > OPERATIONAL (0).
+ */
+export function facilityStatusSeverity(status: FacilityStatus): number {
+  return FACILITY_SEVERITY[status];
+}
+
+/**
  * Derives the public facility status from the statuses of a facility's active
+
  * reports. Unknown/terminal statuses are ignored defensively (callers must
  * pass active statuses only, but a stray RESOLVED/CLOSED must not crash or
  * skew the result). No active report → OPERATIONAL.

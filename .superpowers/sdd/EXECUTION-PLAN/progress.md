@@ -20,3 +20,4 @@ Historical Phase 1-5 ledger lives in the main checkout (this file was reset for 
 
 ## Task log
 - (pending P6-1)
+- P6-1: complete (commit 83d0768..0d25b57, review clean; domain 53/53, migration 0005 generated: notifications table + outbox last_error).
