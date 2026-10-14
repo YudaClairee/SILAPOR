@@ -93,3 +93,50 @@ Plan self-check per task: briefs carry exact CSV values verbatim; no asserts-not
 - P2-4: complete (no commits; pure deny-by-default policies + server requireUser/Admin/Owner guards + redirect-only admin/reporter layouts + login page; auth 43/43, web build green; review Spec ✅ Approved, 3 minors: parseSessionToken triplication, layout beforeLoad duplication, stale P2-3 header — all deferred).
 - P2-5: complete (no commits; repos+validators for 5 entities, 10 admin routes, audit transactions, no-delete; db 26 pass, web build green with 10 routes, live cycle per-entity verified; review Spec ✅ Approved, 3 minors: specialization alias, unwired archive fns, index-line note — all deferred).
 - Final verification (controller, 2026-10-10): moon run :typecheck 10/10 green; :lint 10/10 green; :test green (shared 5, auth 43, database 26 + 1 pre-existing gated skip); :build 10/10 green. Release gate: role boundary + master data stabil — PASS (server requireAdmin everywhere, reporter-blocked, archive-never-delete, audit on all mutations, seed idempotent, inactive sessions dead). Zero commits per user rule — changes in working tree for user to review/commit.
+
+## Phase 5 — Admin Workflow, Assignment, and Timeline (EXECUTION-PLAN.md lines 1142-1211)
+Scope: domain/backend 16 steps + frontend 11 steps + test-minimum 14 items + release gate full lifecycle.
+Spec authority: EXECUTION-PLAN.md §4.2/§4.4/§4.7/§4.8/§7/§8/§9 + docs/decisions/PHASE-0-PRODUCT-DECISIONS.md §§2,5,8.
+Worktree: /home/yudaclairee/kuliah/silapor/.worktrees/phase-5-admin-workflow on branch phase-5-admin-workflow from BASE 81b570470765f266e91ccf59d991e57a5fb02ce1.
+BASE Phase 5: 81b570470765f266e91ccf59d991e57a5fb02ce1.
+
+### Rulings (Phase 5 pre-flight)
+- Ruling: Decision §5 4-dim scoring (35+25+25+15 + frequency tiers 1→0/2→5/3-4→10/≥5→15, mapping LOW 0-39/MEDIUM 40-69/HIGH 70-100, DANGEROUS min HIGH) wins over plan §4.4 3-dim (40+30+30). — Why: plan §4 intro says decision register is source of truth; decision is newer (2026-10-10). — Cost if wrong: rubric recalibration; bounded by pure scoring fn + scoringConfigVersion.
+- Ruling: Stored weights stay as-is (category 0-40, asset 0-30, tierScore 0-30); scoring fn clamps to new maxima (min(weight,35), min(weight,25), min(tierScore,25)) + frequency 0-15. Null/missing weight → new-scale medians (category 17, asset 12, location 12, frequency 0) with scoringComplete=false; admin must set finalPriority manually. — Why: avoid re-seed churn; provisional until UMPER calibrates. — Cost if wrong: slight score skew; auditable via priorityFactors snapshot.
+- Ruling: Batch Phase 5 into 6 tasks (P5-1 domain; P5-2 migration; P5-3 workflow core; P5-4 assignment/transition/timeline; P5-5 transport+UI; P5-6 E2E gate). One implementer at a time, review after each. — Why: same-shape batching per SDD. — Cost if wrong: larger diffs; mitigated by scoped re-review.
+- Ruling: P5-2 extends maintenance_reports in place (ADD priority_override_reason text nullable, priority_decided_by uuid FK users SET NULL nullable, priority_decided_at timestamptz nullable, scoring_config_version integer default 1); creates report_assignments + report_updates tables; no rework of Phase 3/4 tables. — Why: plan §7 + auditability. — Cost if wrong: migration rework.
+- Ruling: task-brief/review-package scripts require Task-N headings absent from EXECUTION-PLAN.md; controller writes briefs manually to .superpowers/sdd/EXECUTION-PLAN/task-p5-N-brief.md and review packages via git diff file. Script failure is tooling gap, not plan gap. — Why: scripts grep '^#+ Task N'; plan uses Phase sections. — Cost if wrong: none; brief content identical in substance.
+
+### Pre-flight conflict scan (pairs sharing files/interfaces)
+| Pair | Produces vs consumes | Finding |
+|---|---|---|
+| P5-1 vs P5-3/P5-4 | P5-1 pure transition map + scoring fn vs P5-3/P5-4 DB transactions consuming them | Ordering enforced (domain first). Interface: canTransition(from,to), priorityScore fn signature fixed in P5-1 brief; P5-3/4 must import from @silapor/domain, not duplicate. No contradiction. |
+| P5-2 vs P5-3/P5-4 | P5-2 migration tables/columns vs P5-3/P5-4 repos writing them | Ordering enforced (migration first). Column names binding: priority_override_reason, priority_decided_by, priority_decided_at, scoring_config_version; tables report_assignments/report_updates per §7. No conflict. |
+| P5-3 vs P5-4 | P5-3 verify/reject/duplicate/finalPriority vs P5-4 assign/transition/updates/timeline | Both write maintenance_reports.version + report_events + audit_logs + outbox_events in same txn. Ruled: shared txn helper lives in P5-3; P5-4 reuses, never forks. Version increment +1 per mutation; conflict → 409. Clean. |
+| P5-4 vs P5-5 | P5-4 timeline projection shape vs P5-5 UI consuming it | Interface: timeline entries {id, kind, actor, timestamp, payload} chronological; reporter view strips INTERNAL + PII. P5-5 must not re-query raw tables. No conflict. |
+| Plan §4.4 vs decision §5 | 40+30+30 vs 35+25+25+15 | Conflict found, ruled above: decision wins. |
+| P5-5 AI placeholder vs Phase 8 | P5-5 shows pending panel vs Phase 8 real AI | Ruled: P5-5 renders deterministic placeholder (no fetch, no mock inference); Phase 8 owns adapter. No contradiction. |
+
+Plan self-check per task: briefs carry exact transition matrix + scoring numbers verbatim; no asserts-nothing or verbatim-duplication mandates. Scan table above is the scan record.
+
+## Progress (Phase 5)
+- Setup complete (worktree phase-5-admin-workflow, BASE 81b5704). Starting P5-1.
+- P5-1: complete (commits 81b5704..f91fd67, review clean Approved; 45 tests pass).
+- P5-1: Ruling: requiresNote(INSPECTION→IN_REPAIR)=true stands (set-membership reading). — Why: NOTE_REQUIRED_TRANSITIONS contains IN_REPAIR distinct from REOPEN; plan step 10 mandates inspection note. — Cost if wrong: one-line fix in P5-3 if UMPER wants note-free inspection→repair.
+- P5-1: minor (deferred): scorePriority no rounding for non-integer weights (out-of-contract; weights integer-scaled).
+- P5-1: minor (deferred): factors.affectedReporters echoes raw input; downstream must not trust echo for display.
+- P5-2: complete (commit f91fd67..e81a724, review clean Approved; 109 pass/1 skip offline, migrate 0000→0004 verified on scratch DB).
+- P5-2: minor (deferred): report_assignments_report_id_idx redundant prefix of (report_id,assigned_at) but brief-mandated — keep.
+- P5-2 note: local dev DB volume predates chain (0000 drift) — operator must `docker compose down -v` before migrate; not done by implementer.
+- P5-3: complete (commit e81a724..719da7b, review clean Approved; 135 pass/1 skip, workflow 26/26 with live scratch DB).
+- P5-3: minor (deferred): withReportLock optional 5th actor param (brief self-contradiction resolved, backward-compat); outbox payload adds actorId; override reason stored trimmed; extra affectedReporters finite guard; equal no-op returns outer snapshot.
+- P5-4: complete (commits 719da7b..f241b22, review Approved + fix round 1/5 clean; 154 pass/1 skip).
+- P5-4: fix round 1/5 (2 addressed, 0 open — reporter STATUS_CHANGED metadata.note leak + author PII; commit efaaa1b..f241b22).
+- P5-4: Ruling: reporter timeline strips internal transition note + authorId/assignedBy (keeps RESOLVED public note + opaque technicianId). — Why: plan §4.7/acceptance internal-never-visible wins over brief's INTERNAL_NOTE_ADDED-only scope. — Cost if wrong: over-redaction hides resolution context; bounded by keepsNote exception.
+- P5-5: complete (commits f241b22..e5aa10d, review Needs-fixes → fix round 1/5 clean; web 146/146 + database 155/1 skip, live full-chain smoke v1→v9).
+- P5-5: fix round 1/5 (3 addressed, 0 open — reporter detail network leak + DOM existence leak + stale comment; commit 29dbc48..e5aa10d).
+- P5-5: Ruling: getMyReportDetail sanitizes events server-side (drops INTERNAL_NOTE_ADDED, nulls actorId/author PII, strips metadata.note except RESOLVED public); reporter UI defense-in-depth filters INTERNAL labels. — Why: acceptance internal-never-visible must hold at network level, not just DOM. — Cost if wrong: none; admin path untouched.
+- P5-5: minor (deferred): admin form keeps user edits after reload (fresh version used — cosmetic); report list/create on shared dev DB INTERNAL (pre-existing migration-5 drift, isolated-DB smoke clean).
+- P5-6: complete (no commits, verification only — gate PASS 12/12; domain 45/45, database 155+146 incl. live 47/47 full-chain v1→v7 on scratch DB, web 146/146 + build 3.39s).
+- P5-6 note: db.integration.test.ts fails only when pointed at migrated shared dev DB (pre-existing CREATE TYPE conflict; use empty DB).
+- Final review: READY TO MERGE (whole-branch 81b5704..e5aa10d, 8 commits; no blocking findings; deferred minors triaged, none block merge). Branch phase-5-admin-workflow in .worktrees/phase-5-admin-workflow; NOT merged/pushed — awaiting user decision.
