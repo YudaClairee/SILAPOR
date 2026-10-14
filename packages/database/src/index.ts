@@ -57,3 +57,4 @@ export * from './attachment-cleanup.js';
 export * from './workflow.js';
 export * from './workflow-extra.js';
 export * from './facilities.js';
+export * from './notifications.js';
