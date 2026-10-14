@@ -1,0 +1,75 @@
+<h2>AI verify, then admin only when unsure</h2>
+<p class="subtitle">Reporter submits building &rarr; floor &rarr; room &rarr; asset + description + photos. AI checks photos are clear, description matches the asset, fills category + issue type + priority. Three outcomes.</p>
+
+<div class="section">
+<div class="mockup">
+<div class="mockup-header">Flow: submit &rarr; AI check &rarr; VERIFIED / fix-and-retry / manual queue</div>
+<div class="mockup-body">
+<div class="mock-nav">Reporter form | AI check | Admin queue</div>
+<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;">
+<div style="flex:1;min-width:180px;border:1px solid #ddd;border-radius:8px;padding:12px;">
+<div class="label">Auto pass</div>
+<h3>VERIFIED</h3>
+<p>Photos clear, story matches asset. Category + issue + priority filled. Moves toward technician.</p>
+</div>
+<div style="flex:1;min-width:180px;border:1px solid #ddd;border-radius:8px;padding:12px;">
+<div class="label">Clear fail</div>
+<h3>Stopped with reason</h3>
+<p>Blurry / dark / wrong asset. Reporter sees plain reason, retakes photo or fixes text.</p>
+</div>
+<div style="flex:1;min-width:180px;border:1px solid #ddd;border-radius:8px;padding:12px;">
+<div class="label">Unsure</div>
+<h3>Manual queue</h3>
+<p>AI will not guess. Admin sees full form + AI guess + why unsure, then verifies or sends back.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>Which manual review layout feels right?</h3>
+<p class="subtitle">Both show the same thing: full filled form, big photos, AI guess with reason, verify / send-back actions.</p>
+<div class="split">
+<div class="mockup">
+<div class="mockup-header">Option A: side by side</div>
+<div class="mockup-body">
+<div style="display:flex;gap:12px;">
+<div style="flex:1;">
+<div class="label">Filled form + photos</div>
+<div class="placeholder">Gedung C &gt; Lt 2 &gt; R.Kuliah 01 &gt; AC-04<br>Description<br>[ photo 1 ] [ photo 2 ]</div>
+</div>
+<div style="flex:1;">
+<div class="label">AI guess</div>
+<div class="placeholder">HVAC / Bocor atau mampet / High<br>Unsure: photo 2 dark<br>[ Verify ] [ Send back ]</div>
+</div>
+</div>
+</div>
+</div>
+<div class="mockup">
+<div class="mockup-header">Option B: stacked</div>
+<div class="mockup-body">
+<div class="label">Filled form</div>
+<div class="placeholder">Building &gt; floor &gt; room &gt; asset + description</div>
+<div class="label" style="margin-top:8px;">Photos large</div>
+<div class="placeholder">[ photo 1 ] [ photo 2 ] [ photo 3 ]</div>
+<div class="label" style="margin-top:8px;">AI guess + actions</div>
+<div class="placeholder">Category / issue / priority + why unsure<br>[ Verify ] [ Send back with reason ]</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>Pick one</h3>
+<div class="options">
+<div class="option" data-choice="a" onclick="toggleSelect(this)">
+<div class="letter">A</div>
+<div class="content"><h3>Side by side</h3><p>Form left, AI decision right. Faster compare on desktop.</p></div>
+</div>
+<div class="option" data-choice="b" onclick="toggleSelect(this)">
+<div class="letter">B</div>
+<div class="content"><h3>Stacked</h3><p>Everything in one scroll. Better for photos and mobile.</p></div>
+</div>
+</div>
+</div>
