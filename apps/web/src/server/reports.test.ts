@@ -11,6 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DuplicateActiveError, resolveReportSort } from '@silapor/database';
 import { notFound, toHttpResponse } from '@silapor/shared';
+import type { AttachmentStorage } from '@silapor/storage';
 import {
   classifyReportRef,
   isReporterVisibleLocation,
@@ -43,6 +44,9 @@ const dbMocks = vi.hoisted(() => ({
   listCategories: vi.fn(),
   listIssueTypes: vi.fn(),
   countAffectedReporters: vi.fn(),
+  getStagedUploadsByKeys: vi.fn(),
+  linkStagedUploads: vi.fn(),
+  deleteStagedUploads: vi.fn(),
   requireUser: vi.fn(),
 }));
 
@@ -60,6 +64,9 @@ vi.mock('@silapor/database', async (importOriginal) => ({
   listCategories: dbMocks.listCategories,
   listIssueTypes: dbMocks.listIssueTypes,
   countAffectedReporters: dbMocks.countAffectedReporters,
+  getStagedUploadsByKeys: dbMocks.getStagedUploadsByKeys,
+  linkStagedUploads: dbMocks.linkStagedUploads,
+  deleteStagedUploads: dbMocks.deleteStagedUploads,
 }));
 
 vi.mock('./auth', async (importOriginal) => ({
@@ -350,14 +357,39 @@ const SUBMIT_REPORT_ID = '44444444-4444-4444-4444-444444444444';
 const SUBMIT_ANALYSIS_ID = '55555555-5555-5555-5555-555555555555';
 const SUBMIT_CATEGORY_ID = '66666666-6666-6666-6666-666666666666';
 const SUBMIT_ISSUE_ID = '77777777-7777-7777-7777-777777777777';
+const SUBMIT_STAGED_KEY = 'staging_88888888-8888-4888-8888-888888888888';
 
 function submitBody() {
   return {
     locationId: UUID_A,
     assetId: UUID_B,
     description: 'Lampu lorong mati total perlu perbaikan segera',
-    photoKeys: ['reports/submit/photo-1.jpg'],
+    photoKeys: [SUBMIT_STAGED_KEY],
   };
+}
+
+function stagedRow() {
+  return {
+    id: '99999999-9999-4999-8999-999999999999',
+    storageKey: SUBMIT_STAGED_KEY,
+    uploadedBy: SUBMIT_REPORTER_ID,
+    originalFilename: 'lorong.jpg',
+    mimeType: 'image/jpeg',
+    sizeBytes: 12_000,
+    checksum: 'staged-checksum',
+    claimedReportId: null,
+    createdAt: new Date(),
+  };
+}
+
+function arrangeStagedKeys() {
+  dbMocks.getStagedUploadsByKeys.mockResolvedValue([stagedRow()]);
+  dbMocks.linkStagedUploads.mockResolvedValue([]);
+  dbMocks.deleteStagedUploads.mockResolvedValue(1);
+}
+
+function fakeStorage(): AttachmentStorage {
+  return { remove: vi.fn(async () => undefined) } as unknown as AttachmentStorage;
 }
 
 function submitRequest(): Request {
@@ -392,6 +424,7 @@ describe('submitVerifiedReport held fallback', () => {
     vi.clearAllMocks();
     dbMocks.requireUser.mockResolvedValue(sessionUser());
     dbMocks.getDb.mockReturnValue({ db: {}, close: async () => undefined });
+    arrangeStagedKeys();
   });
 
   it('holds as REPORTED with a ticket when the AI is DOWN', async () => {
@@ -415,6 +448,7 @@ describe('submitVerifiedReport held fallback', () => {
       verify: async () => ({ kind: 'DOWN' }),
       model: 'test-model',
       timeoutMs: 50,
+      storage: fakeStorage(),
     });
     expect(res.status).toBe(202);
     if (res.status !== 202) {
@@ -426,6 +460,41 @@ describe('submitVerifiedReport held fallback', () => {
     expect(dbMocks.recordAiAnalysis).toHaveBeenCalledTimes(1);
     expect(dbMocks.markAiAnalysis).not.toHaveBeenCalled();
     expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+    expect(dbMocks.linkStagedUploads).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reportId: SUBMIT_REPORT_ID, uploadedBy: SUBMIT_REPORTER_ID }),
+    );
+  });
+
+  it('rejects unknown staged keys with 400 before calling AI', async () => {
+    arrangeMasterContext();
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.getStagedUploadsByKeys.mockResolvedValue([]);
+    const verify = vi.fn().mockResolvedValue({ kind: 'DOWN' });
+    await expect(
+      submitVerifiedReport(submitRequest(), submitBody(), 'key-unknown-1', {
+        verify,
+        model: 'test-model',
+        timeoutMs: 50,
+        storage: fakeStorage(),
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(verify).not.toHaveBeenCalled();
+    expect(dbMocks.recordAiAnalysis).not.toHaveBeenCalled();
+    expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
   });
 
   it('verifies as VERIFIED with a ticket when the AI passes', async () => {
@@ -484,6 +553,7 @@ describe('submitVerifiedReport held fallback', () => {
       verify,
       model: 'test-model',
       timeoutMs: 50,
+      storage: fakeStorage(),
     });
     expect(res.status).toBe(201);
     if (res.status !== 201) {
@@ -525,6 +595,10 @@ describe('submitVerifiedReport held fallback', () => {
         confidence: 0.9,
         model: 'test-model',
       }),
+    );
+    expect(dbMocks.linkStagedUploads).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reportId: SUBMIT_REPORT_ID, uploadedBy: SUBMIT_REPORTER_ID }),
     );
   });
 
@@ -578,6 +652,7 @@ describe('submitVerifiedReport held fallback', () => {
       }),
       model: 'test-model',
       timeoutMs: 50,
+      storage: fakeStorage(),
     });
     expect(res.status).toBe(201);
     if (res.status !== 201) {
@@ -624,10 +699,12 @@ describe('submitVerifiedReport held fallback', () => {
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    const storage = fakeStorage();
     const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-fail-1', {
       verify: async () => ({ kind: 'FAIL', reason: 'UNCLEAR_EVIDENCE' }),
       model: 'test-model',
       timeoutMs: 50,
+      storage,
     });
     expect(res.status).toBe(422);
     if (res.status !== 422) {
@@ -642,6 +719,12 @@ describe('submitVerifiedReport held fallback', () => {
     );
     expect(deleted).toBeGreaterThan(0);
     expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+    expect(storage.remove).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
+    expect(dbMocks.deleteStagedUploads).toHaveBeenCalledWith(
+      expect.anything(),
+      [SUBMIT_STAGED_KEY],
+    );
+    expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
   });
 
   it('rejects with 422 when the AI verdict points at the wrong asset', async () => {
@@ -686,6 +769,7 @@ describe('submitVerifiedReport held fallback', () => {
       }),
       model: 'test-model',
       timeoutMs: 50,
+      storage: fakeStorage(),
     });
     expect(res.status).toBe(422);
     if (res.status !== 422) {

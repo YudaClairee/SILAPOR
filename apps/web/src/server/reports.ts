@@ -43,6 +43,8 @@ import {
   listMyReports as repoListMyReports,
   maintenanceReports,
   markAiAnalysis as repoMarkAiAnalysis,
+  linkStagedUploads as repoLinkStagedUploads,
+  deleteStagedUploads as repoDeleteStagedUploads,
   outboxEvents,
   recordAiAnalysis as repoRecordAiAnalysis,
   type CreateReportInput,
@@ -63,7 +65,9 @@ import {
 } from '@silapor/database';
 import { scorePriority } from '@silapor/domain';
 import { badRequest, internal, notFound } from '@silapor/shared';
+import { createAttachmentStorage, type AttachmentStorage } from '@silapor/storage';
 import { requireAdmin, requireUser } from './auth';
+import { removeStagedObjects, resolveStagedPhotoKeys } from './uploads.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -748,6 +752,7 @@ export interface SubmitVerifyDeps {
   readonly verify?: SubmitVerifyFn;
   readonly timeoutMs?: number;
   readonly model?: string;
+  readonly storage?: AttachmentStorage;
 }
 
 export type SubmitVerifiedResult =
@@ -894,6 +899,21 @@ export async function submitVerifiedReport(
       };
     }
     const report = created.report;
+    // Staged keys resolve before any AI spend: unknown, foreign, claimed,
+    // or expired keys fail the submit with a uniform 400 here.
+    const staged = await resolveStagedPhotoKeys(conn.db, user.id, normalized.photoKeys);
+    // FAIL cleanup removes the staged objects (best-effort) and rows so a
+    // rejected submit leaves no row, no ticket, and no staged leftovers
+    // (the TTL janitor backstops a removal failure; the 422 stands).
+    async function discardStagedPhotos(): Promise<void> {
+      const storage = deps?.storage ?? createAttachmentStorage();
+      await removeStagedObjects(storage, [...normalized.photoKeys]);
+      try {
+        await repoDeleteStagedUploads(conn.db, [...normalized.photoKeys]);
+      } catch {
+        // Janitor backstop — never flips the verdict.
+      }
+    }
     const analysis = await repoRecordAiAnalysis(conn.db, {
       reportId: report.id,
       model: model ?? 'unpinned',
@@ -923,7 +943,13 @@ export async function submitVerifiedReport(
     );
     // DOWN is transient (timeout/5xx/429): hold the REPORTED row with its
     // PENDING analysis for manual verification instead of rejecting it.
+    // Staged photos link first so the held ticket carries them.
     if (outcome.kind === 'DOWN') {
+      await repoLinkStagedUploads(conn.db, {
+        reportId: report.id,
+        staged,
+        uploadedBy: user.id,
+      });
       return {
         status: 202,
         ticketNumber: report.ticketNumber,
@@ -938,6 +964,7 @@ export async function submitVerifiedReport(
         status: 'FAILED',
         errorCode: outcome.reason,
       });
+      await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
       return { status: 422, reason: toReporterReason(outcome.reason) };
     }
@@ -955,6 +982,7 @@ export async function submitVerifiedReport(
         status: 'FAILED',
         errorCode: mapped.reason,
       });
+      await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
       return { status: 422, reason: toReporterReason(mapped.reason) };
     }
@@ -970,6 +998,7 @@ export async function submitVerifiedReport(
         status: 'FAILED',
         errorCode: 'WRONG_ASSET',
       });
+      await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
       return { status: 422, reason: toReporterReason('WRONG_ASSET') };
     }
@@ -1018,6 +1047,13 @@ export async function submitVerifiedReport(
       .where(eq(maintenanceReports.id, verified.id))
       .returning();
     const finalRow = snapped[0] ?? verified;
+    // Photos link atomically with the claim before the analysis is marked,
+    // so SUCCEEDED always means verified plus linked.
+    await repoLinkStagedUploads(conn.db, {
+      reportId: finalRow.id,
+      staged,
+      uploadedBy: user.id,
+    });
     await repoMarkAiAnalysis(conn.db, analysis.id, {
       status: 'SUCCEEDED',
       category: mapped.categoryCode,

@@ -1,21 +1,30 @@
+// @vitest-environment jsdom
 // Reporter form contract for the AI verification flow.
 //
-// The plan sketch renders the page, but this package has no jsdom or
-// testing library (node vitest env), so the same requirements live here
-// as pure helper tests plus route source assertions.
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+// The plan sketch renders `<NewReportPage/>` directly, but the page reads
+// its options through the route loader and router hooks, so the render
+// tests mount the real route inside a memory router with stubbed fetch
+// instead. The submit button keeps its Indonesian copy, so the disabled
+// assertion matches /kirim laporan/i rather than the sketch /submit/i.
+// Pure helper tests below pin the validation, cascade, and verdict units.
+import '@testing-library/jest-dom/vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   assetsForRoom,
   floorsForBuilding,
   isNewReportSubmittable,
-  photoRefsForSubmit,
   roomsForParent,
   toSubmitOutcome,
   validateNewReportForm,
   type NewReportValues,
+  Route,
 } from './reporter.reports.new';
 
 const BUILDING = '11111111-1111-4111-8111-111111111111';
@@ -50,7 +59,7 @@ const VALID_VALUES: NewReportValues = {
 };
 
 describe('new-flow submit gate', () => {
-  it('disables submit with no photo and requires the full asset chain', () => {
+  it('gates submit on the full chain, description, and photos', () => {
     expect(isNewReportSubmittable(VALID_VALUES, [], true)).toBe(false);
     expect(isNewReportSubmittable({ ...VALID_VALUES, buildingId: '' }, [photo()], true)).toBe(
       false,
@@ -143,42 +152,133 @@ describe('submit verdict mapping', () => {
     expect(toSubmitOutcome(500, null).kind).toBe('error');
     expect(toSubmitOutcome(201, null).kind).toBe('error');
   });
-
-  it('sends the picked file names as the submit photo refs', () => {
-    expect(photoRefsForSubmit([photo('a.jpg'), photo('b.png', 'image/png')])).toEqual([
-      'a.jpg',
-      'b.png',
-    ]);
-  });
 });
 
-describe('route source contract', () => {
-  const sourcePath = join(dirname(fileURLToPath(import.meta.url)), 'reporter.reports.new.tsx');
-  const source = readFileSync(sourcePath, 'utf8');
+describe('reporter form render', () => {
+  const FORM_OPTIONS = {
+    locations: [
+      { id: BUILDING, code: 'G-A', name: 'Gedung A', type: 'BUILDING', parentId: null, buildingCode: null },
+      { id: FLOOR_1, code: 'G-A-1', name: 'Lantai 1', type: 'FLOOR', parentId: BUILDING, buildingCode: 'G-A' },
+      { id: ROOM_101, code: 'R-101', name: 'Ruang 101', type: 'ROOM', parentId: FLOOR_1, buildingCode: 'G-A' },
+    ],
+    assets: [{ id: ASSET_AC, assetCode: 'AC-04', name: 'AC ruang 101', locationId: ROOM_101 }],
+  };
 
-  it('renders no classification select at all', () => {
-    expect(source).not.toMatch(/categor/i);
-    expect(source).not.toMatch(/kategori/i);
-    expect(source).not.toMatch(/issueType/i);
-    expect(source).not.toMatch(/Jenis masalah/);
-    expect(source).not.toMatch(/occurredAt/);
-    expect(source).not.toMatch(/occurred_at/);
+  const rootRoute = createRootRoute();
+  function stubFetch(overrides?: { reportsStatus?: number; reportsBody?: unknown }) {
+    const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/reports/form-options')) {
+        return { status: 200, ok: true, json: async () => FORM_OPTIONS } as Response;
+      }
+      if (url.includes('/api/uploads')) {
+        return { status: 201, ok: true, json: async () => ({ keys: ['staging_testkey'] }) } as Response;
+      }
+      if (url === '/api/reports') {
+        const status = overrides?.reportsStatus ?? 201;
+        const body = overrides?.reportsBody ?? { ticketNumber: 'MNT-2026-000007' };
+        return { status, ok: status >= 200 && status < 300, json: async () => body } as Response;
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  function renderPage() {
+    const testRoute = Route.update({
+      id: '/reporter/reports/new',
+      path: '/reporter/reports/new',
+      getParentRoute: () => rootRoute,
+    } as never);
+    const routeTree = rootRoute.addChildren([testRoute]);
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ['/reporter/reports/new'] }),
+    });
+    render(<RouterProvider router={router} />);
+  }
+
+  function fillChain() {
+    fireEvent.change(screen.getByLabelText('Gedung'), { target: { value: BUILDING } });
+    fireEvent.change(screen.getByLabelText('Lantai'), { target: { value: FLOOR_1 } });
+    fireEvent.change(screen.getByLabelText('Ruangan'), { target: { value: ROOM_101 } });
+    fireEvent.change(screen.getByLabelText('Aset'), { target: { value: ASSET_AC } });
+    fireEvent.change(screen.getByLabelText('Deskripsi'), {
+      target: { value: 'Dinding ruang retak memanjang dan rembes saat hujan deras.' },
+    });
+  }
+
+  function attachPhoto() {
+    const file = new File([new Uint8Array([1, 2, 3])], 'retak.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByLabelText('Foto'), { target: { files: [file] } });
+  }
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
-  it('keeps the full chain, the photo picker, and the verified submit', () => {
-    for (const id of [
-      'report-building',
-      'report-floor',
-      'report-room',
-      'report-asset',
-      'report-description',
-      'report-photos',
-    ]) {
-      expect(source).toContain(id);
+  it('disables submit with no photo and requires the full asset chain', async () => {
+    stubFetch();
+    renderPage();
+    const submit = await screen.findByRole('button', { name: /kirim laporan/i });
+    expect(submit).toBeDisabled();
+    expect(screen.queryByLabelText(/kategori/i)).not.toBeInTheDocument();
+    for (const label of ['Gedung', 'Lantai', 'Ruangan', 'Aset', 'Deskripsi', 'Foto']) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
     }
-    expect(source).toContain('photoKeys: photoRefsForSubmit(');
-    expect(source).toContain('x-idempotency-key');
-    expect(source).toContain('uploadReportAttachments(');
-    expect(source).toContain('toSubmitOutcome(');
+  });
+
+  it('keeps submit disabled until the chain and a photo are complete', async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByRole('button', { name: /kirim laporan/i });
+    fillChain();
+    expect(screen.getByRole('button', { name: /kirim laporan/i })).toBeDisabled();
+    attachPhoto();
+    expect(screen.getByRole('button', { name: /kirim laporan/i })).toBeEnabled();
+  });
+
+  it('stages photos first and shows the verified ticket', async () => {
+    const fetchMock = stubFetch();
+    renderPage();
+    await screen.findByRole('button', { name: /kirim laporan/i });
+    fillChain();
+    attachPhoto();
+    fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
+    expect(await screen.findByText('MNT-2026-000007')).toBeInTheDocument();
+    const submits = fetchMock.mock.calls.filter(([url]) => url === '/api/reports');
+    expect(submits).toHaveLength(1);
+    const body = JSON.parse(String(submits[0]?.[1]?.body)) as unknown as {
+      photoKeys: unknown;
+    };
+    expect(body.photoKeys).toEqual(['staging_testkey']);
+  });
+
+  it('shows the fail reason with a fresh-report retry', async () => {
+    stubFetch({ reportsStatus: 422, reportsBody: { reason: 'Foto kurang jelas.' } });
+    renderPage();
+    await screen.findByRole('button', { name: /kirim laporan/i });
+    fillChain();
+    attachPhoto();
+    fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
+    expect(await screen.findByText('Foto kurang jelas.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /buat laporan baru/i }));
+    expect(await screen.findByLabelText('Gedung')).toBeInTheDocument();
+  });
+
+  it('shows the held ticket with the waiting notice', async () => {
+    stubFetch({
+      reportsStatus: 202,
+      reportsBody: { ticketNumber: 'MNT-2026-000009', message: 'Laporan menunggu pemeriksaan.' },
+    });
+    renderPage();
+    await screen.findByRole('button', { name: /kirim laporan/i });
+    fillChain();
+    attachPhoto();
+    fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
+    expect(await screen.findByText('MNT-2026-000009')).toBeInTheDocument();
+    expect(await screen.findByText('Laporan menunggu pemeriksaan.')).toBeInTheDocument();
   });
 });

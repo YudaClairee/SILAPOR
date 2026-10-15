@@ -50,6 +50,13 @@
       "when": 1792045234629,
       "tag": "0006_faithful_morbius",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792051063197,
+      "tag": "0007_careless_havok",
+      "breakpoints": true
     }
   ]
 }

@@ -341,6 +341,34 @@ export const reportAttachments = pgTable(
   (table) => [index('report_attachments_report_id_idx').on(table.reportId)],
 );
 
+// Pre-submit photo staging (AI verification photo-first flow). A staged row
+// reserves one validated, re-encoded image in private storage under an
+// unguessable key BEFORE its report exists; the verified submit claims it
+// into `report_attachments` (PASS/HELD) or removes it (FAIL). Unclaimed rows
+// expire via `created_at` (submit rejects them; the staged janitor removes
+// the objects). Claimed rows stay as audit and cascade with their report.
+export const stagedUploads = pgTable(
+  'staged_uploads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Random storage key (`staging_<uuid>`), never the original filename.
+    storageKey: text('storage_key').notNull().unique(),
+    uploadedBy: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    // Canonical post-re-encode metadata (same values a claim would write).
+    originalFilename: text('original_filename').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    checksum: text('checksum').notNull(),
+    claimedReportId: uuid('claimed_report_id').references(() => maintenanceReports.id, {
+      onDelete: 'cascade',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('staged_uploads_claimed_report_id_idx').on(table.claimedReportId)],
+);
+
 // Append-only: NO update/delete repo functions (P3-2+ writes inserts only).
 export const reportEvents = pgTable(
   'report_events',

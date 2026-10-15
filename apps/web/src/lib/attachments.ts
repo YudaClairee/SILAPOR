@@ -61,6 +61,52 @@ export function reportAttachmentsUrl(ticketOrId: string): string {
   return `/api/reports/${encodeURIComponent(ticketOrId)}/attachments`;
 }
 
+export function stagedUploadsUrl(): string {
+  return '/api/uploads';
+}
+
+// Stages validated files before the report exists and returns opaque
+// storage keys for the verified submit. Throws Indonesian Errors.
+export async function stageReportPhotos(files: readonly File[]): Promise<string[]> {
+  const form = new FormData();
+  for (const file of files) {
+    form.append('files', file);
+  }
+  let response: Response;
+  try {
+    response = await fetch(stagedUploadsUrl(), {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    });
+  } catch {
+    throw new Error('Gagal mengunggah foto. Coba lagi.');
+  }
+  if (response.status === 401) {
+    throw new Error('Sesi berakhir. Masuk kembali lalu coba lagi.');
+  }
+  if (response.status === 413) {
+    throw new Error('Ukuran foto melebihi 5 MB.');
+  }
+  if (!response.ok) {
+    throw new Error('Gagal mengunggah foto. Coba lagi.');
+  }
+  let data: { readonly keys?: unknown };
+  try {
+    data = (await response.json()) as { readonly keys?: unknown };
+  } catch {
+    throw new Error('Gagal mengunggah foto. Coba lagi.');
+  }
+  if (
+    !Array.isArray(data.keys) ||
+    data.keys.length === 0 ||
+    data.keys.some((key) => typeof key !== 'string' || key === '')
+  ) {
+    throw new Error('Gagal mengunggah foto. Coba lagi.');
+  }
+  return data.keys as string[];
+}
+
 // Authorized GET url for one attachment's bytes (session cookie via
 // `credentials: 'include'` at fetch time — never a presigned/public URL).
 export function attachmentDownloadUrl(ticketOrId: string, attachmentId: string): string {

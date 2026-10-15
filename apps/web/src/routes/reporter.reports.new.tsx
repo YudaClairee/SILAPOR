@@ -2,6 +2,10 @@
 // gedung → lantai → ruangan → aset (all required) plus description and
 // 1-3 photos, then a blocking wait for the inline verdict.
 //
+// Photo-first: picked photos stage to /api/uploads before the submit, and
+// the submit carries the returned storage keys. The server links staged
+// photos into attachments on VERIFIED and HELD, and removes them on FAIL.
+//
 // Indonesian copy, accessible labels on every input, role=alert errors,
 // role=status loading, disabled-until-valid submit, real buttons, no
 // styling framework (follows login.tsx). Server validation stays
@@ -23,7 +27,7 @@ import {
 } from '../components/index.js';
 import { visibleLocations } from '../lib/report-helpers.js';
 import {
-  uploadReportAttachments,
+  stageReportPhotos,
   validateAttachmentFiles,
   type ClientFileLike,
 } from '../lib/attachments.js';
@@ -136,12 +140,6 @@ export function isNewReportSubmittable(
   floorRequired: boolean,
 ): boolean {
   return Object.keys(validateNewReportForm(values, photoFiles, floorRequired)).length === 0;
-}
-
-// No staging endpoint exists yet, so the submit carries file names as
-// photo refs. Bytes upload to the ticket right after the verdict.
-export function photoRefsForSubmit(files: readonly ClientFileLike[]): string[] {
-  return files.map((file) => file.name);
 }
 
 export type SubmitOutcome =
@@ -339,9 +337,7 @@ function NewReportPage() {
   const [duplicateTicket, setDuplicateTicket] = useState<string | null>(null);
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
 
-  const [uploadPending, setUploadPending] = useState(false);
-  const [uploadFailed, setUploadFailed] = useState(false);
-  const [uploadedCount, setUploadedCount] = useState(0);
+  const [waitingStep, setWaitingStep] = useState<'staging' | 'verdict'>('staging');
 
   function onPickPhotos(event: ChangeEvent<HTMLInputElement>): void {
     const picked = Array.from(event.target.files ?? []);
@@ -443,32 +439,21 @@ function NewReportPage() {
     setValues((current) => ({ ...current, ...patchValues }));
   }
 
-  async function uploadToTicket(ticketNumber: string): Promise<void> {
-    if (photoFiles.length === 0) {
-      return;
-    }
-    setUploadPending(true);
-    setUploadFailed(false);
-    try {
-      const uploaded = await uploadReportAttachments(ticketNumber, photoFiles);
-      setUploadedCount(uploaded.length);
-    } catch {
-      setUploadFailed(true);
-    } finally {
-      setUploadPending(false);
-    }
-  }
-
-  async function retryUpload(): Promise<void> {
-    if (uploadPending || ticket === null) {
-      return;
-    }
-    await uploadToTicket(ticket);
-  }
-
   async function submitReport(): Promise<void> {
     setPhase('waiting');
+    setWaitingStep('staging');
     setSubmitError(null);
+    // Photo-first: the validated files stage before the submit, and the
+    // submit carries the returned keys. A staged batch whose submit never
+    // arrives expires via the staged TTL.
+    let photoKeys: string[];
+    try {
+      photoKeys = await stageReportPhotos(photoFiles);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Gagal mengunggah foto. Coba lagi.');
+      return;
+    }
+    setWaitingStep('verdict');
     let response: Response;
     try {
       response = await fetch('/api/reports', {
@@ -482,7 +467,7 @@ function NewReportPage() {
           locationId: values.locationId,
           assetId: values.assetId,
           description: values.description.trim(),
-          photoKeys: photoRefsForSubmit(photoFiles),
+          photoKeys,
         }),
       });
     } catch {
@@ -504,14 +489,12 @@ function NewReportPage() {
       case 'verified': {
         setTicket(outcome.ticketNumber);
         setReplay(outcome.replay);
-        await uploadToTicket(outcome.ticketNumber);
         setPhase('verified');
         return;
       }
       case 'held': {
         setTicket(outcome.ticketNumber);
         setHeldMessage(outcome.message);
-        await uploadToTicket(outcome.ticketNumber);
         setPhase('held');
         return;
       }
@@ -566,41 +549,15 @@ function NewReportPage() {
     setDuplicateMessage(null);
     setPhotoFiles([]);
     setPhotoError(null);
-    setUploadPending(false);
-    setUploadFailed(false);
-    setUploadedCount(0);
+    setWaitingStep('staging');
     setPhase('form');
   }
 
-  function uploadStatus(): ReactNode {
-    if (uploadPending) {
-      return (
-        <div className="mt-4">
-          <LoadingState message="Mengunggah foto…" />
-        </div>
-      );
+  function photoCountLine(): ReactNode {
+    if (photoFiles.length === 0) {
+      return null;
     }
-    if (uploadFailed) {
-      return (
-        <div className="mt-4">
-          <ErrorPanel message="Foto gagal diunggah, tetapi laporan tetap tersimpan." />
-          <p className="mt-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => void retryUpload()}
-              disabled={uploadPending}
-            >
-              Coba unggah lagi
-            </Button>
-          </p>
-        </div>
-      );
-    }
-    if (uploadedCount > 0) {
-      return <p className="mt-2 text-sm text-muted">{uploadedCount} foto terlampir.</p>;
-    }
-    return null;
+    return <p className="mt-2 text-sm text-muted">{photoFiles.length} foto terlampir.</p>;
   }
 
   function resultLinks(): ReactNode {
@@ -700,10 +657,16 @@ function NewReportPage() {
       <section aria-labelledby="new-report-waiting-title" className="max-w-3xl">
         <div className="rounded-md border border-border bg-surface p-6 text-center md:p-8">
           <h1 id="new-report-waiting-title" className="text-2xl font-semibold text-text">
-            Menunggu hasil verifikasi
+            {waitingStep === 'staging' ? 'Mengunggah foto' : 'Menunggu hasil verifikasi'}
           </h1>
           <div className="mt-4">
-            <LoadingState message="Mengirim laporan dan menunggu hasil verifikasi…" />
+            <LoadingState
+              message={
+                waitingStep === 'staging'
+                  ? 'Mengunggah foto…'
+                  : 'Mengirim laporan dan menunggu hasil verifikasi…'
+              }
+            />
           </div>
           <p className="mt-2 text-sm text-muted">Jangan tutup halaman ini.</p>
           {submitError !== null ? (
@@ -804,7 +767,7 @@ function NewReportPage() {
             </TicketMono>
           </p>
           <p className="mt-4 text-sm text-text">{heldMessage}</p>
-          {uploadStatus()}
+          {photoCountLine()}
           {resultLinks()}
         </div>
       </section>
@@ -829,7 +792,7 @@ function NewReportPage() {
               Laporan sudah tercatat dengan nomor tiket tersebut.
             </p>
           ) : null}
-          {uploadStatus()}
+          {photoCountLine()}
           {resultLinks()}
         </div>
       </section>

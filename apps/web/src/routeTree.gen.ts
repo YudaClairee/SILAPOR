@@ -15,6 +15,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiReportsRouteImport } from './routes/api/reports'
+import { Route as ApiUploadsRouteImport } from './routes/api/uploads'
 import { Route as AdminReportsIndexRouteImport } from './routes/admin.reports.index'
 import { Route as AdminReportsTicketRouteImport } from './routes/admin.reports.$ticket'
 import { Route as ApiAdminAssetsRouteImport } from './routes/api/admin/assets'
@@ -78,6 +79,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
 const ApiReportsRoute = ApiReportsRouteImport.update({
   id: '/api/reports',
   path: '/api/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUploadsRoute = ApiUploadsRouteImport.update({
+  id: '/api/uploads',
+  path: '/api/uploads',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminReportsIndexRoute = AdminReportsIndexRouteImport.update({
@@ -265,6 +271,7 @@ export interface FileRoutesByFullPath {
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/reports': typeof ApiReportsRouteWithChildren
+  '/api/uploads': typeof ApiUploadsRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -307,6 +314,7 @@ export interface FileRoutesByTo {
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/reports': typeof ApiReportsRouteWithChildren
+  '/api/uploads': typeof ApiUploadsRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -350,6 +358,7 @@ export interface FileRoutesById {
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/api/reports': typeof ApiReportsRouteWithChildren
+  '/api/uploads': typeof ApiUploadsRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -394,6 +403,7 @@ export interface FileRouteTypes {
     | '/reporter'
     | '/api/health'
     | '/api/reports'
+    | '/api/uploads'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -436,6 +446,7 @@ export interface FileRouteTypes {
     | '/reporter'
     | '/api/health'
     | '/api/reports'
+    | '/api/uploads'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -478,6 +489,7 @@ export interface FileRouteTypes {
     | '/reporter'
     | '/api/health'
     | '/api/reports'
+    | '/api/uploads'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -521,6 +533,7 @@ export interface RootRouteChildren {
   ReporterRoute: typeof ReporterRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRoute
   ApiReportsRoute: typeof ApiReportsRouteWithChildren
+  ApiUploadsRoute: typeof ApiUploadsRoute
   ApiAdminAssetsRoute: typeof ApiAdminAssetsRouteWithChildren
   ApiAdminCategoriesRoute: typeof ApiAdminCategoriesRouteWithChildren
   ApiAdminIssueTypesRoute: typeof ApiAdminIssueTypesRouteWithChildren
@@ -574,6 +587,13 @@ declare module '@tanstack/react-router' {
       path: '/api/reports'
       fullPath: '/api/reports'
       preLoaderRoute: typeof ApiReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/uploads': {
+      id: '/api/uploads'
+      path: '/api/uploads'
+      fullPath: '/api/uploads'
+      preLoaderRoute: typeof ApiUploadsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/reports/': {
@@ -990,6 +1010,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReporterRoute: ReporterRouteWithChildren,
   ApiHealthRoute: ApiHealthRoute,
   ApiReportsRoute: ApiReportsRouteWithChildren,
+  ApiUploadsRoute: ApiUploadsRoute,
   ApiAdminAssetsRoute: ApiAdminAssetsRouteWithChildren,
   ApiAdminCategoriesRoute: ApiAdminCategoriesRouteWithChildren,
   ApiAdminIssueTypesRoute: ApiAdminIssueTypesRouteWithChildren,
