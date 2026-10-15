@@ -56,3 +56,4 @@ export * from './attachments.js';
 export * from './attachment-cleanup.js';
 export * from './workflow.js';
 export * from './workflow-extra.js';
+export * from './ai-analyses.js';

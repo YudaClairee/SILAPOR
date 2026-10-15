@@ -36,6 +36,13 @@
       "when": 1791894104196,
       "tag": "0004_short_havok",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792044661335,
+      "tag": "0005_giant_colossus",
+      "breakpoints": true
     }
   ]
 }

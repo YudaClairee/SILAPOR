@@ -14,6 +14,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   unique,
@@ -456,3 +457,57 @@ export type ReportRelation = typeof reportRelations.$inferSelect;
 export type NewReportRelation = typeof reportRelations.$inferInsert;
 export type TicketCounter = typeof ticketCounters.$inferSelect;
 export type NewTicketCounter = typeof ticketCounters.$inferInsert;
+
+// Task 4: ai_analyses persistence (AI verification). Columns per
+// EXECUTION-PLAN §7.1 plus the brief's verdict fields (`category`,
+// `issue_type`, `priority` — the AI-decided finals exercised by the Task 4
+// test and consumed by future Tasks 5/6). `priority` and
+// `suggested_priority` are kept in sync by `markAiAnalysis` (single
+// decision, two names: brief vs plan). Raw prompt/response are NEVER
+// stored — there are no such columns by design.
+
+export const aiAnalysisStatusEnum = pgEnum('ai_analysis_status', [
+  'PENDING',
+  'PROCESSING',
+  'SUCCEEDED',
+  'FAILED',
+]);
+
+export const aiAnalyses = pgTable(
+  'ai_analyses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    status: aiAnalysisStatusEnum('status').notNull().default('PENDING'),
+    verificationRecommendation: text('verification_recommendation'),
+    category: text('category'),
+    issueType: text('issue_type'),
+    priority: text('priority'),
+    possibleDuplicate: boolean('possible_duplicate'),
+    suggestedPriority: text('suggested_priority'),
+    riskFactors: jsonb('risk_factors'),
+    impactFactors: jsonb('impact_factors'),
+    confidence: real('confidence'),
+    reasoningSummary: text('reasoning_summary'),
+    gateway: text('gateway').notNull().default('openrouter'),
+    upstreamProvider: text('upstream_provider'),
+    model: text('model').notNull(),
+    gatewayRequestId: text('gateway_request_id'),
+    promptVersion: text('prompt_version').notNull(),
+    schemaVersion: text('schema_version').notNull(),
+    privacyMode: text('privacy_mode').notNull().default('ZDR'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    estimatedCost: real('estimated_cost'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    errorCode: text('error_code'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [index('ai_analyses_report_id_idx').on(table.reportId)],
+);
+
+export type AiAnalysis = typeof aiAnalyses.$inferSelect;
+export type NewAiAnalysis = typeof aiAnalyses.$inferInsert;
