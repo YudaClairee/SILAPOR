@@ -22,12 +22,17 @@
 //   Phase 9 owns report-creation rate limits.
 // - This module logs nothing — routes log with opaque IDs.
 
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
+  applyVerification as repoApplyVerification,
+  countAffectedReporters as repoCountAffectedReporters,
   createReport as repoCreateReport,
   findDuplicateCandidates as repoFindDuplicateCandidates,
   getAdminReportDetail as repoGetAdminReportDetail,
+  getAsset as repoGetAsset,
   getDb,
+  getIssueType as repoGetIssueType,
+  getLocation as repoGetLocation,
   getMyReportDetail as repoGetMyReportDetail,
   getReporterTimeline as repoGetReporterTimeline,
   listAllReports as repoListAllReports,
@@ -37,6 +42,9 @@ import {
   listLocations as repoListLocations,
   listMyReports as repoListMyReports,
   maintenanceReports,
+  markAiAnalysis as repoMarkAiAnalysis,
+  outboxEvents,
+  recordAiAnalysis as repoRecordAiAnalysis,
   type CreateReportInput,
   type CreateReportResult,
   type DuplicateCandidate,
@@ -46,12 +54,15 @@ import {
   type ListAllReportsOptions,
   type ListMyReportsOptions,
   type Location,
+  type Report,
   type ReportDetail,
   type ReportListResult,
   type ReportQueryDb,
+  type SupportingRelationRef,
   type TimelineEntry,
 } from '@silapor/database';
-import { badRequest, notFound } from '@silapor/shared';
+import { scorePriority } from '@silapor/domain';
+import { badRequest, internal, notFound } from '@silapor/shared';
 import { requireAdmin, requireUser } from './auth';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -560,6 +571,476 @@ export async function listFormOptions(req: Request): Promise<FormOptions> {
       categories: categoryRows.map(toCategoryOption),
       issueTypes: issueTypeRows.map(toIssueTypeOption),
       assets: assetRows.map(toAssetOption),
+    };
+  } finally {
+    await conn.close().catch(() => undefined);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI-verified submit (synchronous verify with held fallback).
+// ---------------------------------------------------------------------------
+
+export interface VerifiedSubmitBody {
+  readonly locationId: string;
+  readonly assetId: string;
+  readonly description: string;
+  readonly photoKeys: readonly string[];
+}
+
+// The reporter never classifies: any category/issue/occurredAt key is a 400,
+// whether camelCase or snake_case.
+const CLASSIFICATION_FIELDS = [
+  'submittedCategoryId',
+  'submitted_category_id',
+  'categoryId',
+  'category_id',
+  'submittedIssueTypeId',
+  'submitted_issue_type_id',
+  'issueTypeId',
+  'issue_type_id',
+  'occurredAt',
+  'occurred_at',
+] as const;
+
+// New submit shape: location + asset required, description 10-2000, photo
+// storage-key references min 1 max 3. NEVER copies a client-supplied
+// reporter id — the caller sets it from the session.
+export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
+  if (!isRecord(body)) {
+    throw badRequest('Invalid report input');
+  }
+  for (const field of CLASSIFICATION_FIELDS) {
+    if (body[field] !== undefined) {
+      throw badRequest(`${field} must not be provided`);
+    }
+  }
+  const locationId = body['locationId'] ?? body['location_id'];
+  if (typeof locationId !== 'string' || !UUID_RE.test(locationId)) {
+    throw badRequest('locationId must be a valid UUID');
+  }
+  const assetId = body['assetId'] ?? body['asset_id'];
+  if (typeof assetId !== 'string' || !UUID_RE.test(assetId)) {
+    throw badRequest('assetId must be a valid UUID');
+  }
+  const description = body['description'];
+  if (typeof description !== 'string' || description.trim().length < 10) {
+    throw badRequest('description must be at least 10 characters');
+  }
+  if (description.trim().length > 2000) {
+    throw badRequest('description must be at most 2000 characters');
+  }
+  const photoKeys = body['photoKeys'] ?? body['photo_keys'];
+  if (
+    !Array.isArray(photoKeys) ||
+    photoKeys.length < 1 ||
+    photoKeys.length > 3 ||
+    photoKeys.some((key) => typeof key !== 'string' || key.trim() === '')
+  ) {
+    throw badRequest('photoKeys must include 1 to 3 photos');
+  }
+  return {
+    locationId,
+    assetId,
+    description: description.trim(),
+    photoKeys: (photoKeys as string[]).map((key) => key.trim()),
+  };
+}
+
+export interface SubmitAiVerdictInput {
+  readonly impliedCategory: string;
+  readonly assetCategory: string;
+  readonly category: string;
+  readonly issueType: string;
+  readonly priority: string;
+  readonly categories: readonly string[];
+  readonly issueTypes: readonly string[];
+}
+
+export type SubmitAiVerdict =
+  | { ok: true; categoryCode: string; issueTypeCode: string; priority: string }
+  | { ok: false; reason: 'WRONG_ASSET' | 'UNCLEAR_EVIDENCE' | 'UNKNOWN_CODE' };
+
+// Local copy of the Task 2 mapping (kept in sync by hand: `@silapor/domain`
+// does not export `mapAiVerdict`, and this package must not deep-import it).
+export function mapSubmitAiVerdict(input: SubmitAiVerdictInput): SubmitAiVerdict {
+  const raw = (input ?? {}) as unknown as Partial<Record<string, unknown>>;
+  const implied =
+    typeof raw['impliedCategory'] === 'string' ? (raw['impliedCategory'] as string).trim() : '';
+  if (implied === '') {
+    return { ok: false, reason: 'UNCLEAR_EVIDENCE' };
+  }
+  if (
+    typeof raw['assetCategory'] !== 'string' ||
+    typeof raw['category'] !== 'string' ||
+    typeof raw['issueType'] !== 'string'
+  ) {
+    return { ok: false, reason: 'UNKNOWN_CODE' };
+  }
+  const assetCategory = (raw['assetCategory'] as string).trim();
+  const category = (raw['category'] as string).trim();
+  const issueType = (raw['issueType'] as string).trim();
+  const priority =
+    typeof raw['priority'] === 'string' ? (raw['priority'] as string).trim() : input.priority;
+  if (
+    !input.categories.includes(implied) ||
+    !input.categories.includes(assetCategory) ||
+    !input.categories.includes(category) ||
+    !input.issueTypes.includes(issueType)
+  ) {
+    return { ok: false, reason: 'UNKNOWN_CODE' };
+  }
+  if (implied !== assetCategory) {
+    return { ok: false, reason: 'WRONG_ASSET' };
+  }
+  return { ok: true, categoryCode: category, issueTypeCode: issueType, priority };
+}
+
+const REPORTER_REASONS: Record<string, string> = {
+  INVALID_INPUT:
+    'We could not verify this report. Please check the photos and description, then try again.',
+  UNKNOWN_MODEL:
+    'Verification is unavailable right now. Your report was not saved. Please try again later.',
+  UPSTREAM_REJECTED:
+    'The verification service could not process this report. It was not saved. Please try again later.',
+  UNCLEAR_EVIDENCE:
+    'The photos or description were not clear enough to verify. Please add clearer photos and more detail, then try again.',
+  WRONG_ASSET:
+    'The photos do not seem to show the selected asset. Please check the asset and photos, then try again.',
+  UNKNOWN_CODE:
+    'We could not classify this report. Please try again with clearer photos and description.',
+};
+
+// Machine codes never reach the reporter — FAIL bodies carry plain language only.
+export function toReporterReason(code: string): string {
+  return REPORTER_REASONS[code] ?? 'We could not verify this report. Please try again later.';
+}
+
+export interface SubmitVerifyInput {
+  readonly description: string;
+  readonly asset: { readonly name: string; readonly category: string };
+  readonly photos: readonly string[];
+  readonly categories: readonly string[];
+  readonly issueTypes: readonly string[];
+}
+
+export type SubmitVerifyOutcome =
+  | {
+      readonly kind: 'PASS';
+      readonly category: string;
+      readonly issueType: string;
+      readonly priority: string;
+      readonly confidence: number;
+      readonly reasons: readonly string[];
+      readonly model: string;
+      readonly promptVersion: string;
+      readonly schemaVersion: string;
+    }
+  | { readonly kind: 'FAIL'; readonly reason: string; readonly model?: string }
+  | { readonly kind: 'DOWN' };
+
+export type SubmitVerifyFn = (
+  input: SubmitVerifyInput,
+  opts: { readonly timeoutMs: number; readonly model?: string },
+) => Promise<SubmitVerifyOutcome>;
+
+export interface SubmitVerifyDeps {
+  readonly verify?: SubmitVerifyFn;
+  readonly timeoutMs?: number;
+  readonly model?: string;
+}
+
+export type SubmitVerifiedResult =
+  | {
+      readonly status: 201;
+      readonly ticketNumber: string;
+      readonly report: Report;
+      readonly verification: {
+        readonly status: 'VERIFIED';
+        readonly category: string;
+        readonly issueType: string;
+        readonly priority: string;
+        readonly confidence: number;
+      };
+      readonly relation: SupportingRelationRef | null;
+      readonly duplicateCandidates: DuplicateCandidate[];
+    }
+  | {
+      readonly status: 200;
+      readonly ticketNumber: string;
+      readonly report: Report;
+      readonly idempotentReplay: true;
+      readonly verification: { readonly status: string };
+    }
+  | {
+      readonly status: 202;
+      readonly ticketNumber: string;
+      readonly report: Report;
+      readonly analysisId: string;
+      readonly message: string;
+      readonly verification: { readonly status: 'HELD' };
+    }
+  | { readonly status: 422; readonly reason: string };
+
+const DEFAULT_VERIFY_TIMEOUT_MS = 10_000;
+
+function resolveVerifyTimeoutMs(override?: number): number {
+  if (override !== undefined && Number.isSafeInteger(override) && override > 0) {
+    return override;
+  }
+  const fromEnv = Number.parseInt(process.env['AI_VERIFY_TIMEOUT_MS'] ?? '', 10);
+  if (Number.isSafeInteger(fromEnv) && fromEnv > 0) {
+    return fromEnv;
+  }
+  return DEFAULT_VERIFY_TIMEOUT_MS;
+}
+
+function resolveAiModel(override?: string): string | undefined {
+  const configured = (override ?? process.env['OPENROUTER_MODEL'] ?? '').trim();
+  return configured === '' ? undefined : configured;
+}
+
+// The AI client is an optional runtime peer: when it cannot be loaded the
+// submit is held for manual review rather than rejected.
+async function defaultSubmitVerify(
+  input: SubmitVerifyInput,
+  opts: { readonly timeoutMs: number; readonly model?: string },
+): Promise<SubmitVerifyOutcome> {
+  const specifier = '@silapor/ai';
+  try {
+    const mod = (await import(/* @vite-ignore */ specifier)) as {
+      verifyReport?: unknown;
+    };
+    if (typeof mod.verifyReport !== 'function') {
+      return { kind: 'DOWN' };
+    }
+    return await (mod.verifyReport as SubmitVerifyFn)(input, {
+      timeoutMs: opts.timeoutMs,
+      ...(opts.model === undefined ? {} : { model: opts.model }),
+    });
+  } catch {
+    return { kind: 'DOWN' };
+  }
+}
+
+type SubmitDb = Parameters<typeof repoCreateReport>[0];
+
+// Removes a just-created submit and its submit-time side effects (events,
+// relations, analyses cascade; the PENDING review outbox row is deleted
+// explicitly) so a FAIL leaves no row and no ticket behind.
+async function compensateFailedSubmit(db: SubmitDb, reportId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.type, 'AI_REVIEW_REQUESTED'),
+          sql`${outboxEvents.payload}->>'reportId' = ${reportId}`,
+        ),
+      );
+    await tx.delete(maintenanceReports).where(eq(maintenanceReports.id, reportId));
+  });
+}
+
+const HELD_MESSAGE =
+  'Verification is temporarily unavailable. Your report has been saved and is waiting for review.';
+
+function normalizeAiPriority(value: string): 'LOW' | 'MEDIUM' | 'HIGH' | undefined {
+  const priority = value.trim().toUpperCase();
+  if (priority === 'LOW' || priority === 'MEDIUM' || priority === 'HIGH') {
+    return priority;
+  }
+  return undefined;
+}
+
+// Synchronous verified submit: duplicate-first create (a same-reporter
+// active block throws DUPLICATE_ACTIVE before any AI call), inline verify,
+// then PASS → VERIFIED + ticket (201), FAIL → 422 with no row left behind,
+// DOWN → held REPORTED + ticket (202). Idempotent replays skip AI.
+export async function submitVerifiedReport(
+  req: Request,
+  body: unknown,
+  idempotencyKey: string | null,
+  deps?: SubmitVerifyDeps,
+): Promise<SubmitVerifiedResult> {
+  const user = await requireUser(req);
+  const key = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+  if (key === '') {
+    throw badRequest('Idempotency key is required');
+  }
+  const normalized = normalizeVerifiedSubmitBody(body);
+  const timeoutMs = resolveVerifyTimeoutMs(deps?.timeoutMs);
+  const model = resolveAiModel(deps?.model);
+  const verify = deps?.verify ?? defaultSubmitVerify;
+  const conn = getDb();
+  try {
+    const created = await repoCreateReport(
+      conn.db,
+      {
+        reporterId: user.id,
+        locationId: normalized.locationId,
+        assetId: normalized.assetId,
+        description: normalized.description,
+      },
+      key,
+    );
+    if (created.idempotentReplay) {
+      return {
+        status: 200,
+        ticketNumber: created.report.ticketNumber,
+        report: created.report,
+        idempotentReplay: true,
+        verification: { status: created.report.status },
+      };
+    }
+    const report = created.report;
+    const analysis = await repoRecordAiAnalysis(conn.db, {
+      reportId: report.id,
+      model: model ?? 'unpinned',
+      promptVersion: 'v1',
+      schemaVersion: 'v1',
+    });
+    const assetId = report.assetId;
+    if (assetId === null) {
+      throw internal('Report has no asset');
+    }
+    const asset = await repoGetAsset(conn.db, assetId);
+    const categories = await listAllPages(conn.db, repoListCategories);
+    const issueTypes = await listAllPages(conn.db, repoListIssueTypes);
+    const assetCategory = categories.find((entry) => entry.id === asset?.categoryId);
+    if (asset === undefined || assetCategory === undefined) {
+      throw internal('Report asset is not usable');
+    }
+    const outcome = await verify(
+      {
+        description: normalized.description,
+        asset: { name: asset.name, category: assetCategory.code },
+        photos: [...normalized.photoKeys],
+        categories: categories.map((entry) => entry.code),
+        issueTypes: issueTypes.map((entry) => entry.code),
+      },
+      { timeoutMs, ...(model === undefined ? {} : { model }) },
+    );
+    // DOWN is transient (timeout/5xx/429): hold the REPORTED row with its
+    // PENDING analysis for manual verification instead of rejecting it.
+    if (outcome.kind === 'DOWN') {
+      return {
+        status: 202,
+        ticketNumber: report.ticketNumber,
+        report,
+        analysisId: analysis.id,
+        message: HELD_MESSAGE,
+        verification: { status: 'HELD' },
+      };
+    }
+    if (outcome.kind === 'FAIL') {
+      await repoMarkAiAnalysis(conn.db, analysis.id, {
+        status: 'FAILED',
+        errorCode: outcome.reason,
+      });
+      await compensateFailedSubmit(conn.db, report.id);
+      return { status: 422, reason: toReporterReason(outcome.reason) };
+    }
+    const mapped = mapSubmitAiVerdict({
+      impliedCategory: outcome.category,
+      assetCategory: assetCategory.code,
+      category: outcome.category,
+      issueType: outcome.issueType,
+      priority: outcome.priority,
+      categories: categories.map((entry) => entry.code),
+      issueTypes: issueTypes.map((entry) => entry.code),
+    });
+    if (!mapped.ok) {
+      await repoMarkAiAnalysis(conn.db, analysis.id, {
+        status: 'FAILED',
+        errorCode: mapped.reason,
+      });
+      await compensateFailedSubmit(conn.db, report.id);
+      return { status: 422, reason: toReporterReason(mapped.reason) };
+    }
+    const finalCategory = categories.find((entry) => entry.code === mapped.categoryCode);
+    const finalIssue = issueTypes.find((entry) => entry.code === mapped.issueTypeCode);
+    if (
+      finalCategory === undefined ||
+      finalIssue === undefined ||
+      finalCategory.id !== report.submittedCategoryId ||
+      (finalIssue.categoryId !== null && finalIssue.categoryId !== finalCategory.id)
+    ) {
+      await repoMarkAiAnalysis(conn.db, analysis.id, {
+        status: 'FAILED',
+        errorCode: 'WRONG_ASSET',
+      });
+      await compensateFailedSubmit(conn.db, report.id);
+      return { status: 422, reason: toReporterReason('WRONG_ASSET') };
+    }
+    const location = await repoGetLocation(conn.db, report.locationId);
+    let affected = 1;
+    try {
+      affected = await repoCountAffectedReporters(conn.db, {
+        assetId: report.assetId,
+        locationId: report.locationId,
+        categoryId: finalCategory.id,
+        issueTypeId: finalIssue.id,
+      });
+    } catch {
+      affected = 1;
+    }
+    const score = scorePriority({
+      categoryWeight: finalCategory.weight,
+      assetWeight: asset.weight,
+      locationScore: location?.tierScore ?? null,
+      affectedReporters: affected,
+      issueTypeCode: finalIssue.code,
+    });
+    let finalPriority = normalizeAiPriority(mapped.priority) ?? score.suggestedPriority;
+    if (finalIssue.code === 'DANGEROUS' && finalPriority !== 'HIGH') {
+      finalPriority = 'HIGH';
+    }
+    const verified = await repoApplyVerification(
+      conn.db,
+      report.id,
+      {
+        finalCategoryId: finalCategory.id,
+        finalIssueTypeId: finalIssue.id,
+        finalPriority,
+      },
+      user.id,
+    );
+    const snapped = await conn.db
+      .update(maintenanceReports)
+      .set({
+        priorityScore: score.score,
+        priorityFactors: { ...score.factors, scoringComplete: score.scoringComplete },
+        scoringConfigVersion: score.scoringConfigVersion,
+        version: verified.version + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(maintenanceReports.id, verified.id))
+      .returning();
+    const finalRow = snapped[0] ?? verified;
+    await repoMarkAiAnalysis(conn.db, analysis.id, {
+      status: 'SUCCEEDED',
+      category: mapped.categoryCode,
+      issueType: mapped.issueTypeCode,
+      priority: finalPriority,
+      confidence: outcome.confidence,
+      ...(outcome.model.trim() === '' ? {} : { model: outcome.model }),
+      promptVersion: outcome.promptVersion.trim() === '' ? 'v1' : outcome.promptVersion,
+      schemaVersion: outcome.schemaVersion.trim() === '' ? 'v1' : outcome.schemaVersion,
+    });
+    return {
+      status: 201,
+      ticketNumber: finalRow.ticketNumber,
+      report: finalRow,
+      verification: {
+        status: 'VERIFIED',
+        category: mapped.categoryCode,
+        issueType: mapped.issueTypeCode,
+        priority: finalPriority,
+        confidence: outcome.confidence,
+      },
+      relation: created.relation,
+      duplicateCandidates: created.duplicateCandidates,
     };
   } finally {
     await conn.close().catch(() => undefined);

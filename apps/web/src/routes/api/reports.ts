@@ -1,16 +1,26 @@
-// Reporter reports collection (Phase 3 P3-4): GET list mine + POST create.
+// Reporter reports collection (Phase 3 P3-4 + Task 6 verified submit):
+// GET list mine + POST synchronous AI-verified create.
 //
 // Reporter-only: `requireUser` inside the try (401 anonymous); the service
-// layer re-guards on the same request. POST takes report fields as the body
-// with the idempotency key in the `x-idempotency-key` header (400 when
-// missing/empty): 201 on create (`idempotentReplay:false`), 200 with the
-// same body on replay. Failures map via `toHttpResponse`. Logs carry opaque
-// user/report IDs and counts only — never usernames, NIMs, or descriptions.
+// layer re-guards on the same request. POST takes location + asset +
+// description + 1-3 photo keys as the body with the idempotency key in the
+// `x-idempotency-key` header (400 when missing/empty): 201 on verified
+// create, 202 when the AI is down (held REPORTED + ticket + waiting notice),
+// 422 `{ reason }` when verification fails (no row, no ticket), 409 with
+// the active ticket ref on a same-reporter duplicate block. Failures map via
+// `toHttpResponse`. Logs carry opaque IDs and counts only — never usernames,
+// NIMs, or descriptions.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
-import { createLogger, redact, toHttpResponse, withRequestId } from '@silapor/shared';
+import {
+  createLogger,
+  isAppError,
+  redact,
+  toHttpResponse,
+  withRequestId,
+} from '@silapor/shared';
 import { requireUser } from '../../server/auth';
-import { createMyReport, listMyReportsRoute } from '../../server/reports';
+import { listMyReportsRoute, submitVerifiedReport } from '../../server/reports';
 
 const logger = createLogger({ service: 'web' });
 const ROUTE = '/api/reports';
@@ -61,24 +71,40 @@ export const Route = createFileRoute('/api/reports')({
           }
           try {
             const user = await requireUser(request);
-            const result = await createMyReport(
+            const result = await submitVerifiedReport(
               request,
               body,
               request.headers.get('x-idempotency-key'),
             );
-            logger.info('report created', {
+            const { status, ...responseBody } = result;
+            logger.info('report submitted', {
               route: ROUTE,
               result: 'ok',
               userId: user.id,
               durationMs: Date.now() - started,
               details: redact({
-                reportRef: result.report.id,
-                replay: result.idempotentReplay,
-                candidateCount: result.duplicateCandidates.length,
+                status,
+                ticketNumber: status === 422 ? undefined : result.ticketNumber,
               }),
             });
-            return Response.json(result, { status: result.idempotentReplay ? 200 : 201 });
+            return Response.json(responseBody, { status });
           } catch (error) {
+            // `toHttpResponse` strips `details`, so the duplicate block reads
+            // the active ticket ref off the error directly (Task 6 contract).
+            if (isAppError(error) && error.code === 'DUPLICATE_ACTIVE') {
+              const details = (error.details ?? {}) as { ticketNumber?: unknown };
+              const ticketNumber =
+                typeof details.ticketNumber === 'string' ? details.ticketNumber : undefined;
+              logger.warn('report submit rejected', {
+                route: ROUTE,
+                code: error.code,
+                durationMs: Date.now() - started,
+              });
+              return Response.json(
+                { error: { code: error.code, message: error.message }, ticketNumber },
+                { status: 409 },
+              );
+            }
             const mapped = toHttpResponse(error);
             if (mapped.status >= 500) {
               logger.error('report create failed', {
