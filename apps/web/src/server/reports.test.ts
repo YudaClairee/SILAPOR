@@ -10,7 +10,7 @@
 // (missing vs foreign produce identical HTTP bodies).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DuplicateActiveError, resolveReportSort } from '@silapor/database';
-import { notFound, toHttpResponse } from '@silapor/shared';
+import { conflict, notFound, toHttpResponse } from '@silapor/shared';
 import type { AttachmentStorage } from '@silapor/storage';
 import {
   classifyReportRef,
@@ -495,6 +495,103 @@ describe('submitVerifiedReport held fallback', () => {
     expect(verify).not.toHaveBeenCalled();
     expect(dbMocks.recordAiAnalysis).not.toHaveBeenCalled();
     expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
+    // Resolve runs before create: no row, no ticket, no outbox event.
+    expect(dbMocks.createReport).not.toHaveBeenCalled();
+    expect(dbMocks.getAsset).not.toHaveBeenCalled();
+  });
+
+  it('rejects expired staged keys with 400 and zero side effects', async () => {
+    arrangeMasterContext();
+    dbMocks.getStagedUploadsByKeys.mockResolvedValue([
+      { ...stagedRow(), createdAt: new Date('2000-01-01T00:00:00Z') },
+    ]);
+    const verify = vi.fn().mockResolvedValue({ kind: 'DOWN' });
+    await expect(
+      submitVerifiedReport(submitRequest(), submitBody(), 'key-expired-1', {
+        verify,
+        model: 'test-model',
+        timeoutMs: 50,
+        storage: fakeStorage(),
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(verify).not.toHaveBeenCalled();
+    expect(dbMocks.createReport).not.toHaveBeenCalled();
+    expect(dbMocks.recordAiAnalysis).not.toHaveBeenCalled();
+    expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
+  });
+
+  it('compensates the report when another submit claimed the keys first', async () => {
+    arrangeMasterContext();
+    let compensated = 0;
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({
+            delete: () => ({
+              where: async () => {
+                compensated += 1;
+                return [];
+              },
+            }),
+          }),
+        update: () => ({
+          set: (values: unknown) => ({
+            where: () => ({
+              returning: async () => [],
+            }),
+          }),
+        }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    dbMocks.applyVerification.mockResolvedValue({
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'VERIFIED',
+      version: 2,
+    });
+    dbMocks.linkStagedUploads.mockRejectedValueOnce(conflict('Staged photo already claimed.'));
+    await expect(
+      submitVerifiedReport(submitRequest(), submitBody(), 'key-race-1', {
+        verify: async () => ({
+          kind: 'PASS',
+          category: 'PLUMBING',
+          issueType: 'LEAKING',
+          priority: 'MEDIUM',
+          confidence: 0.9,
+          reasons: ['photo shows a leak under the sink'],
+          model: 'test-model',
+          promptVersion: 'v1',
+          schemaVersion: 'v1',
+        }),
+        model: 'test-model',
+        timeoutMs: 50,
+        storage: fakeStorage(),
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    // The stranded row is compensated; the winning report keeps the keys.
+    expect(compensated).toBeGreaterThan(0);
+    expect(dbMocks.deleteStagedUploads).not.toHaveBeenCalled();
+    expect(dbMocks.markAiAnalysis).not.toHaveBeenCalledWith(
+      expect.anything(),
+      SUBMIT_ANALYSIS_ID,
+      expect.objectContaining({ status: 'SUCCEEDED' }),
+    );
   });
 
   it('verifies as VERIFIED with a ticket when the AI passes', async () => {

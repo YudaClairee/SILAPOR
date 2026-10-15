@@ -64,7 +64,7 @@ import {
   type TimelineEntry,
 } from '@silapor/database';
 import { scorePriority } from '@silapor/domain';
-import { badRequest, internal, notFound } from '@silapor/shared';
+import { badRequest, internal, isAppError, notFound } from '@silapor/shared';
 import { createAttachmentStorage, type AttachmentStorage } from '@silapor/storage';
 import { requireAdmin, requireUser } from './auth';
 import { removeStagedObjects, resolveStagedPhotoKeys } from './uploads.js';
@@ -879,6 +879,10 @@ export async function submitVerifiedReport(
   const verify = deps?.verify ?? defaultSubmitVerify;
   const conn = getDb();
   try {
+    // Staged keys resolve before any row exists: unknown, foreign, claimed,
+    // or expired keys fail with a uniform 400 and zero side effects (no
+    // row, no ticket, no outbox event).
+    const staged = await resolveStagedPhotoKeys(conn.db, user.id, normalized.photoKeys);
     const created = await repoCreateReport(
       conn.db,
       {
@@ -899,9 +903,6 @@ export async function submitVerifiedReport(
       };
     }
     const report = created.report;
-    // Staged keys resolve before any AI spend: unknown, foreign, claimed,
-    // or expired keys fail the submit with a uniform 400 here.
-    const staged = await resolveStagedPhotoKeys(conn.db, user.id, normalized.photoKeys);
     // FAIL cleanup removes the staged objects (best-effort) and rows so a
     // rejected submit leaves no row, no ticket, and no staged leftovers
     // (the TTL janitor backstops a removal failure; the 422 stands).
@@ -912,6 +913,23 @@ export async function submitVerifiedReport(
         await repoDeleteStagedUploads(conn.db, [...normalized.photoKeys]);
       } catch {
         // Janitor backstop — never flips the verdict.
+      }
+    }
+    // A link conflict means another submit claimed the same keys first:
+    // drop this report (the keys belong to the winning report, so staged
+    // rows stay untouched) and surface the 409.
+    async function linkPhotosOrCompensate(reportId: string): Promise<void> {
+      try {
+        await repoLinkStagedUploads(conn.db, {
+          reportId,
+          staged,
+          uploadedBy: user.id,
+        });
+      } catch (error) {
+        if (isAppError(error) && error.code === 'CONFLICT') {
+          await compensateFailedSubmit(conn.db, reportId).catch(() => undefined);
+        }
+        throw error;
       }
     }
     const analysis = await repoRecordAiAnalysis(conn.db, {
@@ -945,11 +963,7 @@ export async function submitVerifiedReport(
     // PENDING analysis for manual verification instead of rejecting it.
     // Staged photos link first so the held ticket carries them.
     if (outcome.kind === 'DOWN') {
-      await repoLinkStagedUploads(conn.db, {
-        reportId: report.id,
-        staged,
-        uploadedBy: user.id,
-      });
+      await linkPhotosOrCompensate(report.id);
       return {
         status: 202,
         ticketNumber: report.ticketNumber,
@@ -1049,11 +1063,7 @@ export async function submitVerifiedReport(
     const finalRow = snapped[0] ?? verified;
     // Photos link atomically with the claim before the analysis is marked,
     // so SUCCEEDED always means verified plus linked.
-    await repoLinkStagedUploads(conn.db, {
-      reportId: finalRow.id,
-      staged,
-      uploadedBy: user.id,
-    });
+    await linkPhotosOrCompensate(finalRow.id);
     await repoMarkAiAnalysis(conn.db, analysis.id, {
       status: 'SUCCEEDED',
       category: mapped.categoryCode,
