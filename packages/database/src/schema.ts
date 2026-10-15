@@ -461,10 +461,11 @@ export type NewTicketCounter = typeof ticketCounters.$inferInsert;
 // Task 4: ai_analyses persistence (AI verification). Columns per
 // EXECUTION-PLAN §7.1 plus the brief's verdict fields (`category`,
 // `issue_type`, `priority` — the AI-decided finals exercised by the Task 4
-// test and consumed by future Tasks 5/6). `priority` and
-// `suggested_priority` are kept in sync by `markAiAnalysis` (single
-// decision, two names: brief vs plan). Raw prompt/response are NEVER
-// stored — there are no such columns by design.
+// test and consumed by future Tasks 5/6). Canonical priority column is
+// `suggested_priority` (plan §7.1 authority); `priority` is a legacy mirror
+// kept identical by `markAiAnalysis` and by the
+// `ai_analyses_priority_mirror_check` constraint below. Raw prompt/response
+// are NEVER stored — there are no such columns by design.
 
 export const aiAnalysisStatusEnum = pgEnum('ai_analysis_status', [
   'PENDING',
@@ -506,7 +507,13 @@ export const aiAnalyses = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
-  (table) => [index('ai_analyses_report_id_idx').on(table.reportId)],
+  (table) => [
+    index('ai_analyses_report_id_idx').on(table.reportId),
+    check(
+      'ai_analyses_priority_mirror_check',
+      sql`${table.priority} IS NOT DISTINCT FROM ${table.suggestedPriority}`,
+    ),
+  ],
 );
 
 export type AiAnalysis = typeof aiAnalyses.$inferSelect;

@@ -43,6 +43,13 @@
       "when": 1792044661335,
       "tag": "0005_giant_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792045234629,
+      "tag": "0006_faithful_morbius",
+      "breakpoints": true
     }
   ]
 }

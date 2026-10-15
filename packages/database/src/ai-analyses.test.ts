@@ -15,9 +15,11 @@
 import postgres from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, afterAll, beforeAll } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { getDb, resolveDatabaseUrl } from './index.js';
 import { runMigrations } from './migrate.js';
 import {
+  aiAnalyses,
   facilityCategories,
   locations,
   maintenanceReports,
@@ -191,6 +193,38 @@ describe.skipIf(!enabled)('ai_analyses persistence (requires reachable PostgreSQ
       priority: 'HIGH',
     });
     expect(done.status).toBe('SUCCEEDED');
+    // Canonical `suggested_priority` mirrors the brief's `priority` atomically.
+    expect(done.priority).toBe('HIGH');
+    expect(done.suggestedPriority).toBe('HIGH');
+  });
+
+  it('rejects a divergent direct write of priority/suggested_priority', async () => {
+    const row = await recordAiAnalysis(db!, {
+      reportId,
+      model: 'MODEL_UNDER_TEST',
+      promptVersion: 'v1',
+      schemaVersion: 'v1',
+    });
+    // Bypasses markAiAnalysis (which never diverges): setting only the legacy
+    // mirror must trip `ai_analyses_priority_mirror_check` (SQLSTATE 23514,
+    // surfaced under the drizzle error's cause).
+    const error = await db!
+      .update(aiAnalyses)
+      .set({ priority: 'LOW' })
+      .where(eq(aiAnalyses.id, row.id))
+      .then(
+        () => {
+          throw new Error('test: divergent write unexpectedly succeeded');
+        },
+        (cause: unknown) => cause,
+      );
+    const driverError = (error as { cause?: { code?: string; constraint_name?: string } })
+      .cause;
+    expect(driverError?.code).toBe('23514');
+    expect(driverError?.constraint_name).toBe('ai_analyses_priority_mirror_check');
+    const rows = await db!.select().from(aiAnalyses).where(eq(aiAnalyses.id, row.id));
+    expect(rows[0]?.priority).toBeNull();
+    expect(rows[0]?.suggestedPriority).toBeNull();
   });
 
   it('marks a FAILED analysis with an error code', async () => {
@@ -222,15 +256,4 @@ describe.skipIf(!enabled)('ai_analyses persistence (requires reachable PostgreSQ
       markAiAnalysis(db!, randomUUID(), { status: 'SUCCEEDED' }),
     ).rejects.toMatchObject({ status: 404 });
   });
-});
-
-it('reports Task 4 availability (informational)', () => {
-  if (!enabled) {
-    console.log(
-      'SKIP Task 4 integration: PostgreSQL unreachable at ' +
-        'the resolved DATABASE_URL — start local postgres (docker compose up) ' +
-        'or set DATABASE_URL to a live instance to run.',
-    );
-  }
-  expect(true).toBe(true);
 });

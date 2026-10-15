@@ -8,12 +8,14 @@
 // Column names follow EXECUTION-PLAN §7.1 verbatim, plus the brief's
 // `category` / `issue_type` / `priority` verdict fields (the AI-decided
 // finals exercised by the Task 4 test and consumed by future Tasks 5/6).
-// `priority` and `suggested_priority` hold a single decision under two
-// names (brief vs plan): `markAiAnalysis` writes both from
-// `outcome.priority ?? outcome.suggestedPriority` so every reader sees the
-// same value. Likewise `verdict` → `verification_recommendation` and
+// Canonical priority column is `suggested_priority` (plan §7.1 authority);
+// `priority` is a legacy mirror written atomically with it (and pinned by a
+// DB CHECK so the pair can never diverge, however the row is written).
+// Likewise `verdict` → `verification_recommendation` and
 // `reason` → `reasoning_summary` are input aliases for the canonical
-// columns. Taxonomy validation (master-list codes, DANGEROUS floor) lives
+// columns. `markAiAnalysis` accepts `priority` (brief) or `suggestedPriority`
+// (plan) — `priority` wins when both are given — and writes the one decision
+// to both columns. Taxonomy validation (master-list codes, DANGEROUS floor) lives
 // in the verifier (Task 5), not here — values are stored verbatim.
 //
 // `completedAt` is set when the status moves to SUCCEEDED/FAILED and
@@ -274,6 +276,7 @@ export async function markAiAnalysis(
     patch.issueType = issueType;
   }
   if (priority !== undefined) {
+    // Canonical column is `suggested_priority` (plan §7.1 authority); `priority` is a legacy mirror written atomically with it (divergence also blocked by DB CHECK).
     patch.priority = priority;
     patch.suggestedPriority = priority;
   }
