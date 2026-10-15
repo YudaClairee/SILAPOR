@@ -28,6 +28,7 @@ import {
   countAffectedReporters as repoCountAffectedReporters,
   createReport as repoCreateReport,
   findDuplicateCandidates as repoFindDuplicateCandidates,
+  findReportByKey as repoFindReportByKey,
   getAdminReportDetail as repoGetAdminReportDetail,
   getAsset as repoGetAsset,
   getDb,
@@ -879,6 +880,19 @@ export async function submitVerifiedReport(
   const verify = deps?.verify ?? defaultSubmitVerify;
   const conn = getDb();
   try {
+    // Idempotency first (mirrors the create fast-path): a same-key retry
+    // replays the prior ticket without touching staged keys, which the
+    // first submit already claimed.
+    const prior = await repoFindReportByKey(conn.db, key);
+    if (prior !== undefined) {
+      return {
+        status: 200,
+        ticketNumber: prior.ticketNumber,
+        report: prior,
+        idempotentReplay: true,
+        verification: { status: prior.status },
+      };
+    }
     // Staged keys resolve before any row exists: unknown, foreign, claimed,
     // or expired keys fail with a uniform 400 and zero side effects (no
     // row, no ticket, no outbox event).

@@ -403,7 +403,9 @@ export function isForeignKeyViolation(error: unknown): boolean {
   return false;
 }
 
-async function findReportByKey(
+// Idempotency lookup by key (global, like the create fast-path): lets the
+// verified submit replay a prior ticket before touching staged keys.
+export async function findReportByKey(
   db: ReportQueryDb,
   idempotencyKey: string,
 ): Promise<schema.Report | undefined> {

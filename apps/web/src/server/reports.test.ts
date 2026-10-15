@@ -45,6 +45,7 @@ const dbMocks = vi.hoisted(() => ({
   listIssueTypes: vi.fn(),
   countAffectedReporters: vi.fn(),
   getStagedUploadsByKeys: vi.fn(),
+  findReportByKey: vi.fn(),
   linkStagedUploads: vi.fn(),
   deleteStagedUploads: vi.fn(),
   requireUser: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock('@silapor/database', async (importOriginal) => ({
   listIssueTypes: dbMocks.listIssueTypes,
   countAffectedReporters: dbMocks.countAffectedReporters,
   getStagedUploadsByKeys: dbMocks.getStagedUploadsByKeys,
+  findReportByKey: dbMocks.findReportByKey,
   linkStagedUploads: dbMocks.linkStagedUploads,
   deleteStagedUploads: dbMocks.deleteStagedUploads,
 }));
@@ -518,6 +520,81 @@ describe('submitVerifiedReport held fallback', () => {
     expect(dbMocks.createReport).not.toHaveBeenCalled();
     expect(dbMocks.recordAiAnalysis).not.toHaveBeenCalled();
     expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
+  });
+
+  it('replays the prior ticket on a same-key retry without touching staged keys', async () => {
+    arrangeMasterContext();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: async () => [],
+            }),
+          }),
+        }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    dbMocks.applyVerification.mockResolvedValue({
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'VERIFIED',
+      version: 2,
+    });
+    const verify = vi.fn().mockResolvedValue({
+      kind: 'PASS',
+      category: 'PLUMBING',
+      issueType: 'LEAKING',
+      priority: 'MEDIUM',
+      confidence: 0.9,
+      reasons: ['photo shows a leak under the sink'],
+      model: 'test-model',
+      promptVersion: 'v1',
+      schemaVersion: 'v1',
+    });
+    const deps = { verify, model: 'test-model', timeoutMs: 50, storage: fakeStorage() };
+    const first = await submitVerifiedReport(submitRequest(), submitBody(), 'key-replay-1', deps);
+    expect(first.status).toBe(201);
+    // Retry: the keys are already claimed, so a staged resolve would 400.
+    // The call counts below prove the retry replays without resolving,
+    // re-creating, re-verifying, or re-linking.
+    dbMocks.findReportByKey.mockResolvedValueOnce({
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'VERIFIED',
+    });
+    // The call counts below prove the retry replays without resolving,
+    // re-creating, re-verifying, or re-linking.
+    const second = await submitVerifiedReport(submitRequest(), submitBody(), 'key-replay-1', deps);
+    expect(second.status).toBe(200);
+    if (second.status !== 200) {
+      throw new Error('expected a replayed submit result');
+    }
+    expect(second.ticketNumber).toBe('MNT-2026-000007');
+    expect(second.idempotentReplay).toBe(true);
+    expect(second.verification).toEqual({ status: 'VERIFIED' });
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(dbMocks.createReport).toHaveBeenCalledTimes(1);
+    expect(dbMocks.getStagedUploadsByKeys).toHaveBeenCalledTimes(1);
+    expect(dbMocks.linkStagedUploads).toHaveBeenCalledTimes(1);
   });
 
   it('compensates the report when another submit claimed the keys first', async () => {
