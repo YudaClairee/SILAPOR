@@ -1,10 +1,22 @@
-// P3-2 createReport transaction + idempotency + duplicate warning (Phase 3 backend).
+// Task 3: duplicate-first submit without reporter category.
 //
 // Pure validator tests run offline. DB-gated integration uses a SCRATCH
 // database (`silapor_p32_test`) created/dropped in beforeAll/afterAll — the
 // shared dev database is never touched. Without a reachable PostgreSQL the
 // integration suite skips (same offline-skip contract as db.integration.test.ts
 // and reports-schema.test.ts).
+//
+// Submit contract under test:
+// - input is { reporterId, locationId, assetId (required), description } —
+//   `submittedCategoryId` / `submittedIssueTypeId` / `occurredAt` are rejected
+//   when sent (the reporter never classifies; the asset's master category is
+//   stored as the submitted category server-side);
+// - same reporter + same asset + active row → throw carrying
+//   code 'DUPLICATE_ACTIVE' and the active ticketNumber, before ticket
+//   generation (no ticket consumed);
+// - different reporter + same asset + active row → create the row and link it
+//   as SUPPORTING to the earliest active ticket in the SAME create
+//   transaction (auto-gabung; verification later must not disturb the link).
 import postgres from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, afterAll, beforeAll } from 'vitest';
@@ -21,9 +33,11 @@ import {
   reportAttachments,
   reportEvents,
   reportRelations,
+  ticketCounters,
   users,
 } from './schema.js';
 import {
+  applyVerification,
   buildSearchPattern,
   countAffectedReporters,
   createReport,
@@ -44,18 +58,13 @@ import {
 const VALID_UUID_A = '11111111-1111-4111-8111-111111111111';
 const VALID_UUID_B = '22222222-2222-4222-8222-222222222222';
 const VALID_UUID_C = '33333333-3333-4333-8333-333333333333';
-const VALID_UUID_D = '44444444-4444-4444-8444-444444444444';
-const VALID_UUID_E = '55555555-5555-4555-8555-555555555555';
 
 function validInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     reporterId: VALID_UUID_A,
     locationId: VALID_UUID_B,
     assetId: VALID_UUID_C,
-    submittedCategoryId: VALID_UUID_D,
-    submittedIssueTypeId: VALID_UUID_E,
     description: 'Lampu ruangan mati total sejak pagi, mohon segera diperbaiki.',
-    occurredAt: null,
     ...overrides,
   };
 }
@@ -65,19 +74,8 @@ function validInput(overrides: Record<string, unknown> = {}): Record<string, unk
 // ---------------------------------------------------------------------------
 
 describe('validateCreateReportInput (pure)', () => {
-  it('accepts a fully-populated valid input', () => {
+  it('accepts a valid input with required asset and no category fields', () => {
     expect(validateCreateReportInput(validInput())).toEqual([]);
-  });
-
-  it('accepts nullable assetId / submittedIssueTypeId / occurredAt as null or omitted', () => {
-    const rest: Record<string, unknown> = validInput();
-    delete rest['assetId'];
-    delete rest['submittedIssueTypeId'];
-    delete rest['occurredAt'];
-    expect(validateCreateReportInput(rest)).toEqual([]);
-    expect(
-      validateCreateReportInput({ ...rest, assetId: null, submittedIssueTypeId: null }),
-    ).toEqual([]);
   });
 
   it('rejects non-object input', () => {
@@ -111,41 +109,42 @@ describe('validateCreateReportInput (pure)', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('rejects missing or malformed UUID references', () => {
+  it('rejects missing or malformed reporter/location/asset references', () => {
     expect(validateCreateReportInput(validInput({ reporterId: undefined })).length).toBeGreaterThan(
       0,
     );
     expect(validateCreateReportInput(validInput({ locationId: 'not-a-uuid' })).length).toBeGreaterThan(
       0,
     );
-    expect(
-      validateCreateReportInput(validInput({ submittedCategoryId: '' })).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it('rejects malformed optional references but allows null', () => {
-    expect(validateCreateReportInput(validInput({ assetId: '  ' })).length).toBeGreaterThan(0);
+    expect(validateCreateReportInput(validInput({ assetId: '' })).length).toBeGreaterThan(0);
+    expect(validateCreateReportInput(validInput({ assetId: null })).length).toBeGreaterThan(0);
     expect(validateCreateReportInput(validInput({ assetId: 42 })).length).toBeGreaterThan(0);
-    expect(
-      validateCreateReportInput(validInput({ submittedIssueTypeId: 'bogus' })).length,
-    ).toBeGreaterThan(0);
+    const rest: Record<string, unknown> = validInput();
+    delete rest['assetId'];
+    expect(validateCreateReportInput(rest).length).toBeGreaterThan(0);
   });
 
-  it('rejects an invalid or future occurredAt, accepts past and null', () => {
-    expect(validateCreateReportInput(validInput({ occurredAt: 'not-a-date' })).length).toBeGreaterThan(
-      0,
-    );
+  it('rejects reporter-supplied category, issue type, and occurredAt when sent', () => {
     expect(
-      validateCreateReportInput(
-        validInput({ occurredAt: new Date(Date.now() + 3_600_000).toISOString() }),
-      ).length,
+      validateCreateReportInput(validInput({ submittedCategoryId: VALID_UUID_A })).length,
+    ).toBeGreaterThan(0);
+    expect(
+      validateCreateReportInput(validInput({ submittedCategoryId: null })).length,
+    ).toBeGreaterThan(0);
+    expect(
+      validateCreateReportInput(validInput({ submittedIssueTypeId: VALID_UUID_A })).length,
+    ).toBeGreaterThan(0);
+    expect(
+      validateCreateReportInput(validInput({ submittedIssueTypeId: null })).length,
+    ).toBeGreaterThan(0);
+    expect(
+      validateCreateReportInput(validInput({ occurredAt: null })).length,
     ).toBeGreaterThan(0);
     expect(
       validateCreateReportInput(
         validInput({ occurredAt: new Date(Date.now() - 3_600_000).toISOString() }),
-      ),
-    ).toEqual([]);
-    expect(validateCreateReportInput(validInput({ occurredAt: null }))).toEqual([]);
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   it('ignores unknown and future fields without crashing', () => {
@@ -220,7 +219,7 @@ const baseUrl = resolveDatabaseUrl(process.env['DATABASE_URL']);
 const dbAvailable = await isReachable(baseUrl);
 const enabled = dbAvailable;
 
-describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reachable PostgreSQL)', () => {
+describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (requires reachable PostgreSQL)', () => {
   const url = scratchUrl(baseUrl);
   let close: () => Promise<void> = async () => undefined;
   let db: ReturnType<typeof getDb>['db'] | undefined;
@@ -231,16 +230,41 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
   let locB = '';
   let catElec = '';
   let catHvac = '';
-  let catInactive = '';
   let itElec = '';
   let itHvac = '';
-  let itGeneric = '';
   let assetElec1 = '';
   let assetElec2 = '';
   let assetElec3 = '';
   let assetElec4 = '';
+  let assetElec5 = '';
+  let assetElec6 = '';
   let assetHvac1 = '';
+  let assetHvac2 = '';
   let assetInactive = '';
+
+  const longDescription = (label: string): string =>
+    `Laporan verifikasi ${label} dengan deskripsi yang cukup panjang untuk validasi.`;
+
+  const createAsset = async (assetCode: string, categoryId: string): Promise<string> => {
+    const rows = await db!
+      .insert(facilityAssets)
+      .values({ assetCode, name: `T3 ${assetCode}`, categoryId, locationId: locA })
+      .returning({ id: facilityAssets.id });
+    const id = rows[0]?.id;
+    if (id === undefined) {
+      throw new Error('fixture: asset insert failed');
+    }
+    return id;
+  };
+
+  const counterForYear = async (): Promise<number | null> => {
+    const year = getJakartaYear(new Date());
+    const rows = await db!
+      .select()
+      .from(ticketCounters)
+      .where(eq(ticketCounters.year, year));
+    return rows[0]?.lastSeq ?? null;
+  };
 
   beforeAll(
     async () => {
@@ -274,7 +298,7 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       const insertLocation = async (code: string): Promise<string> => {
         const rows = await db!
           .insert(locations)
-          .values({ type: 'ROOM', code, name: `P3-2 room ${code}` })
+          .values({ type: 'ROOM', code, name: `T3 room ${code}` })
           .returning({ id: locations.id });
         const id = rows[0]?.id;
         if (id === undefined) {
@@ -282,13 +306,13 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
         }
         return id;
       };
-      locA = await insertLocation('P32-ROOM-A');
-      locB = await insertLocation('P32-ROOM-B');
+      locA = await insertLocation('T3-ROOM-A');
+      locB = await insertLocation('T3-ROOM-B');
 
       const insertCategory = async (code: string, isActive: boolean): Promise<string> => {
         const rows = await db!
           .insert(facilityCategories)
-          .values({ code, name: `P3-2 ${code}`, isActive })
+          .values({ code, name: `T3 ${code}`, isActive })
           .returning({ id: facilityCategories.id });
         const id = rows[0]?.id;
         if (id === undefined) {
@@ -296,14 +320,13 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
         }
         return id;
       };
-      catElec = await insertCategory('P32-ELEC', true);
-      catHvac = await insertCategory('P32-HVAC', true);
-      catInactive = await insertCategory('P32-INACTIVE', false);
+      catElec = await insertCategory('T3-ELEC', true);
+      catHvac = await insertCategory('T3-HVAC', true);
 
       const insertIssueType = async (code: string, categoryId: string | null): Promise<string> => {
         const rows = await db!
           .insert(issueTypes)
-          .values({ code, name: `P3-2 ${code}`, categoryId })
+          .values({ code, name: `T3 ${code}`, categoryId })
           .returning({ id: issueTypes.id });
         const id = rows[0]?.id;
         if (id === undefined) {
@@ -311,9 +334,8 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
         }
         return id;
       };
-      itElec = await insertIssueType('P32-IT-ELEC', catElec);
-      itHvac = await insertIssueType('P32-IT-HVAC', catHvac);
-      itGeneric = await insertIssueType('P32-IT-GENERIC', null);
+      itElec = await insertIssueType('T3-IT-ELEC', catElec);
+      itHvac = await insertIssueType('T3-IT-HVAC', catHvac);
 
       const insertAsset = async (
         assetCode: string,
@@ -322,7 +344,7 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       ): Promise<string> => {
         const rows = await db!
           .insert(facilityAssets)
-          .values({ assetCode, name: `P3-2 ${assetCode}`, categoryId, locationId: locA })
+          .values({ assetCode, name: `T3 ${assetCode}`, categoryId, locationId: locA })
           .returning({ id: facilityAssets.id });
         const id = rows[0]?.id;
         if (id === undefined) {
@@ -336,12 +358,15 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
         }
         return id;
       };
-      assetElec1 = await insertAsset('P32-ASSET-ELEC-1', catElec, true);
-      assetElec2 = await insertAsset('P32-ASSET-ELEC-2', catElec, true);
-      assetElec3 = await insertAsset('P32-ASSET-ELEC-3', catElec, true);
-      assetElec4 = await insertAsset('P32-ASSET-ELEC-4', catElec, true);
-      assetHvac1 = await insertAsset('P32-ASSET-HVAC-1', catHvac, true);
-      assetInactive = await insertAsset('P32-ASSET-OFF', catElec, false);
+      assetElec1 = await insertAsset('T3-ASSET-ELEC-1', catElec, true);
+      assetElec2 = await insertAsset('T3-ASSET-ELEC-2', catElec, true);
+      assetElec3 = await insertAsset('T3-ASSET-ELEC-3', catElec, true);
+      assetElec4 = await insertAsset('T3-ASSET-ELEC-4', catElec, true);
+      assetElec5 = await insertAsset('T3-ASSET-ELEC-5', catElec, true);
+      assetElec6 = await insertAsset('T3-ASSET-ELEC-6', catElec, true);
+      assetHvac1 = await insertAsset('T3-ASSET-HVAC-1', catHvac, true);
+      assetHvac2 = await insertAsset('T3-ASSET-HVAC-2', catHvac, true);
+      assetInactive = await insertAsset('T3-ASSET-OFF', catElec, false);
     },
     120_000,
   );
@@ -363,16 +388,18 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
         reporterId: reporterA,
         locationId: locA,
         assetId: assetElec1,
-        submittedCategoryId: catElec,
-        submittedIssueTypeId: itElec,
         description: 'Lampu ruangan mati total sejak pagi hari, mohon segera diperbaiki.',
-        occurredAt: null,
       },
       randomUUID(),
     );
     expect(result.idempotentReplay).toBe(false);
+    expect(result.relation).toBeNull();
     expect(result.report.status).toBe('REPORTED');
     expect(result.report.version).toBe(1);
+    // The reporter's asset determines the stored submitted category.
+    expect(result.report.submittedCategoryId).toBe(catElec);
+    expect(result.report.submittedIssueTypeId).toBeNull();
+    expect(result.report.occurredAt).toBeNull();
     const year = getJakartaYear(new Date());
     expect(result.report.ticketNumber).toMatch(new RegExp(`^MNT-${year}-\\d{6}$`));
 
@@ -398,11 +425,8 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       {
         reporterId: reporterA,
         locationId: locA,
-        assetId: assetElec1,
-        submittedCategoryId: catElec,
-        submittedIssueTypeId: itElec,
+        assetId: assetElec2,
         description: 'AC split tidak dingin sama sekali sejak kemarin sore.',
-        occurredAt: null,
       },
       key,
     );
@@ -415,11 +439,8 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       {
         reporterId: reporterA,
         locationId: locA,
-        assetId: assetElec1,
-        submittedCategoryId: catElec,
-        submittedIssueTypeId: itElec,
+        assetId: assetElec2,
         description: 'AC split tidak dingin sama sekali sejak kemarin sore.',
-        occurredAt: null,
       },
       key,
     );
@@ -438,11 +459,8 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       {
         reporterId: reporterA,
         locationId: locA,
-        assetId: assetElec1,
-        submittedCategoryId: catElec,
-        submittedIssueTypeId: itElec,
+        assetId: assetElec3,
         description: 'Kabel stop kontak terkelupas dan terlihat berbahaya bagi penghuni.',
-        occurredAt: null,
       },
       key,
     );
@@ -457,11 +475,8 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       {
         reporterId: reporterA,
         locationId: locA,
-        assetId: assetElec1,
-        submittedCategoryId: catElec,
-        submittedIssueTypeId: itElec,
+        assetId: assetElec3,
         description: 'pendek',
-        occurredAt: null,
       },
       key,
     );
@@ -473,245 +488,243 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
     expect(await db!.select().from(outboxEvents)).toHaveLength(outboxBefore.length);
   });
 
-  it('warns on active same-reporter/same-asset repeat; CLOSED clears the warning', async () => {
-    const input = {
-      reporterId: reporterA,
-      locationId: locA,
-      assetId: assetElec2,
-      submittedCategoryId: catElec,
-      submittedIssueTypeId: itElec,
-      description: 'Stop kontak mengeluarkan percikan api saat digunakan.',
-      occurredAt: null,
-    };
-    const first = await createReport(db!, input, randomUUID());
-    expect(first.duplicateCandidates).toEqual([]);
-
-    const second = await createReport(db!, input, randomUUID());
-    expect(second.idempotentReplay).toBe(false);
-    expect(second.report.ticketNumber).not.toBe(first.report.ticketNumber);
-    // Warning only: the repeat is still created as REPORTED, never auto-marked.
-    expect(second.report.status).toBe('REPORTED');
-    expect(second.report.duplicateOfReportId).toBeNull();
-    expect(second.duplicateCandidates.map((c) => c.ticketNumber)).toContain(
-      first.report.ticketNumber,
+  it('blocks same-reporter same-asset active submit with ticket ref', async () => {
+    const first = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetElec4,
+        description: longDescription('pertama aset empat'),
+      },
+      randomUUID(),
     );
-    expect(await db!.select().from(reportRelations)).toEqual([]);
+    expect(first.relation).toBeNull();
 
-    // After CLOSED the same input yields no candidate but a new ticket is allowed.
+    const reportsBefore = await db!.select().from(maintenanceReports);
+    const eventsBefore = await db!.select().from(reportEvents);
+    const outboxBefore = await db!.select().from(outboxEvents);
+    const seqBefore = await counterForYear();
+
+    await expect(
+      createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: assetElec4,
+          description: longDescription('kedua aset sama diblokir'),
+        },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'DUPLICATE_ACTIVE', ticketNumber: first.report.ticketNumber });
+
+    // The blocked submit writes nothing and consumes no ticket.
+    expect(await db!.select().from(maintenanceReports)).toHaveLength(reportsBefore.length);
+    expect(await db!.select().from(reportEvents)).toHaveLength(eventsBefore.length);
+    expect(await db!.select().from(outboxEvents)).toHaveLength(outboxBefore.length);
+    expect(await counterForYear()).toBe(seqBefore);
+  });
+
+  it('allows resubmission on the same asset once the active ticket is CLOSED', async () => {
+    const first = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetElec5,
+        description: longDescription('pertama aset lima'),
+      },
+      randomUUID(),
+    );
+    await expect(
+      createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: assetElec5,
+          description: longDescription('kedua aset lima diblokir'),
+        },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'DUPLICATE_ACTIVE', ticketNumber: first.report.ticketNumber });
+
     await db!
       .update(maintenanceReports)
       .set({ status: 'CLOSED' })
       .where(eq(maintenanceReports.id, first.report.id));
-    await db!
-      .update(maintenanceReports)
-      .set({ status: 'CLOSED' })
-      .where(eq(maintenanceReports.id, second.report.id));
-    const third = await createReport(db!, input, randomUUID());
-    expect(third.duplicateCandidates).toEqual([]);
-    expect(third.report.status).toBe('REPORTED');
-  });
 
-  it('returns no candidate for a different asset or location, and none for a different reporter', async () => {
-    // Fresh asset: earlier tests' active rows (assetElec1/assetElec2) must not
-    // leak into this test's candidate sets.
-    const base = {
-      reporterId: reporterA,
-      locationId: locA,
-      assetId: assetElec3,
-      submittedCategoryId: catElec,
-      submittedIssueTypeId: itElec,
-      description: 'Kabel lampu terlihat terkelupas dan berbahaya bagi pengguna.',
-      occurredAt: null,
-    };
-    const baseCreated = await createReport(db!, base, randomUUID());
-    expect(baseCreated.duplicateCandidates).toEqual([]);
-
-    const repeatSame = await createReport(
-      db!,
-      { ...base, description: 'Saklar lampu patah dan tidak bisa digunakan sama sekali.' },
-      randomUUID(),
-    );
-    expect(repeatSame.duplicateCandidates.map((c) => c.ticketNumber)).toContain(
-      baseCreated.report.ticketNumber,
-    );
-
-    const switchedAsset = await createReport(
-      db!,
-      {
-        ...base,
-        assetId: assetElec4,
-        description: 'Lampu di titik lain berkedip terus sejak minggu lalu.',
-      },
-      randomUUID(),
-    );
-    expect(switchedAsset.duplicateCandidates).toEqual([]);
-
-    const noAssetOtherLocation = await createReport(
+    const third = await createReport(
       db!,
       {
         reporterId: reporterA,
-        locationId: locB,
-        assetId: null,
-        submittedCategoryId: catElec,
-        submittedIssueTypeId: null,
-        description: 'Lampu koridor gedung sebelah mati total sejak tadi malam.',
-        occurredAt: null,
+        locationId: locA,
+        assetId: assetElec5,
+        description: longDescription('ketiga aset lima setelah tutup'),
       },
       randomUUID(),
     );
-    expect(noAssetOtherLocation.duplicateCandidates).toEqual([]);
+    expect(third.idempotentReplay).toBe(false);
+    expect(third.report.ticketNumber).not.toBe(first.report.ticketNumber);
+    expect(third.report.status).toBe('REPORTED');
+    expect(third.relation).toBeNull();
+  });
 
-    const otherReporter = await createReport(
+  it('links a different-reporter same-incident report as SUPPORTING', async () => {
+    const first = await createReport(
       db!,
       {
-        ...base,
-        reporterId: reporterB,
-        description: 'Lampu ruangan yang sama mati, dilaporkan penghuni lain.',
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetElec6,
+        description: longDescription('pertama aset enam'),
       },
       randomUUID(),
     );
-    expect(otherReporter.duplicateCandidates).toEqual([]);
-    expect(otherReporter.report.status).toBe('REPORTED');
-    expect(await db!.select().from(reportRelations)).toEqual([]);
-  });
-
-  it('never returns CLOSED/REJECTED/DUPLICATE/RESOLVED rows as candidates', async () => {
-    const input = {
-      reporterId: reporterA,
-      locationId: locA,
-      assetId: assetHvac1,
-      submittedCategoryId: catHvac,
-      submittedIssueTypeId: itHvac,
-      description: 'Unit outdoor AC berisik dan meneteskan air terus menerus.',
-      occurredAt: null,
-    };
-    const created = await createReport(db!, input, randomUUID());
-    await db!
-      .update(maintenanceReports)
-      .set({ status: 'REJECTED' })
-      .where(eq(maintenanceReports.id, created.report.id));
-    const probe = await createReport(
+    const res = await createReport(
       db!,
-      { ...input, description: 'Unit outdoor AC masih berisik sampai hari ini.' },
+      {
+        reporterId: reporterB,
+        locationId: locA,
+        assetId: assetElec6,
+        description: longDescription('pelapor lain aset sama'),
+      },
       randomUUID(),
     );
-    expect(probe.duplicateCandidates).toEqual([]);
-    await db!
-      .update(maintenanceReports)
-      .set({ status: 'DUPLICATE' })
-      .where(eq(maintenanceReports.id, probe.report.id));
+    expect(res.relation).toEqual({ type: 'SUPPORTING', targetTicket: first.report.ticketNumber });
 
-    // RESOLVED rows are terminal too: store one and assert exclusion.
-    const resolvedFixture = await createReport(
-      db!,
-      { ...input, description: 'Unit outdoor AC sudah diperbaiki namun masih termonitor.' },
-      randomUUID(),
-    );
-    expect(resolvedFixture.duplicateCandidates).toEqual([]);
-    await db!
-      .update(maintenanceReports)
-      .set({ status: 'RESOLVED' })
-      .where(eq(maintenanceReports.id, resolvedFixture.report.id));
-
-    const direct = await findDuplicateCandidates(db!, {
-      reporterId: reporterA,
-      assetId: assetHvac1,
-      locationId: locA,
-      categoryId: catHvac,
-      issueTypeId: itHvac,
+    // The SUPPORTING row lands in the same create transaction: both rows stay
+    // independently queryable and no extra job is queued for the merge.
+    const links = await db!.select().from(reportRelations);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      sourceReportId: res.report.id,
+      targetReportId: first.report.id,
+      relationType: 'SUPPORTING',
     });
-    expect(direct).toEqual([]);
+    expect(res.report.status).toBe('REPORTED');
   });
 
-  it('still finds an active match older than the 14-day lookback (fallback scan)', async () => {
-    const input = {
-      reporterId: reporterB,
-      locationId: locB,
-      assetId: null,
-      submittedCategoryId: catHvac,
-      submittedIssueTypeId: itGeneric,
-      description: 'Kipas angin plafon berputar lambat dan berbunyi kasar.',
-      occurredAt: null,
-    };
-    const old = await createReport(db!, input, randomUUID());
+  it('creates without a link for a different asset', async () => {
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetHvac1,
+        description: longDescription('aset berbeda tanpa tautan'),
+      },
+      randomUUID(),
+    );
+    expect(created.relation).toBeNull();
+    expect(created.report.status).toBe('REPORTED');
+  });
+
+  it('still blocks on an active match older than the 14-day lookback', async () => {
+    const asset = await createAsset('T3-ASSET-LOOKBACK', catHvac);
+    const old = await createReport(
+      db!,
+      {
+        reporterId: reporterB,
+        locationId: locB,
+        assetId: asset,
+        description: longDescription('laporan lama di luar jendela'),
+      },
+      randomUUID(),
+    );
     await db!
       .update(maintenanceReports)
       .set({ reportedAt: new Date(Date.now() - 20 * 24 * 3_600_000) })
       .where(eq(maintenanceReports.id, old.report.id));
 
-    const fresh = await createReport(
-      db!,
-      { ...input, description: 'Kipas angin plafon masih lambat sampai minggu ini.' },
-      randomUUID(),
-    );
-    expect(fresh.duplicateCandidates.map((c) => c.ticketNumber)).toContain(
-      old.report.ticketNumber,
-    );
+    await expect(
+      createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locB,
+          assetId: asset,
+          description: longDescription('laporan baru tetap diblokir'),
+        },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'DUPLICATE_ACTIVE', ticketNumber: old.report.ticketNumber });
   });
 
-  it('orders candidates newest first and matches final_category_id too', async () => {
-    const input = {
-      reporterId: reporterB,
-      locationId: locA,
-      assetId: assetElec2,
-      submittedCategoryId: catElec,
-      submittedIssueTypeId: null,
-      description: 'Lampu meja belajar redup dan sering mati sendiri.',
-      occurredAt: null,
+  it('findDuplicateCandidates matches final-category rows and orders newest first', async () => {
+    const ticket = (suffix: string): string => `T3-DIRECT-${suffix}-${randomUUID()}`;
+    const insertDirect = async (reportedAt: Date, finalCategoryId: string | null) => {
+      const rows = await db!
+        .insert(maintenanceReports)
+        .values({
+          ticketNumber: ticket('ord'),
+          idempotencyKey: randomUUID(),
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: null,
+          submittedCategoryId: catElec,
+          submittedIssueTypeId: null,
+          finalCategoryId,
+          description: longDescription('kandidat langsung'),
+          status: 'REPORTED',
+          reportedAt,
+        })
+        .returning({ id: maintenanceReports.id, ticketNumber: maintenanceReports.ticketNumber });
+      const row = rows[0];
+      if (row === undefined) {
+        throw new Error('fixture: direct insert failed');
+      }
+      return row;
     };
-    const first = await createReport(db!, input, randomUUID());
+    const older = await insertDirect(new Date(Date.now() - 2 * 3_600_000), null);
+    const newer = await insertDirect(new Date(), null);
     await db!
       .update(maintenanceReports)
-      .set({ reportedAt: new Date(Date.now() - 2 * 3_600_000) })
-      .where(eq(maintenanceReports.id, first.report.id));
-    const second = await createReport(
-      db!,
-      { ...input, description: 'Lampu meja belajar masih redup hingga pagi ini.' },
-      randomUUID(),
-    );
+      .set({ finalCategoryId: catHvac })
+      .where(eq(maintenanceReports.id, older.id));
+
     const candidates = await findDuplicateCandidates(db!, {
-      reporterId: reporterB,
-      assetId: assetElec2,
+      reporterId: reporterA,
+      assetId: null,
       locationId: locA,
       categoryId: catElec,
       issueTypeId: null,
     });
     const tickets = candidates.map((c) => c.ticketNumber);
-    expect(tickets).toContain(first.report.ticketNumber);
-    expect(tickets).toContain(second.report.ticketNumber);
-    expect(tickets.indexOf(second.report.ticketNumber)).toBeLessThan(
-      tickets.indexOf(first.report.ticketNumber),
-    );
+    expect(tickets).toContain(newer.ticketNumber);
+    expect(tickets.indexOf(newer.ticketNumber)).toBeLessThan(tickets.indexOf(older.ticketNumber));
 
-    // Simulate verification retargeting the category: final_category_id matches too.
-    await db!
-      .update(maintenanceReports)
-      .set({ finalCategoryId: catHvac })
-      .where(eq(maintenanceReports.id, first.report.id));
+    // The retargeted row still matches through its final category.
     const viaFinal = await findDuplicateCandidates(db!, {
-      reporterId: reporterB,
-      assetId: assetElec2,
+      reporterId: reporterA,
+      assetId: null,
       locationId: locA,
       categoryId: catHvac,
       issueTypeId: null,
     });
-    expect(viaFinal.map((c) => c.ticketNumber)).toContain(first.report.ticketNumber);
+    expect(viaFinal.map((c) => c.ticketNumber)).toContain(older.ticketNumber);
   });
 
-  it('distinguishes null vs set issue types (IS NOT DISTINCT FROM)', async () => {
-    const withNull = await createReport(
-      db!,
-      {
+  it('findDuplicateCandidates distinguishes null vs set issue types', async () => {
+    const rows = await db!
+      .insert(maintenanceReports)
+      .values({
+        ticketNumber: `T3-DIRECT-null-${randomUUID()}`,
+        idempotencyKey: randomUUID(),
         reporterId: reporterB,
         locationId: locB,
         assetId: null,
         submittedCategoryId: catElec,
         submittedIssueTypeId: null,
-        description: 'Jendela ruangan tidak bisa dikunci dengan benar.',
-        occurredAt: null,
-      },
-      randomUUID(),
-    );
+        description: longDescription('isu null langsung'),
+        status: 'REPORTED',
+      })
+      .returning({ ticketNumber: maintenanceReports.ticketNumber });
+    const withNull = rows[0];
+    if (withNull === undefined) {
+      throw new Error('fixture: direct insert failed');
+    }
     const sameNull = await findDuplicateCandidates(db!, {
       reporterId: reporterB,
       assetId: null,
@@ -719,7 +732,7 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       categoryId: catElec,
       issueTypeId: null,
     });
-    expect(sameNull.map((c) => c.ticketNumber)).toContain(withNull.report.ticketNumber);
+    expect(sameNull.map((c) => c.ticketNumber)).toContain(withNull.ticketNumber);
 
     const mismatchedIssue = await findDuplicateCandidates(db!, {
       reporterId: reporterB,
@@ -728,20 +741,15 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       categoryId: catElec,
       issueTypeId: itElec,
     });
-    expect(mismatchedIssue.map((c) => c.ticketNumber)).not.toContain(
-      withNull.report.ticketNumber,
-    );
+    expect(mismatchedIssue.map((c) => c.ticketNumber)).not.toContain(withNull.ticketNumber);
   });
 
   it('rejects invalid input and missing/inactive references with AppError statuses', async () => {
     const good = {
       reporterId: reporterA,
       locationId: locA,
-      assetId: assetElec1,
-      submittedCategoryId: catElec,
-      submittedIssueTypeId: itElec,
+      assetId: assetElec6,
       description: 'Lampu ruangan mati total sejak pagi hari, mohon diperbaiki.',
-      occurredAt: null,
     };
     await expect(createReport(db!, good, '')).rejects.toMatchObject({ status: 400 });
     await expect(
@@ -750,7 +758,31 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
     await expect(
       createReport(
         db!,
-        { ...good, occurredAt: new Date(Date.now() + 3_600_000).toISOString() },
+        { ...good, assetId: 'not-a-uuid' },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createReport(db!, { ...good, assetId: undefined as never }, randomUUID()),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createReport(
+        db!,
+        { ...good, submittedCategoryId: catElec } as Record<string, unknown> as never,
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createReport(
+        db!,
+        { ...good, submittedIssueTypeId: itElec } as Record<string, unknown> as never,
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createReport(
+        db!,
+        { ...good, occurredAt: null } as Record<string, unknown> as never,
         randomUUID(),
       ),
     ).rejects.toMatchObject({ status: 400 });
@@ -761,56 +793,26 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
       createReport(db!, { ...good, reporterId: randomUUID() }, randomUUID()),
     ).rejects.toMatchObject({ status: 404 });
     await expect(
-      createReport(db!, { ...good, submittedCategoryId: catInactive }, randomUUID()),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      createReport(
-        db!,
-        { ...good, submittedIssueTypeId: itHvac, submittedCategoryId: catElec },
-        randomUUID(),
-      ),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      createReport(
-        db!,
-        { ...good, assetId: assetHvac1, submittedCategoryId: catElec },
-        randomUUID(),
-      ),
-    ).rejects.toMatchObject({ status: 400 });
+      createReport(db!, { ...good, assetId: randomUUID() }, randomUUID()),
+    ).rejects.toMatchObject({ status: 404 });
     await expect(
       createReport(db!, { ...good, assetId: assetInactive }, randomUUID()),
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('stores a past occurredAt and mints 10 unique tickets under parallel load', async () => {
-    const occurredAt = new Date(Date.now() - 24 * 3_600_000).toISOString();
-    const withDate = await createReport(
-      db!,
-      {
-        reporterId: reporterA,
-        locationId: locA,
-        assetId: null,
-        submittedCategoryId: catElec,
-        submittedIssueTypeId: null,
-        description: 'Plafon bocor saat hujan deras kemarin sore hari.',
-        occurredAt,
-      },
-      randomUUID(),
+  it('mints unique tickets under parallel load across distinct assets', async () => {
+    const assets = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => createAsset(`T3-ASSET-PAR-${i}`, catElec)),
     );
-    expect(withDate.report.occurredAt?.getTime()).toBe(new Date(occurredAt).getTime());
-
     const results = await Promise.all(
-      Array.from({ length: 10 }, (_, i) =>
+      assets.map((assetId, i) =>
         createReport(
           db!,
           {
             reporterId: reporterA,
             locationId: locA,
-            assetId: null,
-            submittedCategoryId: catElec,
-            submittedIssueTypeId: null,
+            assetId,
             description: `Laporan beban paralel ke-${i} dengan deskripsi yang cukup panjang.`,
-            occurredAt: null,
           },
           randomUUID(),
         ),
@@ -820,6 +822,9 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
     expect(new Set(tickets).size).toBe(10);
     for (const ticket of tickets) {
       expect(ticket).toMatch(/^MNT-\d{4}-\d{6}$/);
+    }
+    for (const result of results) {
+      expect(result.relation).toBeNull();
     }
   });
 
@@ -833,11 +838,8 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
           {
             reporterId: reporterB,
             locationId: locA,
-            assetId: null,
-            submittedCategoryId: catHvac,
-            submittedIssueTypeId: null,
+            assetId: assetHvac2,
             description: 'Balon lampu lorong pecah dan perlu diganti segera.',
-            occurredAt: null,
           },
           key,
         ),
@@ -849,22 +851,154 @@ describe.skipIf(!enabled)('createReport + findDuplicateCandidates (requires reac
     expect(after.length).toBe(before.length + 1);
     expect(results.filter((r) => r.idempotentReplay).length).toBeGreaterThan(0);
   });
-});
-it('reports P3-2 availability (informational)', () => {
-  if (!enabled) {
-    console.log(
-      'SKIP P3-2 integration: PostgreSQL unreachable at ' +
-        'the resolved DATABASE_URL — start local postgres (docker compose up) ' +
-        'or set DATABASE_URL to a live instance to run.',
-    );
-  }
-  expect(true).toBe(true);
-});
 
-it('reports P3-2 availability (informational)', () => {
+  it('applyVerification sets VERIFIED finals plus the verification event', async () => {
+    const asset = await createAsset('T3-ASSET-AV-1', catElec);
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('verifikasi langsung pertama'),
+      },
+      randomUUID(),
+    );
+    const next = await applyVerification(
+      db!,
+      created.report.id,
+      { finalCategoryId: catElec, finalIssueTypeId: itElec, finalPriority: 'HIGH' },
+    );
+    expect(next.status).toBe('VERIFIED');
+    expect(next.finalCategoryId).toBe(catElec);
+    expect(next.finalIssueTypeId).toBe(itElec);
+    expect(next.finalPriority).toBe('HIGH');
+    expect(next.verifiedAt).not.toBeNull();
+    expect(next.version).toBe(created.report.version + 1);
+    const events = await db!
+      .select()
+      .from(reportEvents)
+      .where(eq(reportEvents.reportId, created.report.id));
+    expect(events.map((e) => e.eventType)).toContain('REPORT_VERIFIED');
+  });
+
+  it('applyVerification leaves the auto-merged SUPPORTING link untouched', async () => {
+    const asset = await createAsset('T3-ASSET-AV-2', catElec);
+    const first = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('verifikasi tautan pertama'),
+      },
+      randomUUID(),
+    );
+    const second = await createReport(
+      db!,
+      {
+        reporterId: reporterB,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('verifikasi tautan kedua'),
+      },
+      randomUUID(),
+    );
+    expect(second.relation).toEqual({ type: 'SUPPORTING', targetTicket: first.report.ticketNumber });
+
+    const verified = await applyVerification(
+      db!,
+      second.report.id,
+      { finalCategoryId: catElec, finalIssueTypeId: itElec, finalPriority: 'MEDIUM' },
+    );
+    expect(verified.status).toBe('VERIFIED');
+    const links = await db!
+      .select()
+      .from(reportRelations)
+      .where(eq(reportRelations.sourceReportId, second.report.id));
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      targetReportId: first.report.id,
+      relationType: 'SUPPORTING',
+    });
+  });
+
+  it('applyVerification rejects an unknown category before any write', async () => {
+    const asset = await createAsset('T3-ASSET-AV-3', catElec);
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('verifikasi kategori tak dikenal'),
+      },
+      randomUUID(),
+    );
+    const eventsBefore = await db!
+      .select()
+      .from(reportEvents)
+      .where(eq(reportEvents.reportId, created.report.id));
+    await expect(
+      applyVerification(
+        db!,
+        created.report.id,
+        { finalCategoryId: randomUUID(), finalIssueTypeId: itElec, finalPriority: 'HIGH' },
+      ),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const rows = await db!
+      .select()
+      .from(maintenanceReports)
+      .where(eq(maintenanceReports.id, created.report.id));
+    expect(rows[0]?.status).toBe('REPORTED');
+    expect(rows[0]?.version).toBe(created.report.version);
+    expect(rows[0]?.finalCategoryId).toBeNull();
+    expect(
+      await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id)),
+    ).toHaveLength(eventsBefore.length);
+  });
+
+  it('applyVerification refuses a report that is no longer REPORTED', async () => {
+    const asset = await createAsset('T3-ASSET-AV-4', catHvac);
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterB,
+        locationId: locB,
+        assetId: asset,
+        description: longDescription('verifikasi ganda pertama'),
+      },
+      randomUUID(),
+    );
+    await applyVerification(
+      db!,
+      created.report.id,
+      { finalCategoryId: catHvac, finalIssueTypeId: itHvac, finalPriority: 'LOW' },
+    );
+    await expect(
+      applyVerification(
+        db!,
+        created.report.id,
+        { finalCategoryId: catHvac, finalIssueTypeId: itHvac, finalPriority: 'LOW' },
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      applyVerification(db!, randomUUID(), {
+        finalCategoryId: catHvac,
+        finalIssueTypeId: itHvac,
+        finalPriority: 'LOW',
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+});
+it('reports Task 3 availability (informational)', () => {
   if (!enabled) {
     console.log(
-      'SKIP P3-2 integration: PostgreSQL unreachable at ' +
+      'SKIP Task 3 integration: PostgreSQL unreachable at ' +
         'the resolved DATABASE_URL — start local postgres (docker compose up) ' +
         'or set DATABASE_URL to a live instance to run.',
     );
@@ -879,6 +1013,10 @@ it('reports P3-2 availability (informational)', () => {
 // validation throws before any I/O). DB-gated integration uses its own
 // SCRATCH database (`silapor_p33_test`) created/dropped in
 // beforeAll/afterAll — the shared dev database is never touched.
+//
+// Fixtures below insert rows directly (bypassing createReport) so the query,
+// link, and count paths keep their legacy incident shapes (null asset +
+// submitted category) independent of the Task 3 submit contract.
 // ---------------------------------------------------------------------------
 
 // Validation in every P3-3 entrypoint runs before the first query, so pure
@@ -994,7 +1132,7 @@ describe('P3-3 link + detail validation (pure)', () => {
     await expect(
       countAffectedReporters(stubDb, {
         locationId: 'not-a-uuid',
-        categoryId: VALID_UUID_D,
+        categoryId: VALID_UUID_A,
         issueTypeId: null,
       }),
     ).rejects.toMatchObject({ status: 400 });
@@ -1077,25 +1215,39 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
       catA = await insertCategory('P33-CAT-A');
       catB = await insertCategory('P33-CAT-B');
 
+      // Direct REPORTED inserts (bypass createReport): query/link/count paths
+      // keep legacy incident shapes (null asset + submitted category) so they
+      // stay independent of the Task 3 submit contract.
       const report = async (
         reporterId: string,
         categoryId: string,
         description: string,
       ): Promise<{ id: string; ticketNumber: string }> => {
-        const result = await createReport(
-          db!,
-          {
+        const ticketNumber = `P33-${randomUUID()}`;
+        const inserted = await db!
+          .insert(maintenanceReports)
+          .values({
+            ticketNumber,
+            idempotencyKey: randomUUID(),
             reporterId,
             locationId: locA,
             assetId: null,
             submittedCategoryId: categoryId,
             submittedIssueTypeId: null,
             description,
-            occurredAt: null,
-          },
-          randomUUID(),
-        );
-        return { id: result.report.id, ticketNumber: result.report.ticketNumber };
+            status: 'REPORTED',
+          })
+          .returning({ id: maintenanceReports.id });
+        const id = inserted[0]?.id;
+        if (id === undefined) {
+          throw new Error('fixture: report insert failed');
+        }
+        await db!.insert(reportEvents).values({
+          reportId: id,
+          eventType: 'REPORT_CREATED',
+          actorId: reporterId,
+        });
+        return { id, ticketNumber };
       };
 
       // Reporter A: 3 reports (same incident scope: locA + catA, no asset/issue).
@@ -1422,13 +1574,13 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
     ).rejects.toMatchObject({ status: 409 });
   });
 
-  it('counts affected reporters across the incident plus links (terminal rows collapse)', async () => {
+  it('counts affected reporters across the incident plus links (non-active rows collapse)', async () => {
     await db!
       .update(maintenanceReports)
-      .set({ status: 'DUPLICATE', duplicateOfReportId: a1Id })
+      .set({ status: 'CLOSED' })
       .where(eq(maintenanceReports.id, a3Id));
-    // Same-reporter DUPLICATE row collapses: reporter A still counts once.
-    // Linked reporter B counts via the B1→A1 SUPPORTING link.
+    // Same-reporter CLOSED row collapses: reporter A still counts once via
+    // the remaining actives. Linked reporter B counts via B1→A1 SUPPORTING.
     expect(
       await countAffectedReporters(db!, {
         assetId: null,
@@ -1438,24 +1590,26 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
       }),
     ).toBe(2);
 
-    // An unlinked terminal row from a third reporter contributes nothing.
-    const c1 = await createReport(
-      db!,
-      {
+    // An unlinked non-active row from a third reporter contributes nothing.
+    const c1 = await db!
+      .insert(maintenanceReports)
+      .values({
+        ticketNumber: `P33-${randomUUID()}`,
+        idempotencyKey: randomUUID(),
         reporterId: reporterC,
         locationId: locA,
         assetId: null,
         submittedCategoryId: catA,
         submittedIssueTypeId: null,
         description: 'Keran wastafel patah dan air mengucur terus menerus.',
-        occurredAt: null,
-      },
-      randomUUID(),
-    );
+        status: 'REPORTED',
+      })
+      .returning({ id: maintenanceReports.id });
+    const c1Id = c1[0]?.id as string;
     await db!
       .update(maintenanceReports)
-      .set({ status: 'REJECTED' })
-      .where(eq(maintenanceReports.id, c1.report.id));
+      .set({ status: 'RESOLVED' })
+      .where(eq(maintenanceReports.id, c1Id));
     expect(
       await countAffectedReporters(db!, {
         assetId: null,
