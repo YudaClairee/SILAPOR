@@ -1,11 +1,7 @@
-// Login page (Phase 2 P2-4). Minimal username form: POST /api/auth/login
-// (cookie included) then navigate to '/' on 200. Server messages are generic
-// by contract (`Kredensial salah`), so displaying them cannot enumerate
-// accounts; anything unparseable falls back to a generic failure line.
-// Accessible (label, role=alert error, disabled-while-pending) with
-// Indonesian copy. No styling dependencies.
+
 import { useState, type FormEvent } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+// @ts-expect-error CSS is handled by the Vite bundler at runtime.
 import '../styles/login.css';
 
 export const Route = createFileRoute('/login')({

@@ -1,11 +1,3 @@
-// Admin reports table (Phase 3 P3-6): every report in the system with
-// search (ticket/description, min 2 chars, blank = no filter), filters
-// (status, category, location, priority, reporter id, date range), sort,
-// and server-side pagination (limit 50, prev/next, total count).
-// Read-only rows keyed by report id; changing filters resets offset to 0.
-// Loading (role=status), empty, error-with-retry, and 403-forbidden states;
-// 401 redirects to /login. Indonesian copy. Styled per DESIGN.md (Task D-3):
-// AppShell admin nav, secondary filter bar, ruled table, D-1 primitives.
 import { useEffect, useState } from 'react';
 import {
   Link,
@@ -501,7 +493,7 @@ function AdminReportsPage() {
         ) : (
           <>
             <div className="mt-4 overflow-x-auto rounded-md border border-border bg-surface">
-              <table className="w-full min-w-[880px] border-collapse text-left text-sm">
+              <table className="w-full min-w-220 border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">

@@ -1,13 +1,3 @@
-// Admin report detail (Phase 3 P3-6): one report by UUID or MNT- ticket.
-// Read-only (workflow actions land in Phase 5): full report fields,
-// submitted + final-or-empty classification, location/asset, description,
-// occurredAt, lifecycle timestamps, version, duplicate candidates (with
-// links), relations, attachment metadata (no download until Phase 4), the
-// FULL timeline (every event, chronological), and a static AI placeholder
-// ("Tinjauan AI: menunggu" — Phase 8 fills it, no polling).
-// Loading, error-with-retry, 404, and 403-forbidden states; 401 redirects
-// to /login. Indonesian copy. Styled per DESIGN.md (Task D-3): ruled
-// sections, D-1 StatusBadge/Timeline/TicketMono/ErrorPanel/LoadingState.
 import { useEffect, useState } from 'react';
 import {
   Link,

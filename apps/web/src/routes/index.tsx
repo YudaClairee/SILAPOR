@@ -1,6 +1,3 @@
-// Placeholder home (Task 2). Static placeholders only for the required UX
-// states (loading/empty/error/forbidden/success); full UX lands in later
-// phases. Root error + not-found handling lives in `__root.tsx`.
 import { createFileRoute } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/')({

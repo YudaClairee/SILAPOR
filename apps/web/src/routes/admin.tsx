@@ -1,12 +1,3 @@
-// Admin layout placeholder (Phase 2 P2-4). Renders <Outlet/> only —
-// full admin UI lands in Phase 3+ (P2-5 owns admin API routes).
-//
-// Server enforcement is authoritative (plan principle 2): API routes guard
-// with `../server/auth.ts` require* helpers. `beforeLoad` below is
-// navigation convenience only: it asks GET /api/auth/me (cookie included)
-// and redirects anonymous users to /login and reporters to '/' per
-// `redirectForRole`. A failed fetch (e.g. SSR relative-URL fetch, offline)
-// is non-definitive, so it abstains instead of redirecting.
 import { Outlet, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { redirectForRole, type GuardUser } from '../server/guard';
 import { AppShell } from '../components/index.js';
