@@ -20,7 +20,8 @@
 import postgres from 'postgres';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, afterAll, beforeAll } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import { isAppError } from '@silapor/shared';
 import { getDb, resolveDatabaseUrl } from './index.js';
 import { runMigrations } from './migrate.js';
 import {
@@ -230,6 +231,7 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
   let locB = '';
   let catElec = '';
   let catHvac = '';
+  let catInactive = '';
   let itElec = '';
   let itHvac = '';
   let assetElec1 = '';
@@ -241,6 +243,7 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
   let assetHvac1 = '';
   let assetHvac2 = '';
   let assetInactive = '';
+  let assetOffCategory = '';
 
   const longDescription = (label: string): string =>
     `Laporan verifikasi ${label} dengan deskripsi yang cukup panjang untuk validasi.`;
@@ -322,6 +325,7 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
       };
       catElec = await insertCategory('T3-ELEC', true);
       catHvac = await insertCategory('T3-HVAC', true);
+      catInactive = await insertCategory('T3-OFF', false);
 
       const insertIssueType = async (code: string, categoryId: string | null): Promise<string> => {
         const rows = await db!
@@ -367,6 +371,7 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
       assetHvac1 = await insertAsset('T3-ASSET-HVAC-1', catHvac, true);
       assetHvac2 = await insertAsset('T3-ASSET-HVAC-2', catHvac, true);
       assetInactive = await insertAsset('T3-ASSET-OFF', catElec, false);
+      assetOffCategory = await insertAsset('T3-ASSET-OFFCAT', catInactive, true);
     },
     120_000,
   );
@@ -506,18 +511,28 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
     const outboxBefore = await db!.select().from(outboxEvents);
     const seqBefore = await counterForYear();
 
-    await expect(
-      createReport(
-        db!,
-        {
-          reporterId: reporterA,
-          locationId: locA,
-          assetId: assetElec4,
-          description: longDescription('kedua aset sama diblokir'),
-        },
-        randomUUID(),
-      ),
-    ).rejects.toMatchObject({ code: 'DUPLICATE_ACTIVE', ticketNumber: first.report.ticketNumber });
+    const blocked = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetElec4,
+        description: longDescription('kedua aset sama diblokir'),
+      },
+      randomUUID(),
+    ).then(
+      () => {
+        throw new Error('test: blocked submit unexpectedly succeeded');
+      },
+      (error: unknown) => error,
+    );
+    // Transport-safe: AppError with 409 + active ticket ref in details.
+    expect(isAppError(blocked)).toBe(true);
+    expect(blocked).toMatchObject({
+      code: 'DUPLICATE_ACTIVE',
+      status: 409,
+      details: { ticketNumber: first.report.ticketNumber },
+    });
 
     // The blocked submit writes nothing and consumes no ticket.
     expect(await db!.select().from(maintenanceReports)).toHaveLength(reportsBefore.length);
@@ -537,18 +552,27 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
       },
       randomUUID(),
     );
-    await expect(
-      createReport(
-        db!,
-        {
-          reporterId: reporterA,
-          locationId: locA,
-          assetId: assetElec5,
-          description: longDescription('kedua aset lima diblokir'),
-        },
-        randomUUID(),
-      ),
-    ).rejects.toMatchObject({ code: 'DUPLICATE_ACTIVE', ticketNumber: first.report.ticketNumber });
+    const blockedResubmit = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: assetElec5,
+        description: longDescription('kedua aset lima diblokir'),
+      },
+      randomUUID(),
+    ).then(
+      () => {
+        throw new Error('test: blocked submit unexpectedly succeeded');
+      },
+      (error: unknown) => error,
+    );
+    expect(isAppError(blockedResubmit)).toBe(true);
+    expect(blockedResubmit).toMatchObject({
+      code: 'DUPLICATE_ACTIVE',
+      status: 409,
+      details: { ticketNumber: first.report.ticketNumber },
+    });
 
     await db!
       .update(maintenanceReports)
@@ -621,6 +645,23 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
     expect(created.report.status).toBe('REPORTED');
   });
 
+  it('rejects a submit when the asset points at an inactive category', async () => {
+    const reportsBefore = await db!.select().from(maintenanceReports);
+    await expect(
+      createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: assetOffCategory,
+          description: longDescription('aset kategori nonaktif'),
+        },
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(await db!.select().from(maintenanceReports)).toHaveLength(reportsBefore.length);
+  });
+
   it('still blocks on an active match older than the 14-day lookback', async () => {
     const asset = await createAsset('T3-ASSET-LOOKBACK', catHvac);
     const old = await createReport(
@@ -638,18 +679,27 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
       .set({ reportedAt: new Date(Date.now() - 20 * 24 * 3_600_000) })
       .where(eq(maintenanceReports.id, old.report.id));
 
-    await expect(
-      createReport(
-        db!,
-        {
-          reporterId: reporterB,
-          locationId: locB,
-          assetId: asset,
-          description: longDescription('laporan baru tetap diblokir'),
-        },
-        randomUUID(),
-      ),
-    ).rejects.toMatchObject({ code: 'DUPLICATE_ACTIVE', ticketNumber: old.report.ticketNumber });
+    const blockedOld = await createReport(
+      db!,
+      {
+        reporterId: reporterB,
+        locationId: locB,
+        assetId: asset,
+        description: longDescription('laporan baru tetap diblokir'),
+      },
+      randomUUID(),
+    ).then(
+      () => {
+        throw new Error('test: blocked submit unexpectedly succeeded');
+      },
+      (error: unknown) => error,
+    );
+    expect(isAppError(blockedOld)).toBe(true);
+    expect(blockedOld).toMatchObject({
+      code: 'DUPLICATE_ACTIVE',
+      status: 409,
+      details: { ticketNumber: old.report.ticketNumber },
+    });
   });
 
   it('findDuplicateCandidates matches final-category rows and orders newest first', async () => {
@@ -852,6 +902,58 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
     expect(results.filter((r) => r.idempotentReplay).length).toBeGreaterThan(0);
   });
 
+  it('serializes concurrent same-reporter same-asset submits: one row + one DUPLICATE_ACTIVE', async () => {
+    const asset = await createAsset('T3-ASSET-RACE', catElec);
+    type RaceOutcome =
+      | { readonly ok: true; readonly ticket: string }
+      | { readonly ok: false; readonly error: unknown };
+    const outcomes: RaceOutcome[] = await Promise.all(
+      [randomUUID(), randomUUID()].map(async (key) => {
+        try {
+          const res = await createReport(
+            db!,
+            {
+              reporterId: reporterA,
+              locationId: locA,
+              assetId: asset,
+              description: longDescription('balapan aset sama'),
+            },
+            key,
+          );
+          return { ok: true as const, ticket: res.report.ticketNumber };
+        } catch (error) {
+          return { ok: false as const, error };
+        }
+      }),
+    );
+    const winners = outcomes.filter((o): o is Extract<RaceOutcome, { ok: true }> => o.ok);
+    const losers = outcomes.filter((o): o is Extract<RaceOutcome, { ok: false }> => !o.ok);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+    const winner = winners[0];
+    const loser = losers[0];
+    if (winner === undefined || loser === undefined) {
+      throw new Error('test: expected one winner and one blocked submit');
+    }
+    expect(isAppError(loser.error)).toBe(true);
+    expect(loser.error).toMatchObject({
+      code: 'DUPLICATE_ACTIVE',
+      status: 409,
+      details: { ticketNumber: winner.ticket },
+    });
+    const rows = await db!
+      .select()
+      .from(maintenanceReports)
+      .where(
+        and(
+          eq(maintenanceReports.reporterId, reporterA),
+          eq(maintenanceReports.assetId, asset),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.ticketNumber).toBe(winner.ticket);
+  });
+
   it('applyVerification sets VERIFIED finals plus the verification event', async () => {
     const asset = await createAsset('T3-ASSET-AV-1', catElec);
     const created = await createReport(
@@ -954,6 +1056,47 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
     expect(rows[0]?.status).toBe('REPORTED');
     expect(rows[0]?.version).toBe(created.report.version);
     expect(rows[0]?.finalCategoryId).toBeNull();
+    expect(
+      await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id)),
+    ).toHaveLength(eventsBefore.length);
+  });
+
+  it('applyVerification rejects an issue type outside the final category before any write', async () => {
+    const asset = await createAsset('T3-ASSET-AV-5', catElec);
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('verifikasi isu lintas kategori'),
+      },
+      randomUUID(),
+    );
+    const eventsBefore = await db!
+      .select()
+      .from(reportEvents)
+      .where(eq(reportEvents.reportId, created.report.id));
+    // itHvac is bound to T3-HVAC, not the T3-ELEC final category.
+    await expect(
+      applyVerification(db!, created.report.id, {
+        finalCategoryId: catElec,
+        finalIssueTypeId: itHvac,
+        finalPriority: 'HIGH',
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const rows = await db!
+      .select()
+      .from(maintenanceReports)
+      .where(eq(maintenanceReports.id, created.report.id));
+    expect(rows[0]?.status).toBe('REPORTED');
+    expect(rows[0]?.version).toBe(created.report.version);
+    expect(rows[0]?.finalCategoryId).toBeNull();
+    expect(rows[0]?.finalIssueTypeId).toBeNull();
     expect(
       await db!
         .select()

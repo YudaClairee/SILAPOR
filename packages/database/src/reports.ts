@@ -19,14 +19,14 @@
 // disturbing any SUPPORTING link.
 //
 // Errors use `AppError` from `@silapor/shared` (400 validation, 404 missing
-// reference, 409 mapped to idempotent replay on a key race) except the
-// duplicate block, which throws `DuplicateActiveError` (409,
-// code `DUPLICATE_ACTIVE`, carrying `ticketNumber`). This module logs
+// reference, 409 duplicate block carrying the active ticketNumber in
+// `details`, 409 mapped to idempotent replay on a key race). This module logs
 // nothing and carries no PII in messages.
 
 import { and, asc, count, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
+  AppError,
   badRequest,
   conflict,
   internal,
@@ -270,20 +270,21 @@ export interface SupportingRelationRef {
 }
 
 // Thrown when the same reporter submits the same asset while an ACTIVE
-// report on it exists. NOT an `AppError` (`DUPLICATE_ACTIVE` is outside the
-// shared code union): carries HTTP 409 semantics plus the active
-// `ticketNumber` so the caller can point at the existing ticket. Always
-// thrown BEFORE the ticket counter increments — a blocked submit consumes no
-// ticket and writes no rows (the enclosing transaction rolls back).
-export class DuplicateActiveError extends Error {
-  readonly code = 'DUPLICATE_ACTIVE' as const;
-  readonly status = 409;
-  readonly ticketNumber: string;
-
+// report on it exists. An `AppError` with code `DUPLICATE_ACTIVE`,
+// status 409, and the active ticketNumber in `details`, so `isAppError` /
+// `toHttpResponse` carry status+code through transport (Task 6 reads
+// `details.ticketNumber` for the 409 body). Always thrown BEFORE the ticket
+// counter increments — a blocked submit consumes no ticket and writes no
+// rows (the enclosing transaction rolls back).
+export class DuplicateActiveError extends AppError {
   constructor(ticketNumber: string) {
-    super('Duplicate report: an active report already exists for this asset');
+    super({
+      code: 'DUPLICATE_ACTIVE',
+      message: 'Duplicate report: an active report already exists for this asset',
+      status: 409,
+      details: { ticketNumber },
+    });
     this.name = 'DuplicateActiveError';
-    this.ticketNumber = ticketNumber;
   }
 }
 
@@ -457,22 +458,11 @@ export async function createReport(
 
   try {
     return await db.transaction(async (tx) => {
-      // Same-key retry: return the existing row with NO new ticket/event/job.
-      const existing = await findReportByKey(tx, key);
-      if (existing !== undefined) {
-        const replayCandidates = await findDuplicateCandidates(tx, toFilterInput(existing));
-        const replayRelation = await findSupportingRelation(tx, existing.id);
-        return {
-          report: existing,
-          duplicateCandidates: replayCandidates,
-          relation: replayRelation,
-          idempotentReplay: true,
-        };
-      }
-
-      // Referenced rows must exist AND be active. The asset is required and
-      // determines the stored submitted category (the reporter never sends
-      // one); a category-less asset cannot be reported against.
+      // Referenced rows must exist AND be active. The asset row is locked
+      // (`FOR UPDATE`) so concurrent same-asset submits serialize here: the
+      // loser blocks until the winner commits, then the checks below see the
+      // winner's row. One lock per transaction, always taken before the
+      // shared ticket counter — no lock-order inversion.
       const reporter = (
         await tx.select().from(schema.users).where(eq(schema.users.id, input.reporterId))
       )[0];
@@ -499,6 +489,7 @@ export async function createReport(
           .select()
           .from(schema.facilityAssets)
           .where(eq(schema.facilityAssets.id, input.assetId))
+          .for('update')
       )[0];
       if (asset === undefined) {
         throw notFound('Asset not found');
@@ -508,6 +499,35 @@ export async function createReport(
       }
       if (asset.categoryId === null || asset.categoryId === undefined) {
         throw badRequest('Asset has no category');
+      }
+      // The derived submitted category must itself be active — an asset
+      // pointing at an archived category cannot accept new reports.
+      const assetCategory = (
+        await tx
+          .select()
+          .from(schema.facilityCategories)
+          .where(eq(schema.facilityCategories.id, asset.categoryId))
+      )[0];
+      if (assetCategory === undefined) {
+        throw notFound('Category not found');
+      }
+      if (!assetCategory.isActive) {
+        throw badRequest('Category is inactive');
+      }
+
+      // Same-key retry AFTER the asset lock: a concurrent same-key winner may
+      // have committed while this transaction waited on the lock — replay it
+      // with NO new ticket/event/job instead of misreading it as a duplicate.
+      const existing = await findReportByKey(tx, key);
+      if (existing !== undefined) {
+        const replayCandidates = await findDuplicateCandidates(tx, toFilterInput(existing));
+        const replayRelation = await findSupportingRelation(tx, existing.id);
+        return {
+          report: existing,
+          duplicateCandidates: replayCandidates,
+          relation: replayRelation,
+          idempotentReplay: true,
+        };
       }
 
       // Duplicate-first: same reporter + same asset + ACTIVE → block BEFORE
@@ -599,12 +619,8 @@ export async function createReport(
       return { report, duplicateCandidates, relation, idempotentReplay: false };
     });
   } catch (error) {
-    // The duplicate block is a caller-visible outcome, never a crash:
-    // rethrow verbatim (the transaction already rolled back: no row, no
-    // ticket, no event, no link).
-    if (error instanceof DuplicateActiveError) {
-      throw error;
-    }
+    // Known failures rethrow verbatim — including the duplicate block (the
+    // transaction already rolled back: no row, no ticket, no event, no link).
     // Concurrent same-key race: the unique constraint let exactly one
     // transaction win; the loser replays the winner instead of 409ing.
     // Residual failures NEVER escape raw (SQL/PII leak risk): known FK
@@ -720,6 +736,14 @@ export async function applyVerification(
       }
       if (!issueType.isActive) {
         throw badRequest('Issue type is inactive');
+      }
+      // A category-bound issue type must belong to the final category;
+      // generic (unbound) issue types stay valid for any category.
+      if (
+        issueType.categoryId !== null &&
+        issueType.categoryId !== finals.finalCategoryId
+      ) {
+        throw badRequest('Issue type does not belong to the final category');
       }
 
       const now = new Date();
