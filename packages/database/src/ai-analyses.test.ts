@@ -68,7 +68,7 @@ describe('ai-analyses validation (pure)', () => {
     ).rejects.toMatchObject({ status: 400 });
     await expect(
       markAiAnalysis(stubDb, '11111111-1111-4111-8111-111111111111', {
-        status: 'BOGUS',
+        status: 'BOGUS' as never,
       }),
     ).rejects.toMatchObject({ status: 400 });
   });
@@ -198,6 +198,26 @@ describe.skipIf(!enabled)('ai_analyses persistence (requires reachable PostgreSQ
     expect(done.suggestedPriority).toBe('HIGH');
   });
 
+  it('preserves the first completion time on a terminal re-mark', async () => {
+    const row = await recordAiAnalysis(db!, {
+      reportId,
+      model: 'MODEL_UNDER_TEST',
+      promptVersion: 'v1',
+      schemaVersion: 'v1',
+    });
+    const first = await markAiAnalysis(db!, row.id, {
+      status: 'SUCCEEDED',
+      category: 'HVAC',
+    });
+    expect(first.completedAt).not.toBeNull();
+    const second = await markAiAnalysis(db!, row.id, {
+      status: 'FAILED',
+      errorCode: 'RETRY_TEST',
+    });
+    // Preserve-first: the original completion time survives the re-mark.
+    expect(second.completedAt).toEqual(first.completedAt);
+  });
+
   it('rejects a divergent direct write of priority/suggested_priority', async () => {
     const row = await recordAiAnalysis(db!, {
       reportId,
@@ -227,8 +247,7 @@ describe.skipIf(!enabled)('ai_analyses persistence (requires reachable PostgreSQ
     expect(rows[0]?.suggestedPriority).toBeNull();
   });
 
-  it('marks a FAILED analysis with an error code', async () => {
-    const row = await recordAiAnalysis(db!, {
+  it('marks a FAILED analysis with an error code', async () => {    const row = await recordAiAnalysis(db!, {
       reportId,
       model: 'MODEL_UNDER_TEST',
       promptVersion: 'v1',

@@ -18,9 +18,11 @@
 // to both columns. Taxonomy validation (master-list codes, DANGEROUS floor) lives
 // in the verifier (Task 5), not here — values are stored verbatim.
 //
-// `completedAt` is set when the status moves to SUCCEEDED/FAILED and
-// cleared when it moves back to PENDING/PROCESSING, so only terminal marks
-// carry a completion time. `attemptCount` is explicit (record defaults 0,
+// `completedAt` is set on the FIRST terminal mark (SUCCEEDED/FAILED) and
+// preserved on later terminal re-marks (COALESCE-style: existing ?? now),
+// so re-marking never rewrites the original completion time; reopening to
+// PENDING/PROCESSING clears it, so only terminal marks carry a time.
+// `attemptCount` is explicit (record defaults 0,
 // mark sets it only when provided) — retry policy lives with the caller.
 //
 // Errors use `AppError` from `@silapor/shared` (400 validation, 404
@@ -50,7 +52,7 @@ export interface RecordAiAnalysisInput {
 }
 
 export interface MarkAiAnalysisOutcome {
-  readonly status: string;
+  readonly status: AiAnalysisStatus;
   readonly verdict?: string | null | undefined;
   readonly category?: string | null | undefined;
   readonly issueType?: string | null | undefined;
@@ -319,6 +321,9 @@ export async function markAiAnalysis(
   if (possibleDuplicate !== undefined) {
     patch.possibleDuplicate = possibleDuplicate;
   }
+  // `riskFactors`/`impactFactors` are a verbatim-store contract: no shape
+  // validation here, values are written to JSONB exactly as supplied
+  // (undefined = leave, anything else including null overwrites).
   if (outcome.riskFactors !== undefined) {
     patch.riskFactors = outcome.riskFactors as schema.NewAiAnalysis['riskFactors'];
   }
@@ -331,8 +336,23 @@ export async function markAiAnalysis(
   if (errorCode !== undefined) {
     patch.errorCode = errorCode;
   }
-  // Terminal marks carry completion time; reopening to a live status clears it.
-  patch.completedAt = status === 'SUCCEEDED' || status === 'FAILED' ? new Date() : null;
+  // Preserve-first completion time (COALESCE-style: existing ?? now):
+  // the first terminal mark stamps `completedAt` and later terminal
+  // re-marks keep it; reopening to a live status clears it.
+  if (status === 'SUCCEEDED' || status === 'FAILED') {
+    const existing = (
+      await db
+        .select({ completedAt: schema.aiAnalyses.completedAt })
+        .from(schema.aiAnalyses)
+        .where(eq(schema.aiAnalyses.id, analysisId))
+    )[0];
+    if (existing === undefined) {
+      throw notFound('AI analysis not found');
+    }
+    patch.completedAt = existing.completedAt ?? new Date();
+  } else {
+    patch.completedAt = null;
+  }
 
   try {
     const updated = await db

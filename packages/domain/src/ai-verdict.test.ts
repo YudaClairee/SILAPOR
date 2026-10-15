@@ -32,4 +32,20 @@ describe('mapAiVerdict', () => {
     const r = mapAiVerdict({ impliedCategory: '', assetCategory: 'PLUMBING', category: 'PLUMBING', issueType: 'LEAKING', priority: 'HIGH', categories: CATS, issueTypes: ISSUES });
     expect(r).toEqual({ ok: false, reason: 'UNCLEAR_EVIDENCE' });
   });
+
+  it('returns UNCLEAR_EVIDENCE for a null/undefined/non-string impliedCategory', () => {
+    for (const impliedCategory of [null, undefined, 42] as unknown as string[]) {
+      const r = mapAiVerdict({ impliedCategory, assetCategory: 'PLUMBING', category: 'PLUMBING', issueType: 'LEAKING', priority: 'HIGH', categories: CATS, issueTypes: ISSUES });
+      expect(r).toEqual({ ok: false, reason: 'UNCLEAR_EVIDENCE' });
+    }
+  });
+
+  it('returns UNKNOWN_CODE for non-string category/issueType and trims padded codes', () => {
+    const badCat = mapAiVerdict({ impliedCategory: 'PLUMBING', assetCategory: 'PLUMBING', category: null as unknown as string, issueType: 'LEAKING', priority: 'HIGH', categories: CATS, issueTypes: ISSUES });
+    expect(badCat).toEqual({ ok: false, reason: 'UNKNOWN_CODE' });
+    const badIssue = mapAiVerdict({ impliedCategory: 'PLUMBING', assetCategory: 'PLUMBING', category: 'PLUMBING', issueType: undefined as unknown as string, priority: 'HIGH', categories: CATS, issueTypes: ISSUES });
+    expect(badIssue).toEqual({ ok: false, reason: 'UNKNOWN_CODE' });
+    const padded = mapAiVerdict({ impliedCategory: ' HVAC ', assetCategory: 'HVAC', category: ' HVAC ', issueType: ' LEAKING ', priority: 'HIGH', categories: CATS, issueTypes: ISSUES });
+    expect(padded).toEqual({ ok: true, categoryCode: 'HVAC', issueTypeCode: 'LEAKING', priority: 'HIGH' });
+  });
 });

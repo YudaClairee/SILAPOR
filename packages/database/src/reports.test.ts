@@ -1105,6 +1105,51 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
     ).toHaveLength(eventsBefore.length);
   });
 
+  it('applyVerification rejects a final category outside the report asset category', async () => {
+    const asset = await createAsset('T3-ASSET-AV-6', catElec);
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('verifikasi recode lintas aset'),
+      },
+      randomUUID(),
+    );
+    const eventsBefore = await db!
+      .select()
+      .from(reportEvents)
+      .where(eq(reportEvents.reportId, created.report.id));
+    // itHvac belongs to catHvac so the taxonomy checks pass; only the
+    // asset-category guard (no silent recode) must fire.
+    await expect(
+      applyVerification(db!, created.report.id, {
+        finalCategoryId: catHvac,
+        finalIssueTypeId: itHvac,
+        finalPriority: 'HIGH',
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: 'Final category does not match asset category',
+    });
+
+    const rows = await db!
+      .select()
+      .from(maintenanceReports)
+      .where(eq(maintenanceReports.id, created.report.id));
+    expect(rows[0]?.status).toBe('REPORTED');
+    expect(rows[0]?.version).toBe(created.report.version);
+    expect(rows[0]?.finalCategoryId).toBeNull();
+    expect(rows[0]?.finalIssueTypeId).toBeNull();
+    expect(
+      await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id)),
+    ).toHaveLength(eventsBefore.length);
+  });
+
   it('applyVerification refuses a report that is no longer REPORTED', async () => {
     const asset = await createAsset('T3-ASSET-AV-4', catHvac);
     const created = await createReport(

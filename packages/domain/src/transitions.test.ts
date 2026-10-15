@@ -140,17 +140,13 @@ describe('requiresNote', () => {
     expect(requiresNote('ASSIGNED', 'INSPECTION')).toBe(true);
   });
 
-  it('requires a note when entering IN_REPAIR', () => {
+  it('requires a note when entering IN_REPAIR, with no special reopen path', () => {
     expect(requiresNote('INSPECTION', 'IN_REPAIR')).toBe(true);
+    expect(canTransition('RESOLVED', 'IN_REPAIR')).toBe(false);
   });
 
   it('requires a note when entering RESOLVED (resolution note)', () => {
     expect(requiresNote('IN_REPAIR', 'RESOLVED')).toBe(true);
-  });
-
-  it('requires a note when entering IN_REPAIR, with no special reopen path', () => {
-    expect(requiresNote('INSPECTION', 'IN_REPAIR')).toBe(true);
-    expect(canTransition('RESOLVED', 'IN_REPAIR')).toBe(false);
   });
 
   it('does not require a note for plain progressions and closure', () => {

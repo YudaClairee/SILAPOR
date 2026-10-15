@@ -745,6 +745,28 @@ export async function applyVerification(
       ) {
         throw badRequest('Issue type does not belong to the final category');
       }
+      // No silent recode: the final category must equal the report asset's
+      // master category, even for callers that skip `mapAiVerdict`. The
+      // asset row is loaded in-tx so a concurrent recategorization cannot
+      // slip between the check and the update.
+      if (report.assetId === null || report.assetId === undefined) {
+        throw badRequest('Report has no asset');
+      }
+      const asset = (
+        await tx
+          .select()
+          .from(schema.facilityAssets)
+          .where(eq(schema.facilityAssets.id, report.assetId))
+      )[0];
+      if (asset === undefined) {
+        throw notFound('Asset not found');
+      }
+      if (asset.categoryId === null || asset.categoryId === undefined) {
+        throw badRequest('Asset has no category');
+      }
+      if (asset.categoryId !== finals.finalCategoryId) {
+        throw badRequest('Final category does not match asset category');
+      }
 
       const now = new Date();
       const updated = await tx
