@@ -1,2 +1,2 @@
-// Task 1 stub for @silapor/ai. Real implementation lands in later tasks.
-export const AI_PLACEHOLDER = true as const;
+export * from './verify.js';
+export * from './schema.js';
