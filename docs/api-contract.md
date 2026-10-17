@@ -193,18 +193,25 @@ ada panel "saran AI yang bisa di-override" — admin tidak pernah mengubah hasil
 AI yang sudah lolos (design 2026-10-14, no-override). Tampilkan keduanya
 sebagai panel/kolom **berbeda**.
 
-## 6. [Phase 6 — kontrak rencana, belum dibangun]
+## 6. [Phase 6 — dibangun]
 
-| Endpoint | Method | Sukses (rencana) |
+| Endpoint | Method | Sukses |
 |---|---|---|
-| `/api/facilities/status` | GET | query: `location_id`, `category_id`, `status`, `limit`, `offset` → `{ "items": [{ "assetId", "assetName", "locationLabel", "categoryName", "derivedStatus", "lastUpdated" }], "total" }` — projection publik **tanpa identitas reporter, deskripsi, attachment, internal note** |
-| `/api/admin/assets/:id/history` | GET | semua ticket per asset + status + tanggal (maintenance history) |
-| `/api/notifications` | GET | `{ "items": [{ "id", "type", "title", "message", "reportId"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja |
-| `/api/notifications/:id/read` | POST | `200` |
+| `/api/facilities/status` | GET | query: `location_id`, `category_id`, `status`, `limit`, `offset` + `include_inactive` (khusus admin; non-admin: flag di-strip senyap) → `{ "items": [{ "assetId", "assetCode", "assetName", "locationLabel", "categoryName", "derivedStatus", "isActive", "activeReportCount", "lastUpdated" }], "total", "limit", "offset" }` — akses butuh sesi (semua role, bukan anonim); proyeksi tersanitasi **tanpa identitas reporter, deskripsi, attachment, internal note** |
+| `/api/admin/assets/:id/history` | GET | admin-only — `200 { "asset": { ..., "derivedStatus" }, "items": [{ "reportId", "ticketNumber", "status", "reportedAt", "resolvedAt"?, "closedAt"?, "finalPriority"? }] }` (tanggal ISO, terbaru dulu) — semua tiket per asset; asset tidak ada → `404` |
+| `/api/notifications` | GET | `200 { "items": [{ "id", "type", "title", "message", "reportId"?, "ticketNumber"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja; `ticketNumber` join untuk deeplink |
+| `/api/notifications/:id/read` | POST | `200` — idempoten; id milik user lain/tidak ada → `404` |
+| `/api/notifications/read-all` | POST | `200 { "updated" }` — tandai semua belum-dibaca milik sesi sebagai dibaca (idempoten, `updated: 0` valid) |
 
 `derivedStatus`: `OPERATIONAL | REPORTED_ISSUE | UNDER_INSPECTION | IN_REPAIR`
 — diturunkan dari laporan aktif (bukan field manual); precedence
 `IN_REPAIR > UNDER_INSPECTION > REPORTED_ISSUE`.
+
+Jenis notifikasi yang diproduksi worker: `REPORT_VERIFIED`,
+`REPORT_ASSIGNED`, `STATUS_CHANGED`, `PUBLIC_UPDATE_ADDED`,
+`REPORT_RESOLVED`, `REPORT_CLOSED` (`INTERNAL_NOTE_ADDED`/`PRIORITY_CHANGED`
+tidak pernah ber-notifikasi); diproses idempoten oleh worker outbox dengan
+retry/backoff dan dead-letter.
 
 ## 7. Health
 
