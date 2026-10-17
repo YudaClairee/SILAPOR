@@ -623,7 +623,7 @@ describe('submitVerifiedReport held fallback', () => {
             }),
           }),
         update: () => ({
-          set: (values: unknown) => ({
+          set: () => ({
             where: () => ({
               returning: async () => [
                 { id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 },
@@ -1258,6 +1258,7 @@ describe('normalizeVerifiedSubmitBody', () => {
     expect(normalizeVerifiedSubmitBody({ ...withoutKeys, photo_keys: ['key-1'] }).photoKeys).toEqual(
       ['key-1'],
     );
+    expect(_dropped).toEqual([SUBMIT_STAGED_KEY]);
   });
 
   it('requires location, asset, and a 10-2000 description', () => {

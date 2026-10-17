@@ -306,10 +306,6 @@ const EMPTY_VALUES: NewReportValues = {
   description: '',
 };
 
-function nameOf(options: ReadonlyArray<{ readonly id: string; readonly name: string }>, id: string): string {
-  return options.find((option) => option.id === id)?.name ?? '—';
-}
-
 type Phase = 'form' | 'waiting' | 'verified' | 'held' | 'failed' | 'duplicate';
 
 function NewReportPage() {

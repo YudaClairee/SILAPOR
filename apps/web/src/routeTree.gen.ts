@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as KebijakanPrivasiRouteImport } from './routes/kebijakan-privasi'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
@@ -56,6 +57,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KebijakanPrivasiRoute = KebijakanPrivasiRouteImport.update({
+  id: '/kebijakan-privasi',
+  path: '/kebijakan-privasi',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -247,6 +253,7 @@ const ApiReportsIdAttachmentsAttachmentIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
+  '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
@@ -287,6 +294,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
+  '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
@@ -328,6 +336,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
+  '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/api/health': typeof ApiHealthRoute
@@ -370,6 +379,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
     | '/api/health'
@@ -410,6 +420,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
     | '/api/health'
@@ -450,6 +461,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
     | '/api/health'
@@ -491,6 +503,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
+  KebijakanPrivasiRoute: typeof KebijakanPrivasiRoute
   LoginRoute: typeof LoginRoute
   ReporterRoute: typeof ReporterRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRoute
@@ -521,6 +534,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kebijakan-privasi': {
+      id: '/kebijakan-privasi'
+      path: '/kebijakan-privasi'
+      fullPath: '/kebijakan-privasi'
+      preLoaderRoute: typeof KebijakanPrivasiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -941,6 +961,7 @@ const ApiAdminTechniciansRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
+  KebijakanPrivasiRoute: KebijakanPrivasiRoute,
   LoginRoute: LoginRoute,
   ReporterRoute: ReporterRouteWithChildren,
   ApiHealthRoute: ApiHealthRoute,

@@ -169,6 +169,7 @@ describe('reporter form render', () => {
     const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/reports/form-options')) {
+        void init;
         return { status: 200, ok: true, json: async () => FORM_OPTIONS } as Response;
       }
       if (url.includes('/api/uploads')) {

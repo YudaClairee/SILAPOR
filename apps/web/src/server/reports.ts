@@ -32,7 +32,6 @@ import {
   getAdminReportDetail as repoGetAdminReportDetail,
   getAsset as repoGetAsset,
   getDb,
-  getIssueType as repoGetIssueType,
   getLocation as repoGetLocation,
   getMyReportDetail as repoGetMyReportDetail,
   getReporterTimeline as repoGetReporterTimeline,

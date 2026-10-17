@@ -1,11 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  Link,
-  createFileRoute,
-  redirect,
-  useNavigate,
-  useRouter,
-} from '@tanstack/react-router';
+import { Link, createFileRoute, redirect, useNavigate, useRouter } from '@tanstack/react-router';
 import { REPORT_TRANSITIONS, requiresNote, type ReportStatus } from '@silapor/domain';
 import { eventLabel } from '../lib/report-helpers.js';
 import type { FormOptions } from '../server/reports.js';
@@ -43,14 +37,6 @@ interface AdminReportRow {
   readonly verifiedAt: string | null;
   readonly resolvedAt: string | null;
   readonly closedAt: string | null;
-  // Priority audit columns (migration 0004, full-row select): optional so
-  // older cached payloads still typecheck; all render with '—' fallbacks.
-  readonly priorityScore?: number | null;
-  readonly priorityFactors?: Record<string, unknown> | null;
-  readonly priorityOverrideReason?: string | null;
-  readonly priorityDecidedAt?: string | null;
-  readonly scoringConfigVersion?: number | null;
-  readonly duplicateOfReportId?: string | null;
 }
 
 interface AdminAttachmentRow {
@@ -121,9 +107,7 @@ async function fetchAdminDetailBundle(ticket: string): Promise<AdminDetailBundle
   if (detailResponse.status === 401 || optionsResponse.status === 401) {
     return 'unauthorized';
   }
-  const options = optionsResponse.ok
-    ? ((await optionsResponse.json()) as FormOptions)
-    : null;
+  const options = optionsResponse.ok ? ((await optionsResponse.json()) as FormOptions) : null;
   if (detailResponse.status === 403) {
     return { detail: null, options, notFound: false, forbidden: true, loadError: null };
   }
@@ -237,14 +221,6 @@ interface TechnicianOption {
   readonly technicianCode: string;
 }
 
-const PRIORITY_EDITABLE_STATUSES: readonly string[] = [
-  'VERIFIED',
-  'ASSIGNED',
-  'INSPECTION',
-  'IN_REPAIR',
-  'RESOLVED',
-];
-
 const TERMINAL_CONFIRM_STATUSES: readonly string[] = ['CLOSED'];
 
 function validNextStatuses(status: string): readonly string[] {
@@ -289,31 +265,6 @@ function workflowErrorMessage(body: unknown, fallback: string): string {
     }
   }
   return fallback;
-}
-
-// Latest PRIORITY_CHANGED suggestion from the admin timeline (the report
-// row stores score/factors but not the suggested level).
-function suggestedPriorityFrom(timeline: readonly WorkflowTimelineEntry[] | null): string | null {
-  if (timeline === null) {
-    return null;
-  }
-  for (let index = timeline.length - 1; index >= 0; index--) {
-    const entry = timeline[index];
-    if (entry === undefined || entry.kind !== 'event' || entry.detail === null) {
-      continue;
-    }
-    if (entry.detail['eventType'] !== 'PRIORITY_CHANGED') {
-      continue;
-    }
-    const metadata = entry.detail['metadata'];
-    if (typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
-      const suggested = (metadata as Record<string, unknown>)['suggestedPriority'];
-      if (typeof suggested === 'string') {
-        return suggested;
-      }
-    }
-  }
-  return null;
 }
 
 // Latest still-active assignment (unassignedAt null) → technician id.
@@ -386,13 +337,9 @@ function AdminWorkflow({
   const [vPriority, setVPriority] = useState(report.finalPriority ?? 'MEDIUM');
   const [vOverride, setVOverride] = useState('');
   const [vAffected, setVAffected] = useState('');
-  const [pPriority, setPPriority] = useState(report.finalPriority ?? 'MEDIUM');
-  const [pReason, setPReason] = useState('');
   const [assignTech, setAssignTech] = useState('');
   const [assignReason, setAssignReason] = useState('');
   const [transitionNote, setTransitionNote] = useState('');
-  const [rejectReason, setRejectReason] = useState('');
-  const [canonicalRef, setCanonicalRef] = useState('');
   const [publicMessage, setPublicMessage] = useState('');
   const [internalMessage, setInternalMessage] = useState('');
 
@@ -412,7 +359,9 @@ function AdminWorkflow({
         }
         const data = (await response.json()) as { entries?: unknown };
         if (!cancelled) {
-          setTimeline(Array.isArray(data.entries) ? (data.entries as WorkflowTimelineEntry[]) : null);
+          setTimeline(
+            Array.isArray(data.entries) ? (data.entries as WorkflowTimelineEntry[]) : null,
+          );
         }
       } catch {
         if (!cancelled) {
@@ -482,7 +431,10 @@ function AdminWorkflow({
     setBusy(key);
     setNotice(null);
     try {
-      const result = await postWorkflowAction(path, { ...payload, expectedVersion: report.version });
+      const result = await postWorkflowAction(path, {
+        ...payload,
+        expectedVersion: report.version,
+      });
       if (result.status === 409) {
         setConflict(true);
         return false;
@@ -504,7 +456,6 @@ function AdminWorkflow({
   }
 
   const technicianNames = new Map((technicians ?? []).map((t) => [t.id, t.displayName] as const));
-  const suggested = suggestedPriorityFrom(timeline);
   const currentTechId = currentTechnicianOf(timeline);
   const nextStatuses = validNextStatuses(report.status);
 
@@ -667,90 +618,6 @@ function AdminWorkflow({
         </section>
       ) : null}
 
-      {PRIORITY_EDITABLE_STATUSES.includes(report.status) ? (
-        <section
-          aria-labelledby="admin-priority-title"
-          className="mt-4 rounded-md border border-border bg-surface p-4"
-        >
-          <h2 id="admin-priority-title" className="text-base font-semibold text-text">
-            Prioritas
-          </h2>
-          <dl className="mt-2 flex flex-col gap-1 text-sm text-text">
-            <div className="flex gap-2">
-              <dt className="font-medium text-muted">Skor:</dt>
-              <dd>{report.priorityScore ?? '—'}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="font-medium text-muted">Faktor:</dt>
-              <dd>
-                {report.priorityFactors === null || report.priorityFactors === undefined
-                  ? '—'
-                  : Object.entries(report.priorityFactors)
-                      .map(([key, value]) => `${key}: ${String(value)}`)
-                      .join(', ')}
-              </dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="font-medium text-muted">Saran sistem:</dt>
-              <dd>{suggested ?? '—'}</dd>
-            </div>
-            <div className="flex gap-2">
-              <dt className="font-medium text-muted">Prioritas final:</dt>
-              <dd>{report.finalPriority ?? '—'}</dd>
-            </div>
-            {report.priorityOverrideReason !== null && report.priorityOverrideReason !== undefined ? (
-              <div className="flex gap-2">
-                <dt className="font-medium text-muted">Alasan override:</dt>
-                <dd>{report.priorityOverrideReason}</dd>
-              </div>
-            ) : null}
-          </dl>
-          <div className="mt-3 flex flex-col gap-3">
-            <fieldset>
-              <legend className={fieldLabelClasses}>Ubah prioritas final</legend>
-              <div className="mt-1 flex gap-4">
-                {['LOW', 'MEDIUM', 'HIGH'].map((level) => (
-                  <label key={level} className="flex items-center gap-1 text-sm text-text">
-                    <input
-                      type="radio"
-                      name="set-priority"
-                      value={level}
-                      checked={pPriority === level}
-                      onChange={() => setPPriority(level)}
-                    />
-                    {level}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <label className={fieldLabelClasses}>
-              Alasan (wajib, min 5 karakter)
-              <Textarea
-                className="mt-1"
-                rows={2}
-                value={pReason}
-                onChange={(event) => setPReason(event.target.value)}
-              />
-            </label>
-            <div>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={busy !== null}
-                onClick={() =>
-                  void runAction(`${actionBase}/priority`, `${actionBase}/priority`, {
-                    priority: pPriority,
-                    reason: pReason,
-                  })
-                }
-              >
-                {busy === `${actionBase}/priority` ? 'Menyimpan…' : 'Simpan prioritas'}
-              </Button>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
       <section
         aria-labelledby="admin-assign-title"
         className="mt-4 rounded-md border border-border bg-surface p-4"
@@ -810,138 +677,61 @@ function AdminWorkflow({
         </div>
       </section>
 
-      {report.status === 'REPORTED' ? (
-        <>
-          <section
-            aria-labelledby="admin-reject-title"
-            className="mt-4 rounded-md border border-border bg-surface p-4"
-          >
-            <h2 id="admin-reject-title" className="text-base font-semibold text-text">
-              Tolak laporan
-            </h2>
-            <div className="mt-3 flex flex-col gap-3">
-              <label className={fieldLabelClasses}>
-                Alasan penolakan (wajib, min 5 karakter)
-                <Textarea
-                  className="mt-1"
-                  rows={2}
-                  value={rejectReason}
-                  onChange={(event) => setRejectReason(event.target.value)}
-                />
-              </label>
-              <div>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={busy !== null}
-                  onClick={() => {
-                    if (!window.confirm('Tolak laporan ini?')) {
-                      return;
+      <section
+        aria-labelledby="admin-transition-title"
+        className="mt-4 rounded-md border border-border bg-surface p-4"
+      >
+        <h2 id="admin-transition-title" className="text-base font-semibold text-text">
+          Ubah status
+        </h2>
+        {nextStatuses.length === 0 ? (
+          <p className="mt-1 text-sm text-muted">Status terminal — tidak ada transisi lanjutan.</p>
+        ) : (
+          <div className="mt-3 flex flex-col gap-3">
+            <label className={fieldLabelClasses}>
+              Catatan
+              <Textarea
+                className="mt-1"
+                rows={2}
+                value={transitionNote}
+                onChange={(event) => setTransitionNote(event.target.value)}
+                placeholder="Wajib untuk inspeksi, perbaikan, penyelesaian, dan pembukaan ulang"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {nextStatuses.map((target) => {
+                const noteRequired = noteRequiredFor(report.status, target);
+                const key = `${actionBase}/transition:${target}`;
+                return (
+                  <Button
+                    key={target}
+                    type="button"
+                    variant={
+                      TERMINAL_CONFIRM_STATUSES.includes(target) ? 'destructive' : 'secondary'
                     }
-                    void runAction(`${actionBase}/reject`, `${actionBase}/reject`, {
-                      reason: rejectReason,
-                    });
-                  }}
-                >
-                  {busy === `${actionBase}/reject` ? 'Menolak…' : 'Tolak laporan'}
-                </Button>
-              </div>
-            </div>
-          </section>
-          <section
-            aria-labelledby="admin-duplicate-title"
-            className="mt-4 rounded-md border border-border bg-surface p-4"
-          >
-            <h2 id="admin-duplicate-title" className="text-base font-semibold text-text">
-              Tandai duplikat
-            </h2>
-            <div className="mt-3 flex flex-col gap-3">
-              <label className={fieldLabelClasses}>
-                Tiket/ID laporan kanonis
-                <Input
-                  className="mt-1"
-                  value={canonicalRef}
-                  onChange={(event) => setCanonicalRef(event.target.value)}
-                  placeholder="MNT-2026-000001"
-                />
-              </label>
-              <div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={busy !== null || canonicalRef.trim() === ''}
-                  onClick={() => {
-                    if (!window.confirm('Tandai laporan ini sebagai duplikat?')) {
-                      return;
-                    }
-                    void runAction(`${actionBase}/duplicate`, `${actionBase}/duplicate`, {
-                      canonicalRef: canonicalRef.trim(),
-                    });
-                  }}
-                >
-                  {busy === `${actionBase}/duplicate` ? 'Menandai…' : 'Tandai duplikat'}
-                </Button>
-              </div>
-            </div>
-          </section>
-        </>
-      ) : (
-        <section
-          aria-labelledby="admin-transition-title"
-          className="mt-4 rounded-md border border-border bg-surface p-4"
-        >
-          <h2 id="admin-transition-title" className="text-base font-semibold text-text">
-            Ubah status
-          </h2>
-          {nextStatuses.length === 0 ? (
-            <p className="mt-1 text-sm text-muted">Status terminal — tidak ada transisi lanjutan.</p>
-          ) : (
-            <div className="mt-3 flex flex-col gap-3">
-              <label className={fieldLabelClasses}>
-                Catatan
-                <Textarea
-                  className="mt-1"
-                  rows={2}
-                  value={transitionNote}
-                  onChange={(event) => setTransitionNote(event.target.value)}
-                  placeholder="Wajib untuk inspeksi, perbaikan, penyelesaian, dan pembukaan ulang"
-                />
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {nextStatuses.map((target) => {
-                  const noteRequired = noteRequiredFor(report.status, target);
-                  const key = `${actionBase}/transition:${target}`;
-                  return (
-                    <Button
-                      key={target}
-                      type="button"
-                      variant={
-                        TERMINAL_CONFIRM_STATUSES.includes(target) ? 'destructive' : 'secondary'
+                    disabled={busy !== null}
+                    onClick={() => {
+                      if (
+                        TERMINAL_CONFIRM_STATUSES.includes(target) &&
+                        !window.confirm(`Ubah status ke ${target}?`)
+                      ) {
+                        return;
                       }
-                      disabled={busy !== null}
-                      onClick={() => {
-                        if (
-                          TERMINAL_CONFIRM_STATUSES.includes(target) &&
-                          !window.confirm(`Ubah status ke ${target}?`)
-                        ) {
-                          return;
-                        }
-                        void runAction(key, `${actionBase}/transition`, {
-                          nextStatus: target,
-                          note: transitionNote === '' ? null : transitionNote,
-                        });
-                      }}
-                    >
-                      {busy === key ? 'Memproses…' : `${target}${noteRequired ? ' *' : ''}`}
-                    </Button>
-                  );
-                })}
-              </div>
-              <p className={fieldHintClasses}>Tanda * = catatan wajib (min 5 karakter).</p>
+                      void runAction(key, `${actionBase}/transition`, {
+                        nextStatus: target,
+                        note: transitionNote === '' ? null : transitionNote,
+                      });
+                    }}
+                  >
+                    {busy === key ? 'Memproses…' : `${target}${noteRequired ? ' *' : ''}`}
+                  </Button>
+                );
+              })}
             </div>
-          )}
-        </section>
-      )}
+            <p className={fieldHintClasses}>Tanda * = catatan wajib (min 5 karakter).</p>
+          </div>
+        )}
+      </section>
 
       <section
         aria-labelledby="admin-updates-title"
@@ -1141,7 +931,10 @@ function AdminReportDetailPage() {
       ) : null}
 
       {!clientPending && notFound ? (
-        <p role="alert" className="mt-4 rounded-md border border-border bg-surface px-4 py-3 text-sm text-text">
+        <p
+          role="alert"
+          className="mt-4 rounded-md border border-border bg-surface px-4 py-3 text-sm text-text"
+        >
           Laporan tidak ditemukan
         </p>
       ) : null}
@@ -1261,9 +1054,7 @@ function AdminReportDetailPage() {
                 </dd>
               </div>
               <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
-                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">
-                  Waktu kejadian
-                </dt>
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Waktu kejadian</dt>
                 <dd className="text-sm text-text">
                   <TicketMono>{formatDateTime(detail.report.occurredAt)}</TicketMono>
                 </dd>
@@ -1393,7 +1184,6 @@ function AdminReportDetailPage() {
               />
             )}
           </section>
-
         </>
       ) : null}
     </section>
