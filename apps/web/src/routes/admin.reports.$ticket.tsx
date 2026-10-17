@@ -208,12 +208,15 @@ function entryType(entry: AdminEventRow): string {
 }
 
 // ---------------------------------------------------------------------------
-// Admin workflow (Phase 5 P5-5): verify / priority / assign / transition /
-// updates forms + the full admin timeline. Every mutation sends the loaded
-// report.version as expectedVersion; a 409 surfaces the conflict panel
-// ("Laporan diubah admin lain — muat ulang") with a reload action that
-// re-invalidates the loader (fresh version). The static AI placeholder in
-// the page stays untouched (no polling — Phase 8 owns it).
+// Admin workflow: fast-path hand verification of held reports (Task 8) plus
+// assign / transition / updates forms and the full admin timeline. The
+// manual reject / duplicate / priority panels were removed per the AI
+// verification design (2026-10-14): submit-time AI verify or held-only
+// verify is the only classification path, with no admin override mid-
+// lifecycle. Every mutation sends the loaded report.version as
+// expectedVersion; a 409 surfaces the conflict panel ("Laporan diubah admin
+// lain — muat ulang") with a reload action that re-invalidates the loader
+// (fresh version).
 // ---------------------------------------------------------------------------
 
 interface WorkflowTimelineEntry {
@@ -242,7 +245,7 @@ const PRIORITY_EDITABLE_STATUSES: readonly string[] = [
   'RESOLVED',
 ];
 
-const TERMINAL_CONFIRM_STATUSES: readonly string[] = ['CLOSED', 'REJECTED', 'DUPLICATE'];
+const TERMINAL_CONFIRM_STATUSES: readonly string[] = ['CLOSED'];
 
 function validNextStatuses(status: string): readonly string[] {
   const allowed = (REPORT_TRANSITIONS as Record<string, readonly string[]>)[status];

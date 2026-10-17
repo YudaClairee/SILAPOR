@@ -48,12 +48,10 @@ const UUID_RE =
 
 const REPORT_STATUS_SET: ReadonlySet<string> = new Set(REPORT_STATUS);
 
-// Targets owned by verify/reject/duplicate — never via transitionReport.
-const DELEGATED_TARGETS: ReadonlySet<string> = new Set([
-  'VERIFIED',
-  'REJECTED',
-  'DUPLICATE',
-]);
+// The verify target is owned by verification (AI submit or the held-verify
+// transport), never via transitionReport. REJECTED/DUPLICATE statuses no
+// longer exist.
+const DELEGATED_TARGETS: ReadonlySet<string> = new Set(['VERIFIED']);
 
 // Reassignment keeps the current status (no promotion).
 const REASSIGNABLE_STATUSES: ReadonlySet<string> = new Set([
@@ -312,7 +310,7 @@ export async function transitionReport(
   // Pure target checks first: no DB touched on malformed/delegated targets.
   const target = requireReportStatus(nextStatus);
   if (DELEGATED_TARGETS.has(target)) {
-    throw badRequest('Use verifyReport/rejectReport/markDuplicate for this transition');
+    throw badRequest('Reach VERIFIED only through verification, not transitionReport');
   }
   return await withReportLock(
     db,

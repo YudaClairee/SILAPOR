@@ -14,6 +14,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   unique,
@@ -229,8 +230,10 @@ export type NewAuditLog = typeof auditLogs.$inferInsert;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 export type NewOutboxEvent = typeof outboxEvents.$inferInsert;
 
-// Phase 3 P3-1: report tables + ticket sequence. Values mirror
-// `REPORT_STATUS` / `RELATION_TYPE` in `@silapor/domain` (verbatim).
+// Phase 3 P3-1: report tables + ticket sequence. Domain has narrowed to the
+// 7-status AI lifecycle; the pg enum keeps REJECTED/DUPLICATE only for
+// historical rows (no new codes are ever written — schema mirror may lag the
+// domain until an enum-drop migration).
 
 export const reportStatusEnum = pgEnum('report_status', [
   'REPORTED',
@@ -338,6 +341,34 @@ export const reportAttachments = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('report_attachments_report_id_idx').on(table.reportId)],
+);
+
+// Pre-submit photo staging (AI verification photo-first flow). A staged row
+// reserves one validated, re-encoded image in private storage under an
+// unguessable key BEFORE its report exists; the verified submit claims it
+// into `report_attachments` (PASS/HELD) or removes it (FAIL). Unclaimed rows
+// expire via `created_at` (submit rejects them; the staged janitor removes
+// the objects). Claimed rows stay as audit and cascade with their report.
+export const stagedUploads = pgTable(
+  'staged_uploads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Random storage key (`staging_<uuid>`), never the original filename.
+    storageKey: text('storage_key').notNull().unique(),
+    uploadedBy: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    // Canonical post-re-encode metadata (same values a claim would write).
+    originalFilename: text('original_filename').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    checksum: text('checksum').notNull(),
+    claimedReportId: uuid('claimed_report_id').references(() => maintenanceReports.id, {
+      onDelete: 'cascade',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('staged_uploads_claimed_report_id_idx').on(table.claimedReportId)],
 );
 
 // Append-only: NO update/delete repo functions (P3-2+ writes inserts only).
@@ -456,3 +487,64 @@ export type ReportRelation = typeof reportRelations.$inferSelect;
 export type NewReportRelation = typeof reportRelations.$inferInsert;
 export type TicketCounter = typeof ticketCounters.$inferSelect;
 export type NewTicketCounter = typeof ticketCounters.$inferInsert;
+
+// Task 4: ai_analyses persistence (AI verification). Columns per
+// EXECUTION-PLAN §7.1 plus the brief's verdict fields (`category`,
+// `issue_type`, `priority` — the AI-decided finals exercised by the Task 4
+// test and consumed by future Tasks 5/6). Canonical priority column is
+// `suggested_priority` (plan §7.1 authority); `priority` is a legacy mirror
+// kept identical by `markAiAnalysis` and by the
+// `ai_analyses_priority_mirror_check` constraint below. Raw prompt/response
+// are NEVER stored — there are no such columns by design.
+
+export const aiAnalysisStatusEnum = pgEnum('ai_analysis_status', [
+  'PENDING',
+  'PROCESSING',
+  'SUCCEEDED',
+  'FAILED',
+]);
+
+export const aiAnalyses = pgTable(
+  'ai_analyses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    status: aiAnalysisStatusEnum('status').notNull().default('PENDING'),
+    verificationRecommendation: text('verification_recommendation'),
+    category: text('category'),
+    issueType: text('issue_type'),
+    priority: text('priority'),
+    possibleDuplicate: boolean('possible_duplicate'),
+    suggestedPriority: text('suggested_priority'),
+    riskFactors: jsonb('risk_factors'),
+    impactFactors: jsonb('impact_factors'),
+    confidence: real('confidence'),
+    reasoningSummary: text('reasoning_summary'),
+    gateway: text('gateway').notNull().default('openrouter'),
+    upstreamProvider: text('upstream_provider'),
+    model: text('model').notNull(),
+    gatewayRequestId: text('gateway_request_id'),
+    promptVersion: text('prompt_version').notNull(),
+    schemaVersion: text('schema_version').notNull(),
+    privacyMode: text('privacy_mode').notNull().default('ZDR'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    estimatedCost: real('estimated_cost'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    errorCode: text('error_code'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('ai_analyses_report_id_idx').on(table.reportId),
+    check(
+      'ai_analyses_priority_mirror_check',
+      sql`${table.priority} IS NOT DISTINCT FROM ${table.suggestedPriority}`,
+    ),
+  ],
+);
+
+export type AiAnalysis = typeof aiAnalyses.$inferSelect;
+export type NewAiAnalysis = typeof aiAnalyses.$inferInsert;

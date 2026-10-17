@@ -34,7 +34,14 @@ export type AppErrorCode =
   | 'MIME_MISMATCH'
   | 'CORRUPT_IMAGE'
   | 'INVALID_FILENAME'
-  | 'EMPTY_FILE';
+  | 'EMPTY_FILE'
+  // Task 3 duplicate-first submit (additive): the same-reporter same-asset
+  // active block surfaces verbatim as the HTTP body code so Task 6 can return
+  // 409 with the active ticket ref without parsing messages. `toHttpResponse`
+  // passes it through unchanged (status 409, set at the throw site).
+  // Task 6 contract: read ticketNumber from (err as AppError).details
+  // directly — toHttpResponse strips details.
+  | 'DUPLICATE_ACTIVE';
 
 export interface AppErrorInit {
   readonly code: AppErrorCode;

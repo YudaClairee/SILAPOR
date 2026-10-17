@@ -8,6 +8,7 @@ import {
   attachmentDownloadUrl,
   CLIENT_MAX_ATTACHMENT_BYTES,
   CLIENT_MAX_ATTACHMENTS_PER_REPORT,
+  stageReportPhotos,
   uploadReportAttachments,
   validateAttachmentFiles,
   type ClientFileLike,
@@ -131,6 +132,58 @@ describe('uploadReportAttachments', () => {
       }),
     );
     await expect(uploadReportAttachments('MNT-1', [realFile()])).rejects.toThrow(
+      'Gagal mengunggah foto. Coba lagi.',
+    );
+  });
+});
+
+describe('stageReportPhotos', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubFetch(status: number, body: unknown): { calls: { url: unknown; init: RequestInit }[] } {
+    const calls: { url: unknown; init: RequestInit }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: unknown, init: RequestInit) => {
+        calls.push({ url, init });
+        return new Response(JSON.stringify(body), { status });
+      }),
+    );
+    return { calls };
+  }
+
+  function realFile(): File {
+    return new File([new Uint8Array([1, 2, 3])], 'foto.png', { type: 'image/png' });
+  }
+
+  it('posts files to the staging endpoint and returns keys', async () => {
+    const { calls } = stubFetch(201, { keys: ['staging_a', 'staging_b'] });
+    const result = await stageReportPhotos([realFile(), realFile()]);
+    expect(result).toEqual(['staging_a', 'staging_b']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe('/api/uploads');
+    expect(calls[0]?.init.method).toBe('POST');
+    expect(calls[0]?.init.credentials).toBe('include');
+    const body = calls[0]?.init.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    expect(body.getAll('files')).toHaveLength(2);
+  });
+
+  it('maps failures and malformed keys to Indonesian messages', async () => {
+    stubFetch(401, { error: { message: 'Unauthorized' } });
+    await expect(stageReportPhotos([realFile()])).rejects.toThrow(
+      'Sesi berakhir. Masuk kembali lalu coba lagi.',
+    );
+    stubFetch(413, { error: { message: 'too big' } });
+    await expect(stageReportPhotos([realFile()])).rejects.toThrow('Ukuran foto melebihi 5 MB.');
+    stubFetch(201, { keys: [] });
+    await expect(stageReportPhotos([realFile()])).rejects.toThrow(
+      'Gagal mengunggah foto. Coba lagi.',
+    );
+    stubFetch(500, { error: { message: 'boom' } });
+    await expect(stageReportPhotos([realFile()])).rejects.toThrow(
       'Gagal mengunggah foto. Coba lagi.',
     );
   });

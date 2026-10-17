@@ -7,11 +7,16 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"test: @silapor/ai (stub, no tests yet)\"",
+    "test": "vitest run",
     "build": "echo \"build: @silapor/ai (stub, no emit yet)\""
   },
   "dependencies": {
     "@silapor/domain": "workspace:*",
-    "@silapor/shared": "workspace:*"
+    "@silapor/shared": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "vitest": "5.0.3"
   }
 }

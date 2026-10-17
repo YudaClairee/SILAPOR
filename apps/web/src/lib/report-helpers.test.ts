@@ -250,11 +250,13 @@ describe('buildMyReportsQuery', () => {
     expect(query).not.toContain('RESOLVED');
   });
 
-  it('expands the selesai filter to the four terminal statuses', () => {
+  it('expands the selesai filter to the two terminal statuses', () => {
     const query = buildMyReportsQuery({ filter: 'selesai' });
-    for (const status of ['RESOLVED', 'CLOSED', 'REJECTED', 'DUPLICATE']) {
+    for (const status of ['RESOLVED', 'CLOSED']) {
       expect(query).toContain(`status=${status}`);
     }
+    expect(query).not.toContain('REJECTED');
+    expect(query).not.toContain('DUPLICATE');
     expect(query).not.toContain('status=REPORTED');
   });
 
@@ -279,8 +281,6 @@ describe('reportStatusLabel', () => {
     expect(reportStatusLabel('IN_REPAIR')).toBe('Dalam perbaikan');
     expect(reportStatusLabel('RESOLVED')).toBe('Selesai');
     expect(reportStatusLabel('CLOSED')).toBe('Ditutup');
-    expect(reportStatusLabel('REJECTED')).toBe('Ditolak');
-    expect(reportStatusLabel('DUPLICATE')).toBe('Duplikat');
   });
 
   it('passes unknown codes through untouched', () => {

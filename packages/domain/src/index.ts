@@ -14,8 +14,6 @@ export const REPORT_STATUS = [
   'IN_REPAIR',
   'RESOLVED',
   'CLOSED',
-  'REJECTED',
-  'DUPLICATE',
 ] as const;
 
 export type ReportStatus = (typeof REPORT_STATUS)[number];
@@ -60,19 +58,17 @@ export function formatTicketNumber(year: number, seq: number): string {
 }
 
 // Phase 5 P5-1: report lifecycle state machine (pure — no I/O, no imports).
-// Canonical transition matrix (binding); CLOSED/REJECTED/DUPLICATE are terminal.
+// Canonical transition matrix (binding); CLOSED is terminal.
 export const REPORT_TRANSITIONS: Readonly<
   Record<ReportStatus, readonly ReportStatus[]>
 > = {
-  REPORTED: ['VERIFIED', 'REJECTED', 'DUPLICATE'],
+  REPORTED: ['VERIFIED'],
   VERIFIED: ['ASSIGNED'],
   ASSIGNED: ['INSPECTION'],
-  INSPECTION: ['IN_REPAIR', 'RESOLVED'],
+  INSPECTION: ['IN_REPAIR'],
   IN_REPAIR: ['RESOLVED'],
-  RESOLVED: ['CLOSED', 'IN_REPAIR'],
+  RESOLVED: ['CLOSED'],
   CLOSED: [],
-  REJECTED: [],
-  DUPLICATE: [],
 };
 
 // Pure lookup; unknown strings → false (do not throw).
@@ -89,24 +85,18 @@ export function assertTransition(from: ReportStatus, to: ReportStatus): void {
   }
 }
 
-export const TERMINAL_STATUSES = ['CLOSED', 'REJECTED', 'DUPLICATE'] as const;
+export const TERMINAL_STATUSES = ['CLOSED'] as const;
 
 export type TerminalStatus = (typeof TERMINAL_STATUSES)[number];
 
-// Mandatory-note rule helper (Phase 5 step 10). Keys are transition targets,
-// plus the REOPEN pseudo-key for the RESOLVED → IN_REPAIR reopen transition.
+// Mandatory-note rule helper (Phase 5 step 10). Keys are transition targets.
 export const NOTE_REQUIRED_TRANSITIONS: ReadonlySet<string> = new Set([
   'INSPECTION',
   'IN_REPAIR',
   'RESOLVED',
-  'REJECTED',
-  'DUPLICATE',
-  'REOPEN',
 ]);
 
 export function requiresNote(from: ReportStatus, to: ReportStatus): boolean {
-  // REOPEN = RESOLVED → IN_REPAIR (reopen reason).
-  if (from === 'RESOLVED' && to === 'IN_REPAIR') return true;
   return NOTE_REQUIRED_TRANSITIONS.has(to);
 }
 
@@ -191,3 +181,7 @@ export function scorePriority(input: PriorityScoreInput): PriorityScoreResult {
     scoringConfigVersion: SCORING_CONFIG_VERSION,
   };
 }
+
+// Task 2: AI-verdict mapping (pure, no imports beyond this package).
+export { mapAiVerdict } from './ai-verdict.js';
+export type { AiVerdictInput, AiVerdictResult } from './ai-verdict.js';

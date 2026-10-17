@@ -261,8 +261,6 @@ const STATUS_LABELS: Record<string, string> = {
   IN_REPAIR: 'Dalam perbaikan',
   RESOLVED: 'Selesai',
   CLOSED: 'Ditutup',
-  REJECTED: 'Ditolak',
-  DUPLICATE: 'Duplikat',
 };
 
 export function reportStatusLabel(status: string): string {

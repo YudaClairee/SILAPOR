@@ -67,15 +67,9 @@ describe('workflow-extra input validation (pure, offline)', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('transitionReport rejects delegated VERIFIED/REJECTED/DUPLICATE targets with 400', async () => {
+  it('transitionReport rejects the delegated VERIFIED target with 400', async () => {
     await expect(
       transitionReport(UNTOUCHED_DB, UUID_A, 'VERIFIED', 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      transitionReport(UNTOUCHED_DB, UUID_A, 'REJECTED', 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      transitionReport(UNTOUCHED_DB, UUID_A, 'DUPLICATE', 1, ACTOR),
     ).rejects.toMatchObject({ status: 400 });
   });
 
@@ -493,7 +487,7 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     expect(events.some((e) => e.eventType === 'REPORT_RESOLVED')).toBe(true);
   });
 
-  it('reopen RESOLVED→IN_REPAIR requires a note', async () => {
+  it('transition RESOLVED→IN_REPAIR is rejected (no reopen)', async () => {
     const inRepair = await makeInRepair();
     const resolved = await transitionReport(
       requireDb(),
@@ -506,15 +500,6 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     await expect(
       transitionReport(requireDb(), resolved.id, 'IN_REPAIR', resolved.version, actor()),
     ).rejects.toMatchObject({ status: 400 });
-    const reopened = await transitionReport(
-      requireDb(),
-      resolved.id,
-      'IN_REPAIR',
-      resolved.version,
-      actor(),
-      'Lampu mati lagi keesokan harinya, buka kembali',
-    );
-    expect(reopened.status).toBe('IN_REPAIR');
   });
 
   it('transition RESOLVED→CLOSED sets closedAt', async () => {

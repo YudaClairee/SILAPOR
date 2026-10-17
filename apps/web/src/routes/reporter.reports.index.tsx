@@ -269,8 +269,6 @@ function MyReportsPage() {
             <option value="IN_REPAIR">Dalam perbaikan</option>
             <option value="RESOLVED">Selesai</option>
             <option value="CLOSED">Ditutup</option>
-            <option value="REJECTED">Ditolak</option>
-            <option value="DUPLICATE">Duplikat</option>
           </Select>
         </div>
       </nav>

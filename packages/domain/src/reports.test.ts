@@ -21,7 +21,7 @@ describe('formatTicketNumber', () => {
 });
 
 describe('REPORT_STATUS', () => {
-  it('contains exactly the 9 binding lifecycle values', () => {
+  it('contains exactly the 7 binding lifecycle values', () => {
     expect([...REPORT_STATUS]).toEqual([
       'REPORTED',
       'VERIFIED',
@@ -30,8 +30,6 @@ describe('REPORT_STATUS', () => {
       'IN_REPAIR',
       'RESOLVED',
       'CLOSED',
-      'REJECTED',
-      'DUPLICATE',
     ]);
   });
 });

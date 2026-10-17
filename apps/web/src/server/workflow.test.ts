@@ -11,12 +11,8 @@ import { describe, expect, it } from 'vitest';
 import { toHttpResponse } from '@silapor/shared';
 import {
   normalizeAssignBody,
-  normalizeDuplicateBody,
-  normalizePriorityBody,
-  normalizeRejectBody,
   normalizeTransitionBody,
   normalizeUpdateBody,
-  normalizeVerifyBody,
   requireExpectedVersion,
 } from './workflow.js';
 
@@ -55,108 +51,6 @@ describe('requireExpectedVersion', () => {
         message: 'expectedVersion is required',
       });
     }
-  });
-});
-
-describe('normalizeVerifyBody', () => {
-  it('passes camelCase verification fields through', () => {
-    expect(
-      normalizeVerifyBody({
-        finalCategoryId: 'c1',
-        finalIssueTypeId: 'i1',
-        assetId: 'a1',
-        locationId: 'l1',
-        finalPriority: 'HIGH',
-        overrideReason: 'Alasan override yang jelas',
-        affectedReporters: 2,
-        expectedVersion: 1,
-      }),
-    ).toEqual({
-      input: {
-        finalCategoryId: 'c1',
-        finalIssueTypeId: 'i1',
-        assetId: 'a1',
-        locationId: 'l1',
-        finalPriority: 'HIGH',
-        overrideReason: 'Alasan override yang jelas',
-        affectedReporters: 2,
-      },
-      expectedVersion: 1,
-    });
-  });
-
-  it('accepts snake_case aliases', () => {
-    const normalized = normalizeVerifyBody({
-      final_category_id: 'c1',
-      final_issue_type_id: 'i1',
-      asset_id: 'a1',
-      location_id: 'l1',
-      final_priority: 'LOW',
-      override_reason: 'Alasan override yang jelas',
-      affected_reporters: 3,
-      expected_version: 2,
-    });
-    expect(normalized.expectedVersion).toBe(2);
-    expect(normalized.input).toMatchObject({
-      finalCategoryId: 'c1',
-      finalIssueTypeId: 'i1',
-      assetId: 'a1',
-      locationId: 'l1',
-      finalPriority: 'LOW',
-    });
-  });
-});
-
-describe('normalizeRejectBody', () => {
-  it('reads the reason plus version', () => {
-    expect(
-      normalizeRejectBody({ reason: 'Laporan tidak valid sama sekali', expectedVersion: 4 }),
-    ).toEqual({ reason: 'Laporan tidak valid sama sekali', expectedVersion: 4 });
-  });
-
-  it('accepts message as a reason alias', () => {
-    expect(normalizeRejectBody({ message: 'Duplikat palsu belaka', expectedVersion: 0 })).toEqual({
-      reason: 'Duplikat palsu belaka',
-      expectedVersion: 0,
-    });
-  });
-});
-
-describe('normalizeDuplicateBody', () => {
-  it('reads canonicalRef plus version', () => {
-    expect(
-      normalizeDuplicateBody({ canonicalRef: 'MNT-2026-000001', expectedVersion: 1 }),
-    ).toEqual({ canonicalRef: 'MNT-2026-000001', expectedVersion: 1 });
-  });
-
-  it('accepts canonical ticket/id aliases', () => {
-    expect(
-      normalizeDuplicateBody({ canonical_ticket: 'MNT-2026-000002', expectedVersion: 1 }),
-    ).toEqual({ canonicalRef: 'MNT-2026-000002', expectedVersion: 1 });
-    expect(
-      normalizeDuplicateBody({
-        canonical_report_id: '11111111-1111-1111-1111-111111111111',
-        expectedVersion: 1,
-      }),
-    ).toEqual({ canonicalRef: '11111111-1111-1111-1111-111111111111', expectedVersion: 1 });
-  });
-});
-
-describe('normalizePriorityBody', () => {
-  it('reads priority + reason plus version', () => {
-    expect(
-      normalizePriorityBody({ priority: 'HIGH', reason: 'Area kritis kampus', expectedVersion: 5 }),
-    ).toEqual({ priority: 'HIGH', reason: 'Area kritis kampus', expectedVersion: 5 });
-  });
-
-  it('accepts final_priority and override_reason aliases', () => {
-    expect(
-      normalizePriorityBody({
-        final_priority: 'LOW',
-        override_reason: 'Dampak kecil sekali',
-        expectedVersion: 5,
-      }),
-    ).toEqual({ priority: 'LOW', reason: 'Dampak kecil sekali', expectedVersion: 5 });
   });
 });
 
@@ -228,10 +122,6 @@ describe('normalizeUpdateBody', () => {
 
   it('400s every normalizer when the version is missing', () => {
     const bodies: Array<() => unknown> = [
-      () => normalizeVerifyBody({ finalPriority: 'HIGH' }),
-      () => normalizeRejectBody({ reason: 'Alasan cukup panjang' }),
-      () => normalizeDuplicateBody({ canonicalRef: 'MNT-2026-000001' }),
-      () => normalizePriorityBody({ priority: 'HIGH', reason: 'Alasan cukup panjang' }),
       () => normalizeAssignBody({ technicianId: '11111111-1111-1111-1111-111111111111' }),
       () => normalizeTransitionBody({ nextStatus: 'INSPECTION' }),
       () => normalizeUpdateBody({ visibility: 'PUBLIC', message: 'Pesan cukup panjang' }),

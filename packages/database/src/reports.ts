@@ -1,19 +1,32 @@
-// Report creation transaction + duplicate-candidate search (Phase 3 P3-2).
+// Report creation transaction + duplicate-first submit (Task 3 AI verification).
 //
-// `createReport` mints exactly one ticket per idempotency key in a single
-// `db.transaction`: ticket counter → maintenance_reports row (REPORTED) →
-// append-only REPORT_CREATED report_events row → PENDING AI_REVIEW_REQUESTED
-// outbox_events row. It NEVER calls AI, NEVER auto-marks DUPLICATE, and NEVER
-// auto-links relations — it only returns `duplicateCandidates` as a warning
-// alongside the created (or replayed) report for the caller to surface.
+// `createReport` is duplicate-first: inside a single `db.transaction` it
+// replays an idempotency key, validates the new input shape (reporter +
+// location + required asset + description; the reporter NEVER sends a
+// category, issue type, or occurredAt), checks the referenced rows, then
+// looks for an ACTIVE report on the SAME asset BEFORE minting a ticket:
+// same-reporter actives throw `DuplicateActiveError` (`DUPLICATE_ACTIVE`
+// with the active ticketNumber, consuming no ticket); different-reporter
+// actives are auto-merged — the new row is created and a SUPPORTING
+// `report_relations` row to the earliest active ticket is written in the SAME
+// transaction (auto-gabung; verification later never touches the link).
+// After the row: exactly one ticket per idempotency key, one REPORT_CREATED
+// event, one PENDING AI_REVIEW_REQUESTED outbox row. It NEVER calls AI and
+// NEVER uses REJECTED/DUPLICATE statuses (7-status lifecycle).
+//
+// `applyVerification` moves a held REPORTED row to VERIFIED with the
+// verifier-supplied finals plus a REPORT_VERIFIED event, atomically, without
+// disturbing any SUPPORTING link.
 //
 // Errors use `AppError` from `@silapor/shared` (400 validation, 404 missing
-// reference, 409 mapped to idempotent replay on a key race). This module logs
+// reference, 409 duplicate block carrying the active ticketNumber in
+// `details`, 409 mapped to idempotent replay on a key race). This module logs
 // nothing and carries no PII in messages.
 
-import { and, asc, count, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, lte, ne, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
+  AppError,
   badRequest,
   conflict,
   internal,
@@ -41,17 +54,36 @@ type TransactionClient = Parameters<Parameters<Database['transaction']>[0]>[0];
 export type ReportQueryDb = Database | TransactionClient;
 
 // ---------------------------------------------------------------------------
+// AI-verdict vocabulary (structural copy of Task 2 `packages/domain/src/
+// ai-verdict.ts` — COPIED, not imported: this package must not depend on
+// `@silapor/domain` for these types). Kept in sync by hand; the field names
+// and reason literals are verbatim so later tasks (submit verify, held
+// hand-verify) can map AI outcomes onto `applyVerification` finals.
+// ---------------------------------------------------------------------------
+
+export interface AiVerdictInput {
+  impliedCategory: string;
+  assetCategory: string;
+  category: string;
+  issueType: string;
+  priority: string;
+  categories: readonly string[];
+  issueTypes: readonly string[];
+}
+
+export type AiVerdictResult =
+  | { ok: true; categoryCode: string; issueTypeCode: string; priority: string }
+  | { ok: false; reason: 'WRONG_ASSET' | 'UNCLEAR_EVIDENCE' | 'UNKNOWN_CODE' };
+
+// ---------------------------------------------------------------------------
 // Pure input validation (no I/O; FK existence is checked by `createReport`).
 // ---------------------------------------------------------------------------
 
 export interface CreateReportInput {
   readonly reporterId: string;
   readonly locationId: string;
-  readonly assetId?: string | null | undefined;
-  readonly submittedCategoryId: string;
-  readonly submittedIssueTypeId?: string | null | undefined;
+  readonly assetId: string;
   readonly description: string;
-  readonly occurredAt?: string | Date | null | undefined;
 }
 
 const UUID_RE =
@@ -72,21 +104,8 @@ function checkRequiredUuid(
   }
 }
 
-function checkOptionalUuid(
-  record: Record<string, unknown>,
-  field: string,
-  errors: string[],
-): void {
-  const value = record[field];
-  if (value === undefined || value === null) {
-    return;
-  }
-  if (typeof value !== 'string' || !UUID_RE.test(value)) {
-    errors.push(`${field} must be a valid UUID or null`);
-  }
-}
-
-// Shape-only checks. Cross-consistency (issue-type/category, asset/category)
+// Shape-only checks. Reporter-supplied classification is rejected outright
+// (the verifier owns category/issue/priority); asset existence/activeness
 // needs database rows and lives in `createReport`, not here.
 export function validateCreateReportInput(input: unknown): string[] {
   const errors: string[] = [];
@@ -95,26 +114,19 @@ export function validateCreateReportInput(input: unknown): string[] {
   }
   checkRequiredUuid(input, 'reporterId', errors);
   checkRequiredUuid(input, 'locationId', errors);
-  checkRequiredUuid(input, 'submittedCategoryId', errors);
-  checkOptionalUuid(input, 'assetId', errors);
-  checkOptionalUuid(input, 'submittedIssueTypeId', errors);
+  checkRequiredUuid(input, 'assetId', errors);
+
+  for (const field of ['submittedCategoryId', 'submittedIssueTypeId', 'occurredAt']) {
+    if (input[field] !== undefined) {
+      errors.push(`${field} must not be provided`);
+    }
+  }
 
   const description = input['description'];
   if (typeof description !== 'string' || description.trim().length < 10) {
     errors.push('description must be at least 10 characters');
   } else if (description.trim().length > 2000) {
     errors.push('description must be at most 2000 characters');
-  }
-
-  const occurredAt = input['occurredAt'];
-  if (occurredAt !== undefined && occurredAt !== null) {
-    const date =
-      occurredAt instanceof Date ? occurredAt : new Date(String(occurredAt));
-    if (Number.isNaN(date.getTime())) {
-      errors.push('occurredAt must be a valid date or null');
-    } else if (date.getTime() > Date.now()) {
-      errors.push('occurredAt must not be in the future');
-    }
   }
   return errors;
 }
@@ -154,11 +166,12 @@ export interface DuplicateCandidate {
   readonly reportedAt: Date;
 }
 
-// Incident-matching core shared by `findDuplicateCandidates` (P3-2, same
-// reporter) and `countAffectedReporters` (P3-3, all reporters): ACTIVE statuses
+// Incident-matching core shared by `findDuplicateCandidates` (same
+// reporter) and `countAffectedReporters` (all reporters): ACTIVE statuses
 // only, same asset/location scope, same submitted-or-final category, same
 // issue type (null-safe). Single definition — callers only add their own
-// extra conditions (reporter, lookback, exclusion) around it.
+// extra conditions (reporter, lookback, exclusion) around it. Non-active
+// rows (RESOLVED/CLOSED) never match.
 interface IncidentScope {
   readonly assetId?: string | null | undefined;
   readonly locationId: string;
@@ -220,8 +233,9 @@ async function queryCandidates(
 // Active reports by the SAME reporter matching the same incident, newest
 // first. Fast path scans the DUPLICATE_LOOKBACK_DAYS window; when it finds
 // nothing a full active scan follows so the lookback NEVER hides an active
-// match. Terminal rows (CLOSED/REJECTED/DUPLICATE/RESOLVED) and other
-// reporters' rows are never returned.
+// match. Non-active rows (RESOLVED/CLOSED) and other reporters' rows are
+// never returned. (Kept for detail/count read paths; the submit path itself
+// blocks/merges via the asset lookups in `createReport`.)
 export async function findDuplicateCandidates(
   db: ReportQueryDb,
   filter: DuplicateCandidateFilter,
@@ -240,8 +254,101 @@ export async function findDuplicateCandidates(
 
 export interface CreateReportResult {
   readonly report: schema.Report;
+  // Compat: still computed via `findDuplicateCandidates`. Always empty on the
+  // new flow (same-reporter actives throw; other reporters are scoped out)
+  // but kept so existing readers keep compiling until the web layer moves.
   readonly duplicateCandidates: DuplicateCandidate[];
+  // Auto-merge outcome: set when a different reporter's ACTIVE report on the
+  // same asset absorbed this row as SUPPORTING in the same transaction.
+  readonly relation: SupportingRelationRef | null;
   readonly idempotentReplay: boolean;
+}
+
+export interface SupportingRelationRef {
+  readonly type: 'SUPPORTING';
+  readonly targetTicket: string;
+}
+
+// Thrown when the same reporter submits the same asset while an ACTIVE
+// report on it exists. An `AppError` with code `DUPLICATE_ACTIVE`,
+// status 409, and the active ticketNumber in `details`, so `isAppError` /
+// `toHttpResponse` carry status+code through transport (Task 6 reads
+// `details.ticketNumber` for the 409 body). Always thrown BEFORE the ticket
+// counter increments — a blocked submit consumes no ticket and writes no
+// rows (the enclosing transaction rolls back).
+export class DuplicateActiveError extends AppError {
+  constructor(ticketNumber: string) {
+    super({
+      code: 'DUPLICATE_ACTIVE',
+      message: 'Duplicate report: an active report already exists for this asset',
+      status: 409,
+      details: { ticketNumber },
+    });
+    this.name = 'DuplicateActiveError';
+  }
+}
+
+interface ActiveAssetMatch {
+  readonly id: string;
+  readonly ticketNumber: string;
+}
+
+// Earliest ACTIVE report on an asset: the same-reporter hit is the block
+// target, the different-reporter hit is the merge target. No date window —
+// any active row blocks/merges, however old. Deterministic via reportedAt,
+// then id.
+async function findEarliestActiveOnAsset(
+  db: ReportQueryDb,
+  assetId: string,
+  reporterId: string,
+  sameReporter: boolean,
+): Promise<ActiveAssetMatch | undefined> {
+  const reporterCondition = sameReporter
+    ? eq(schema.maintenanceReports.reporterId, reporterId)
+    : ne(schema.maintenanceReports.reporterId, reporterId);
+  const rows = await db
+    .select({
+      id: schema.maintenanceReports.id,
+      ticketNumber: schema.maintenanceReports.ticketNumber,
+    })
+    .from(schema.maintenanceReports)
+    .where(
+      and(
+        reporterCondition,
+        eq(schema.maintenanceReports.assetId, assetId),
+        inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
+      ),
+    )
+    .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id))
+    .limit(1);
+  const row = rows[0];
+  return row === undefined ? undefined : { id: row.id, ticketNumber: row.ticketNumber };
+}
+
+// The SUPPORTING link a replayed report was merged with at submit time (null
+// when it stands alone). Read-only: replays never write.
+async function findSupportingRelation(
+  db: ReportQueryDb,
+  sourceReportId: string,
+): Promise<SupportingRelationRef | null> {
+  const rows = await db
+    .select({ ticketNumber: schema.maintenanceReports.ticketNumber })
+    .from(schema.reportRelations)
+    .innerJoin(
+      schema.maintenanceReports,
+      eq(schema.maintenanceReports.id, schema.reportRelations.targetReportId),
+    )
+    .where(
+      and(
+        eq(schema.reportRelations.sourceReportId, sourceReportId),
+        eq(schema.reportRelations.relationType, 'SUPPORTING'),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : { type: 'SUPPORTING', targetTicket: row.ticketNumber };
 }
 
 // Drizzle wraps storage errors in `DrizzleQueryError` with the postgres
@@ -296,7 +403,9 @@ export function isForeignKeyViolation(error: unknown): boolean {
   return false;
 }
 
-async function findReportByKey(
+// Idempotency lookup by key (global, like the create fast-path): lets the
+// verified submit replay a prior ticket before touching staged keys.
+export async function findReportByKey(
   db: ReportQueryDb,
   idempotencyKey: string,
 ): Promise<schema.Report | undefined> {
@@ -335,7 +444,13 @@ export async function createReport(
   const fastReplay = await findReportByKey(db, key);
   if (fastReplay !== undefined) {
     const replayCandidates = await findDuplicateCandidates(db, toFilterInput(fastReplay));
-    return { report: fastReplay, duplicateCandidates: replayCandidates, idempotentReplay: true };
+    const replayRelation = await findSupportingRelation(db, fastReplay.id);
+    return {
+      report: fastReplay,
+      duplicateCandidates: replayCandidates,
+      relation: replayRelation,
+      idempotentReplay: true,
+    };
   }
 
   const shapeErrors = validateCreateReportInput(input);
@@ -345,14 +460,11 @@ export async function createReport(
 
   try {
     return await db.transaction(async (tx) => {
-      // Same-key retry: return the existing row with NO new ticket/event/job.
-      const existing = await findReportByKey(tx, key);
-      if (existing !== undefined) {
-        const replayCandidates = await findDuplicateCandidates(tx, toFilterInput(existing));
-        return { report: existing, duplicateCandidates: replayCandidates, idempotentReplay: true };
-      }
-
-      // Referenced rows must exist AND be active.
+      // Referenced rows must exist AND be active. The asset row is locked
+      // (`FOR UPDATE`) so concurrent same-asset submits serialize here: the
+      // loser blocks until the winner commits, then the checks below see the
+      // winner's row. One lock per transaction, always taken before the
+      // shared ticket counter — no lock-order inversion.
       const reporter = (
         await tx.select().from(schema.users).where(eq(schema.users.id, input.reporterId))
       )[0];
@@ -374,53 +486,62 @@ export async function createReport(
       if (!location.isActive) {
         throw badRequest('Location is inactive');
       }
-      const category = (
+      const asset = (
+        await tx
+          .select()
+          .from(schema.facilityAssets)
+          .where(eq(schema.facilityAssets.id, input.assetId))
+          .for('update')
+      )[0];
+      if (asset === undefined) {
+        throw notFound('Asset not found');
+      }
+      if (!asset.isActive) {
+        throw badRequest('Asset is inactive');
+      }
+      if (asset.categoryId === null || asset.categoryId === undefined) {
+        throw badRequest('Asset has no category');
+      }
+      // The derived submitted category must itself be active — an asset
+      // pointing at an archived category cannot accept new reports.
+      const assetCategory = (
         await tx
           .select()
           .from(schema.facilityCategories)
-          .where(eq(schema.facilityCategories.id, input.submittedCategoryId))
+          .where(eq(schema.facilityCategories.id, asset.categoryId))
       )[0];
-      if (category === undefined) {
+      if (assetCategory === undefined) {
         throw notFound('Category not found');
       }
-      if (!category.isActive) {
+      if (!assetCategory.isActive) {
         throw badRequest('Category is inactive');
       }
 
-      if (input.submittedIssueTypeId !== undefined && input.submittedIssueTypeId !== null) {
-        const issueType = (
-          await tx
-            .select()
-            .from(schema.issueTypes)
-            .where(eq(schema.issueTypes.id, input.submittedIssueTypeId))
-        )[0];
-        if (issueType === undefined) {
-          throw notFound('Issue type not found');
-        }
-        if (!issueType.isActive) {
-          throw badRequest('Issue type is inactive');
-        }
-        if (issueType.categoryId !== null && issueType.categoryId !== input.submittedCategoryId) {
-          throw badRequest('Issue type does not belong to the submitted category');
-        }
+      // Same-key retry AFTER the asset lock: a concurrent same-key winner may
+      // have committed while this transaction waited on the lock — replay it
+      // with NO new ticket/event/job instead of misreading it as a duplicate.
+      const existing = await findReportByKey(tx, key);
+      if (existing !== undefined) {
+        const replayCandidates = await findDuplicateCandidates(tx, toFilterInput(existing));
+        const replayRelation = await findSupportingRelation(tx, existing.id);
+        return {
+          report: existing,
+          duplicateCandidates: replayCandidates,
+          relation: replayRelation,
+          idempotentReplay: true,
+        };
       }
 
-      if (input.assetId !== undefined && input.assetId !== null) {
-        const asset = (
-          await tx
-            .select()
-            .from(schema.facilityAssets)
-            .where(eq(schema.facilityAssets.id, input.assetId))
-        )[0];
-        if (asset === undefined) {
-          throw notFound('Asset not found');
-        }
-        if (!asset.isActive) {
-          throw badRequest('Asset is inactive');
-        }
-        if (asset.categoryId !== input.submittedCategoryId) {
-          throw badRequest('Asset does not belong to the submitted category');
-        }
+      // Duplicate-first: same reporter + same asset + ACTIVE → block BEFORE
+      // the ticket counter moves, so the failure consumes no ticket.
+      const sameReporterActive = await findEarliestActiveOnAsset(
+        tx,
+        input.assetId,
+        input.reporterId,
+        true,
+      );
+      if (sameReporterActive !== undefined) {
+        throw new DuplicateActiveError(sameReporterActive.ticketNumber);
       }
 
       // Lock/increment the per-year ticket counter atomically.
@@ -439,12 +560,7 @@ export async function createReport(
       }
       const ticketNumber = formatTicketNumber(year, seq);
 
-      const occurredAt =
-        input.occurredAt === undefined || input.occurredAt === null
-          ? null
-          : input.occurredAt instanceof Date
-            ? input.occurredAt
-            : new Date(String(input.occurredAt));
+      const occurredAt = null;
 
       const inserted = await tx
         .insert(schema.maintenanceReports)
@@ -453,9 +569,9 @@ export async function createReport(
           idempotencyKey: key,
           reporterId: input.reporterId,
           locationId: input.locationId,
-          assetId: input.assetId ?? null,
-          submittedCategoryId: input.submittedCategoryId,
-          submittedIssueTypeId: input.submittedIssueTypeId ?? null,
+          assetId: input.assetId,
+          submittedCategoryId: asset.categoryId,
+          submittedIssueTypeId: null,
           description: input.description.trim(),
           occurredAt,
           status: 'REPORTED',
@@ -481,12 +597,32 @@ export async function createReport(
         status: 'PENDING',
       });
 
-      // Warning only: the new row is excluded from its own candidate list,
-      // nothing is auto-marked DUPLICATE and nothing is auto-linked.
+      // Auto-gabung: a different reporter's ACTIVE report on the same asset
+      // absorbs this row as SUPPORTING in the SAME transaction — no extra
+      // job, no admin action, and verification later leaves the link alone.
+      const otherReporterActive = await findEarliestActiveOnAsset(
+        tx,
+        input.assetId,
+        input.reporterId,
+        false,
+      );
+      let relation: SupportingRelationRef | null = null;
+      if (otherReporterActive !== undefined) {
+        await tx.insert(schema.reportRelations).values({
+          sourceReportId: report.id,
+          targetReportId: otherReporterActive.id,
+          relationType: 'SUPPORTING',
+          createdBy: input.reporterId,
+        });
+        relation = { type: 'SUPPORTING', targetTicket: otherReporterActive.ticketNumber };
+      }
+
       const duplicateCandidates = await findDuplicateCandidates(tx, toFilterInput(report));
-      return { report, duplicateCandidates, idempotentReplay: false };
+      return { report, duplicateCandidates, relation, idempotentReplay: false };
     });
   } catch (error) {
+    // Known failures rethrow verbatim — including the duplicate block (the
+    // transaction already rolled back: no row, no ticket, no event, no link).
     // Concurrent same-key race: the unique constraint let exactly one
     // transaction win; the loser replays the winner instead of 409ing.
     // Residual failures NEVER escape raw (SQL/PII leak risk): known FK
@@ -498,7 +634,13 @@ export async function createReport(
       const winner = await findReportByKey(db, key);
       if (winner !== undefined) {
         const replayCandidates = await findDuplicateCandidates(db, toFilterInput(winner));
-        return { report: winner, duplicateCandidates: replayCandidates, idempotentReplay: true };
+        const replayRelation = await findSupportingRelation(db, winner.id);
+        return {
+          report: winner,
+          duplicateCandidates: replayCandidates,
+          relation: replayRelation,
+          idempotentReplay: true,
+        };
       }
       throw internal('Failed to create report');
     }
@@ -506,6 +648,182 @@ export async function createReport(
       throw notFound('Referenced record not found');
     }
     throw internal('Failed to create report');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// applyVerification: held REPORTED → VERIFIED with verifier finals.
+// ---------------------------------------------------------------------------
+
+export interface ApplyVerificationInput {
+  readonly finalCategoryId: string;
+  readonly finalIssueTypeId: string;
+  readonly finalPriority: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
+// Sets the final classification + priority on a held REPORTED row and flips
+// it to VERIFIED, with a REPORT_VERIFIED event, all in one transaction. The
+// status guard (`WHERE status = REPORTED`) makes a concurrent second verify
+// fail with 400 instead of double-writing. SUPPORTING links are never
+// touched — verification must not disturb the submit-time auto-merge.
+// Priority scoring snapshots stay with the caller; this writes the decided
+// `finalPriority`, floored to HIGH when the final issue type is DANGEROUS
+// (spec: DANGEROUS keeps minimum HIGH, for the AI path and hand verify alike).
+export async function applyVerification(
+  db: Database,
+  reportId: string,
+  finals: ApplyVerificationInput,
+  actorId?: string | null | undefined,
+): Promise<schema.Report> {
+  if (typeof reportId !== 'string' || !UUID_RE.test(reportId)) {
+    throw badRequest('reportId must be a valid UUID');
+  }
+  if (typeof finals !== 'object' || finals === null) {
+    throw badRequest('Invalid verification input');
+  }
+  if (typeof finals.finalCategoryId !== 'string' || !UUID_RE.test(finals.finalCategoryId)) {
+    throw badRequest('finalCategoryId must be a valid UUID');
+  }
+  if (typeof finals.finalIssueTypeId !== 'string' || !UUID_RE.test(finals.finalIssueTypeId)) {
+    throw badRequest('finalIssueTypeId must be a valid UUID');
+  }
+  if (
+    finals.finalPriority !== 'LOW' &&
+    finals.finalPriority !== 'MEDIUM' &&
+    finals.finalPriority !== 'HIGH'
+  ) {
+    throw badRequest('Invalid final priority');
+  }
+  if (
+    actorId !== undefined &&
+    actorId !== null &&
+    (typeof actorId !== 'string' || !UUID_RE.test(actorId))
+  ) {
+    throw badRequest('actorId must be a valid UUID');
+  }
+
+  const rows = await db
+    .select()
+    .from(schema.maintenanceReports)
+    .where(eq(schema.maintenanceReports.id, reportId));
+  const report = rows[0];
+  if (report === undefined) {
+    throw notFound('Report not found');
+  }
+  if (report.status !== 'REPORTED') {
+    throw badRequest('Only REPORTED reports can be verified');
+  }
+
+  try {
+    return await db.transaction(async (tx) => {
+      const category = (
+        await tx
+          .select()
+          .from(schema.facilityCategories)
+          .where(eq(schema.facilityCategories.id, finals.finalCategoryId))
+      )[0];
+      if (category === undefined) {
+        throw notFound('Category not found');
+      }
+      if (!category.isActive) {
+        throw badRequest('Category is inactive');
+      }
+      const issueType = (
+        await tx
+          .select()
+          .from(schema.issueTypes)
+          .where(eq(schema.issueTypes.id, finals.finalIssueTypeId))
+      )[0];
+      if (issueType === undefined) {
+        throw notFound('Issue type not found');
+      }
+      if (!issueType.isActive) {
+        throw badRequest('Issue type is inactive');
+      }
+      // A category-bound issue type must belong to the final category;
+      // generic (unbound) issue types stay valid for any category.
+      if (
+        issueType.categoryId !== null &&
+        issueType.categoryId !== finals.finalCategoryId
+      ) {
+        throw badRequest('Issue type does not belong to the final category');
+      }
+      // No silent recode: the final category must equal the report asset's
+      // master category, even for callers that skip `mapAiVerdict`. The
+      // asset row is loaded in-tx so a concurrent recategorization cannot
+      // slip between the check and the update.
+      if (report.assetId === null || report.assetId === undefined) {
+        throw badRequest('Report has no asset');
+      }
+      const asset = (
+        await tx
+          .select()
+          .from(schema.facilityAssets)
+          .where(eq(schema.facilityAssets.id, report.assetId))
+      )[0];
+      if (asset === undefined) {
+        throw notFound('Asset not found');
+      }
+      if (asset.categoryId === null || asset.categoryId === undefined) {
+        throw badRequest('Asset has no category');
+      }
+      if (asset.categoryId !== finals.finalCategoryId) {
+        throw badRequest('Final category does not match asset category');
+      }
+
+      // Spec floor: a DANGEROUS final issue type keeps minimum HIGH, whether
+      // the verdict came from the AI or a hand verify.
+      const finalPriority =
+        issueType.code === 'DANGEROUS' && finals.finalPriority !== 'HIGH'
+          ? 'HIGH'
+          : finals.finalPriority;
+
+      const now = new Date();
+      const updated = await tx
+        .update(schema.maintenanceReports)
+        .set({
+          status: 'VERIFIED',
+          finalCategoryId: finals.finalCategoryId,
+          finalIssueTypeId: finals.finalIssueTypeId,
+          finalPriority,
+          verifiedAt: now,
+          version: report.version + 1,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.maintenanceReports.id, report.id),
+            eq(schema.maintenanceReports.status, 'REPORTED'),
+          ),
+        )
+        .returning();
+      const next = updated[0];
+      if (next === undefined) {
+        throw badRequest('Only REPORTED reports can be verified');
+      }
+
+      await tx.insert(schema.reportEvents).values({
+        reportId: report.id,
+        eventType: 'REPORT_VERIFIED',
+        actorId: actorId ?? null,
+        fromValue: 'REPORTED',
+        toValue: 'VERIFIED',
+        metadata: {
+          finalCategoryId: finals.finalCategoryId,
+          finalIssueTypeId: finals.finalIssueTypeId,
+          finalPriority,
+        },
+      });
+      return next;
+    });
+  } catch (error) {
+    if (isAppError(error)) {
+      throw error;
+    }
+    if (isForeignKeyViolation(error)) {
+      throw notFound('Referenced record not found');
+    }
+    throw internal('Failed to verify report');
   }
 }
 
@@ -733,6 +1051,19 @@ async function queryReportList(
   }
   if (statuses !== undefined) {
     conditions.push(inArray(schema.maintenanceReports.status, statuses));
+    if (statuses.includes('REPORTED')) {
+      // Held-queue exclusion: rows auto-merged as SUPPORTING evidence at
+      // submit are never verified (one verification per incident lives on
+      // the target), so unclassified supporting-linked rows stay out of the
+      // REPORTED queue. Other status filters and list-all views keep them
+      // visible for audit.
+      conditions.push(
+        or(
+          isNotNull(schema.maintenanceReports.finalCategoryId),
+          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
+        ),
+      );
+    }
   }
   if (categoryId !== undefined) {
     // Verification may retarget the category, so the filter matches either.
@@ -843,8 +1174,9 @@ async function loadReportDetail(
       ),
     )
     .orderBy(asc(schema.reportRelations.createdAt), asc(schema.reportRelations.id));
-  // Warning only (same contract as createReport): the row itself is excluded
-  // so it never matches itself; nothing is auto-marked or auto-linked.
+  // Same-incident hint for readers: the row itself is excluded so it never
+  // matches itself. Read-only here — submit-time auto-merge lives in
+  // `createReport`.
   const duplicateCandidates = await findDuplicateCandidates(db, {
     reporterId: row.reporterId,
     assetId: row.assetId,
@@ -1086,8 +1418,8 @@ export interface AffectedCountFilter {
 
 // Distinct reporters over the shared incident predicate (ACTIVE statuses
 // only) PLUS reporters of rows linked as SUPPORTING/RELATED source/target of
-// those matches (one hop). DISTINCT collapses same-reporter DUPLICATE rows
-// to one; terminal rows contribute nothing unless linked to an active match.
+// those matches (one hop). Same-reporter rows collapse to one; non-active
+// rows contribute nothing unless linked to an active match.
 export async function countAffectedReporters(
   db: ReportQueryDb,
   filter: AffectedCountFilter,

@@ -1,4 +1,4 @@
-// P5-3 workflow core: verify / reject / duplicate / setFinalPriority (Phase 5).
+// Workflow core verify mutation (P5-3, trimmed 2026-10-15 per the AI design).
 //
 // Pure validation tests run offline (no DB touched — the stub handle is never
 // reached on malformed input). DB-gated integration uses a SCRATCH database
@@ -23,9 +23,6 @@ import {
   users,
 } from './schema.js';
 import {
-  markDuplicate,
-  rejectReport,
-  setFinalPriority,
   verifyReport,
   withReportLock,
   type VerifyReportInput,
@@ -114,42 +111,6 @@ describe('workflow input validation (pure, offline)', () => {
       ),
     ).rejects.toMatchObject({ status: 400 });
   });
-
-  it('rejectReport rejects a short reason with 400 before touching the DB', async () => {
-    await expect(rejectReport(UNTOUCHED_DB, UUID_A, 'no', 1, ACTOR)).rejects.toMatchObject({
-      status: 400,
-    });
-    await expect(rejectReport(UNTOUCHED_DB, UUID_A, '   ', 1, ACTOR)).rejects.toMatchObject({
-      status: 400,
-    });
-  });
-
-  it('rejectReport rejects a malformed reportId with 400', async () => {
-    await expect(
-      rejectReport(UNTOUCHED_DB, 'bogus', 'valid reason here', 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('markDuplicate rejects a self-link with 400', async () => {
-    await expect(markDuplicate(UNTOUCHED_DB, UUID_A, UUID_A, 1, ACTOR)).rejects.toMatchObject({
-      status: 400,
-    });
-  });
-
-  it('markDuplicate rejects malformed ids with 400', async () => {
-    await expect(markDuplicate(UNTOUCHED_DB, 'bogus', UUID_B, 1, ACTOR)).rejects.toMatchObject({
-      status: 400,
-    });
-    await expect(markDuplicate(UNTOUCHED_DB, UUID_A, 'bogus', 1, ACTOR)).rejects.toMatchObject({
-      status: 400,
-    });
-  });
-
-  it('setFinalPriority rejects CRITICAL with 400 before touching the DB', async () => {
-    await expect(
-      setFinalPriority(UNTOUCHED_DB, UUID_A, 'CRITICAL' as never, null, 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -203,10 +164,7 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
   };
 
   // Direct REPORTED insert (bypasses createReport: no ticket-counter coupling).
-  async function makeReport(overrides: {
-    assetId?: string | null;
-    status?: 'REPORTED' | 'REJECTED';
-  } = {}) {
+  async function makeReport(overrides: { assetId?: string | null } = {}) {
     const handle = requireDb();
     const rows = await handle
       .insert(maintenanceReports)
@@ -219,7 +177,7 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
         submittedCategoryId: catId,
         submittedIssueTypeId: itNormalId,
         description: 'Lampu ruangan mati total sejak pagi hari, mohon segera diperbaiki.',
-        status: overrides.status ?? 'REPORTED',
+        status: 'REPORTED',
       })
       .returning();
     const row = rows[0];
@@ -479,110 +437,5 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
     expect(await eventsFor(created.id)).toEqual([]);
     expect(await auditsFor(created.id)).toEqual([]);
     expect(await outboxFor(created.id)).toEqual([]);
-  });
-
-  it('reject happy path: REJECTED + STATUS_CHANGED event + audit + outbox', async () => {
-    const created = await makeReport();
-    const next = await rejectReport(
-      requireDb(),
-      created.id,
-      'Duplikat laporan warga, bukan kerusakan',
-      1,
-      actor(),
-    );
-    expect(next.status).toBe('REJECTED');
-    expect(next.version).toBe(2);
-    const events = await eventsFor(created.id);
-    expect(events.length).toBe(1);
-    expect(events[0]?.eventType).toBe('STATUS_CHANGED');
-    expect(events[0]?.toValue).toBe('REJECTED');
-    expect((await auditsFor(created.id)).some((a) => a.action === 'REPORT_REJECTED')).toBe(true);
-    expect((await outboxFor(created.id))[0]?.status).toBe('PENDING');
-  });
-
-  it('reject rejects a non-REPORTED report (400)', async () => {
-    const created = await makeReport();
-    await verifyReport(requireDb(), created.id, verifyInput(), 1, actor());
-    await expect(
-      rejectReport(requireDb(), created.id, 'alasan yang cukup panjang', 2, actor()),
-    ).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('duplicate happy path: DUPLICATE + canonical link + event + audit + outbox', async () => {
-    const canonical = await makeReport();
-    await verifyReport(requireDb(), canonical.id, verifyInput(), 1, actor());
-    const created = await makeReport();
-    const next = await markDuplicate(requireDb(), created.id, canonical.id, 1, actor());
-    expect(next.status).toBe('DUPLICATE');
-    expect(next.version).toBe(2);
-    expect(next.duplicateOfReportId).toBe(canonical.id);
-    const events = await eventsFor(created.id);
-    expect(events[0]?.toValue).toBe('DUPLICATE');
-    expect(
-      (await auditsFor(created.id)).some((a) => a.action === 'REPORT_MARKED_DUPLICATE'),
-    ).toBe(true);
-    expect(
-      ((await outboxFor(created.id))[0]?.payload as Record<string, unknown>)?.['kind'],
-    ).toBe('REPORT_MARKED_DUPLICATE');
-  });
-
-  it('duplicate rejects a missing canonical (404) and a terminal canonical (400)', async () => {
-    const created = await makeReport();
-    await expect(
-      markDuplicate(requireDb(), created.id, randomUUID(), 1, actor()),
-    ).rejects.toMatchObject({ status: 404 });
-    const terminal = await makeReport({ status: 'REJECTED' });
-    await expect(
-      markDuplicate(requireDb(), created.id, terminal.id, 1, actor()),
-    ).rejects.toMatchObject({ status: 400 });
-    expect((await refresh(created.id)).status).toBe('REPORTED');
-  });
-
-  it('setFinalPriority change: reason required (400), then applies with event/audit/outbox', async () => {
-    const created = await makeReport();
-    const verified = await verifyReport(requireDb(), created.id, verifyInput(), 1, actor());
-    await expect(
-      setFinalPriority(requireDb(), created.id, 'HIGH', null, verified.version, actor()),
-    ).rejects.toMatchObject({ status: 400 });
-    const next = await setFinalPriority(
-      requireDb(),
-      created.id,
-      'HIGH',
-      'Eskalasi pimpinan fakultas',
-      verified.version,
-      actor(),
-    );
-    expect(next.finalPriority).toBe('HIGH');
-    expect(next.version).toBe(verified.version + 1);
-    // Score snapshot stays immutable: no recompute on priority edits.
-    expect(next.priorityScore).toBe(verified.priorityScore);
-    expect(next.priorityFactors).toEqual(verified.priorityFactors);
-    const events = await eventsFor(created.id);
-    const changes = events.filter((e) => e.eventType === 'PRIORITY_CHANGED');
-    expect(changes.length).toBe(2);
-    expect((await auditsFor(created.id)).some((a) => a.action === 'PRIORITY_CHANGED')).toBe(true);
-  });
-
-  it('setFinalPriority equal value is an idempotent no-op (no bump, no writes)', async () => {
-    const created = await makeReport();
-    const verified = await verifyReport(requireDb(), created.id, verifyInput(), 1, actor());
-    const eventsBefore = await eventsFor(created.id);
-    const next = await setFinalPriority(
-      requireDb(),
-      created.id,
-      'LOW',
-      null,
-      verified.version,
-      actor(),
-    );
-    expect(next.version).toBe(verified.version);
-    expect(await eventsFor(created.id)).toHaveLength(eventsBefore.length);
-  });
-
-  it('setFinalPriority rejects REPORTED reports (400)', async () => {
-    const created = await makeReport();
-    await expect(
-      setFinalPriority(requireDb(), created.id, 'HIGH', 'alasan yang cukup panjang', 1, actor()),
-    ).rejects.toMatchObject({ status: 400 });
   });
 });
