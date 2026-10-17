@@ -65,7 +65,8 @@ import {
   type TimelineEntry,
 } from '@silapor/database';
 import { scorePriority } from '@silapor/domain';
-import { badRequest, internal, isAppError, notFound } from '@silapor/shared';
+import { verifyReport as aiVerifyReport } from '@silapor/ai';
+import { badRequest, getRuntimeConfig, internal, isAppError, notFound } from '@silapor/shared';
 import { createAttachmentStorage, type AttachmentStorage } from '@silapor/storage';
 import { requireAdmin, requireUser } from './auth';
 import { removeStagedObjects, resolveStagedPhotoKeys } from './uploads.js';
@@ -788,39 +789,31 @@ export type SubmitVerifiedResult =
     }
   | { readonly status: 422; readonly reason: string };
 
-const DEFAULT_VERIFY_TIMEOUT_MS = 10_000;
-
+// Timeout/model resolution uses the shared runtime config (AI_VERIFY_TIMEOUT_MS,
+// OPENROUTER_MODEL) unless the caller overrides them; empty model keeps the
+// AI package's pinned default. Direct process.env reads are forbidden here.
 function resolveVerifyTimeoutMs(override?: number): number {
   if (override !== undefined && Number.isSafeInteger(override) && override > 0) {
     return override;
   }
-  const fromEnv = Number.parseInt(process.env['AI_VERIFY_TIMEOUT_MS'] ?? '', 10);
-  if (Number.isSafeInteger(fromEnv) && fromEnv > 0) {
-    return fromEnv;
-  }
-  return DEFAULT_VERIFY_TIMEOUT_MS;
+  return getRuntimeConfig().aiVerifyTimeoutMs;
 }
 
 function resolveAiModel(override?: string): string | undefined {
-  const configured = (override ?? process.env['OPENROUTER_MODEL'] ?? '').trim();
+  const configured = (override ?? getRuntimeConfig().openrouterModel).trim();
   return configured === '' ? undefined : configured;
 }
 
-// The AI client is an optional runtime peer: when it cannot be loaded the
-// submit is held for manual review rather than rejected.
+// Static dependency on `@silapor/ai` (no lazy-load fallback): the AI client
+// itself classifies upstream errors into FAIL (deterministic) or DOWN
+// (transient), so any unexpected throw only falls back to held, never
+// rejected.
 async function defaultSubmitVerify(
   input: SubmitVerifyInput,
   opts: { readonly timeoutMs: number; readonly model?: string },
 ): Promise<SubmitVerifyOutcome> {
-  const specifier = '@silapor/ai';
   try {
-    const mod = (await import(/* @vite-ignore */ specifier)) as {
-      verifyReport?: unknown;
-    };
-    if (typeof mod.verifyReport !== 'function') {
-      return { kind: 'DOWN' };
-    }
-    return await (mod.verifyReport as SubmitVerifyFn)(input, {
+    return await aiVerifyReport(input, {
       timeoutMs: opts.timeoutMs,
       ...(opts.model === undefined ? {} : { model: opts.model }),
     });

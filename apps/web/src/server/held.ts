@@ -44,7 +44,6 @@ function fieldOf(body: Record<string, unknown>, names: readonly string[]): unkno
 }
 
 // Held-only guard: verified or non-reported rows are gone, never overridden.
-// Held-only guard: verified or non-reported rows are gone, never overridden.
 export function isHeldReport(row: {
   readonly status: string;
   readonly finalCategoryId: string | null;
@@ -53,7 +52,6 @@ export function isHeldReport(row: {
   return row.status === 'REPORTED' && row.finalCategoryId === null && row.verifiedAt === null;
 }
 
-// Gone signals a hold that already resolved elsewhere.
 // Gone signals a hold that already resolved elsewhere.
 function gone(message: string): AppError {
   return new AppError({ code: 'GONE' as AppErrorCode, message, status: 410 });
@@ -189,7 +187,6 @@ export async function verifyHeldReport(
     if (!isHeldReport(report)) {
       throw gone('Report is no longer held for verification');
     }
-    // Stale versions conflict so the admin refreshes before retrying.
     // Stale versions conflict so the admin refreshes before retrying.
     if (report.version !== version) {
       throw conflict('Report was modified by another admin; refresh and retry');

@@ -18,12 +18,26 @@ export interface RuntimeConfig {
   // routes via getSsoProvider) decides how to surface them, including any
   // warning logs.
   readonly authProvider: string;
+  // AI verification (Task 2026-10-14): submit-time verify timeout in
+  // milliseconds (AI_VERIFY_TIMEOUT_MS; only positive integers are honored)
+  // and the pinned OpenRouter model slug (OPENROUTER_MODEL; empty when
+  // unset so the caller keeps its built-in default). Neither carries a
+  // secret — the API key is read by the AI package itself, server-side.
+  readonly aiVerifyTimeoutMs: number;
+  readonly openrouterModel: string;
 }
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_AUTH_PROVIDER = 'mock';
+const DEFAULT_AI_VERIFY_TIMEOUT_MS = 10_000;
 
-type EnvName = 'DATABASE_URL' | 'STORAGE_ENDPOINT' | 'PORT' | 'AUTH_PROVIDER';
+type EnvName =
+  | 'DATABASE_URL'
+  | 'STORAGE_ENDPOINT'
+  | 'PORT'
+  | 'AUTH_PROVIDER'
+  | 'AI_VERIFY_TIMEOUT_MS'
+  | 'OPENROUTER_MODEL';
 
 function readEnv(name: EnvName): string | undefined {
   if (typeof process === 'undefined' || process.env === undefined) {
@@ -41,6 +55,14 @@ function parsePort(raw: string | undefined): number {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : DEFAULT_PORT;
 }
 
+function parsePositiveInt(raw: string | undefined): number | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 // Server-only. Throws when called in the browser so secrets/ports can never
 // be evaluated (or bundled) on the client.
 export function getRuntimeConfig(): RuntimeConfig {
@@ -52,5 +74,8 @@ export function getRuntimeConfig(): RuntimeConfig {
     databaseUrl: readEnv('DATABASE_URL'),
     storageEndpoint: readEnv('STORAGE_ENDPOINT'),
     authProvider: readEnv('AUTH_PROVIDER') ?? DEFAULT_AUTH_PROVIDER,
+    aiVerifyTimeoutMs:
+      parsePositiveInt(readEnv('AI_VERIFY_TIMEOUT_MS')) ?? DEFAULT_AI_VERIFY_TIMEOUT_MS,
+    openrouterModel: readEnv('OPENROUTER_MODEL') ?? '',
   };
 }

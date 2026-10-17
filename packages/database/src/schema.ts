@@ -230,8 +230,10 @@ export type NewAuditLog = typeof auditLogs.$inferInsert;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 export type NewOutboxEvent = typeof outboxEvents.$inferInsert;
 
-// Phase 3 P3-1: report tables + ticket sequence. Values mirror
-// `REPORT_STATUS` / `RELATION_TYPE` in `@silapor/domain` (verbatim).
+// Phase 3 P3-1: report tables + ticket sequence. Domain has narrowed to the
+// 7-status AI lifecycle; the pg enum keeps REJECTED/DUPLICATE only for
+// historical rows (no new codes are ever written — schema mirror may lag the
+// domain until an enum-drop migration).
 
 export const reportStatusEnum = pgEnum('report_status', [
   'REPORTED',

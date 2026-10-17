@@ -347,9 +347,17 @@ function AdminReportsPage() {
               <option value="IN_REPAIR">Dalam perbaikan</option>
               <option value="RESOLVED">Selesai</option>
               <option value="CLOSED">Ditutup</option>
-              <option value="REJECTED">Ditolak</option>
-              <option value="DUPLICATE">Duplikat</option>
             </Select>
+            <p className={FILTER_HINT_CLASSES}>
+              <Link
+                to="/admin/reports"
+                search={{ ...fields, status: 'REPORTED', offset: 0 }}
+                className="underline"
+              >
+                Antrian verifikasi
+              </Link>{' '}
+              — tiket yang menunggu pemeriksaan manual (AI tidak tersedia).
+            </p>
           </div>
           <div>
             <label htmlFor="admin-reports-category" className={FILTER_LABEL_CLASSES}>
