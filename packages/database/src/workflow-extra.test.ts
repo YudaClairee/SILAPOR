@@ -525,6 +525,58 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     expect(events.some((e) => e.eventType === 'REPORT_CLOSED')).toBe(true);
   });
 
+  it('transition enqueues REPORT_RESOLVED/REPORT_CLOSED kinds, STATUS_CHANGED otherwise', async () => {
+    const kindsFor = async (reportId: string) =>
+      (await outboxFor(reportId))
+        .filter((row) => row.type === 'WORKFLOW_NOTIFICATION')
+        .map((row) => String((row.payload as Record<string, unknown>)['kind']));
+
+    const inspection = await makeInspection();
+    const beforeRepair = await kindsFor(inspection.id);
+    const inRepair = await transitionReport(
+      requireDb(),
+      inspection.id,
+      'IN_REPAIR',
+      inspection.version,
+      actor(),
+      'Kerusakan dikonfirmasi, mulai perbaikan penggantian lampu',
+    );
+    const afterRepair = await kindsFor(inspection.id);
+    expect(afterRepair.length).toBe(beforeRepair.length + 1);
+    expect(afterRepair.filter((k) => k === 'STATUS_CHANGED')).toHaveLength(
+      beforeRepair.filter((k) => k === 'STATUS_CHANGED').length + 1,
+    );
+    expect(afterRepair).not.toContain('REPORT_RESOLVED');
+
+    const beforeResolved = await kindsFor(inRepair.id);
+    const resolved = await transitionReport(
+      requireDb(),
+      inRepair.id,
+      'RESOLVED',
+      inRepair.version,
+      actor(),
+      'Perbaikan selesai, lampu sudah menyala kembali',
+    );
+    const afterResolved = await kindsFor(resolved.id);
+    expect(afterResolved.length).toBe(beforeResolved.length + 1);
+    expect(afterResolved.filter((k) => k === 'REPORT_RESOLVED')).toHaveLength(1);
+    expect(afterResolved.filter((k) => k === 'STATUS_CHANGED')).toHaveLength(
+      beforeResolved.filter((k) => k === 'STATUS_CHANGED').length,
+    );
+
+    const beforeClosed = afterResolved.length;
+    const closed = await transitionReport(
+      requireDb(),
+      resolved.id,
+      'CLOSED',
+      resolved.version,
+      actor(),
+    );
+    const afterClosed = await kindsFor(closed.id);
+    expect(afterClosed.length).toBe(beforeClosed + 1);
+    expect(afterClosed.filter((k) => k === 'REPORT_CLOSED')).toHaveLength(1);
+  });
+
   it('illegal ASSIGNED→RESOLVED fails with 400 and no partial writes', async () => {
     const assigned = await makeAssigned();
     const eventsBefore = await eventsFor(assigned.id);
