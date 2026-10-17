@@ -207,6 +207,8 @@ export const outboxEvents = pgTable(
     availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp('processed_at', { withTimezone: true }),
+    // Phase 6 P6-1: dead-letter diagnostics (plan §7.1); never contains PII.
+    lastError: text('last_error'),
   },
   (table) => [index('outbox_events_status_available_at_idx').on(table.status, table.availableAt)],
 );
@@ -468,6 +470,34 @@ export const reportRelations = pgTable(
   ],
 );
 
+// Phase 6 P6-1: in-app notifications. Retry safety comes from the
+// (source_event_id, user_id) unique pair — a redelivered outbox event can
+// never create a second row for the same recipient (plan step 11).
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Notification type, e.g. REPORT_VERIFIED / STATUS_CHANGED.
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    message: text('message').notNull(),
+    reportId: uuid('report_id').references((): AnyPgColumn => maintenanceReports.id, {
+      onDelete: 'cascade',
+    }),
+    // Outbox event this row was created from (idempotency key half).
+    sourceEventId: uuid('source_event_id').notNull(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('notifications_user_read_created_idx').on(table.userId, table.readAt, table.createdAt),
+    unique('notifications_source_event_user_unique').on(table.sourceEventId, table.userId),
+  ],
+);
+
 export const ticketCounters = pgTable('ticket_counters', {
   year: integer('year').primaryKey(),
   lastSeq: integer('last_seq').notNull().default(0),
@@ -485,6 +515,8 @@ export type ReportUpdate = typeof reportUpdates.$inferSelect;
 export type NewReportUpdate = typeof reportUpdates.$inferInsert;
 export type ReportRelation = typeof reportRelations.$inferSelect;
 export type NewReportRelation = typeof reportRelations.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
 export type TicketCounter = typeof ticketCounters.$inferSelect;
 export type NewTicketCounter = typeof ticketCounters.$inferInsert;
 

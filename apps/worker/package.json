@@ -8,15 +8,17 @@
     "dev": "tsx src/index.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"test: @silapor/worker (stub, no tests yet)\"",
-    "build": "echo \"build: @silapor/worker (stub, no emit yet)\""
+    "test": "vitest run",
+    "build": "echo \"build: @silapor/worker (no emit yet)\""
   },
   "dependencies": {
     "@silapor/jobs": "workspace:*",
-    "@silapor/shared": "workspace:*"
+    "@silapor/shared": "workspace:*",
+    "@silapor/database": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.3"
   }
 }

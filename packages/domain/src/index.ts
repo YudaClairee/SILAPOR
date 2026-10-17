@@ -100,6 +100,62 @@ export function requiresNote(from: ReportStatus, to: ReportStatus): boolean {
   return NOTE_REQUIRED_TRANSITIONS.has(to);
 }
 
+// Phase 6 P6-1: derived facility status (pure — no I/O, no imports).
+// Plan §4.6: facility status is DERIVED from active reports, never stored as
+// an independent source of truth.
+export const FACILITY_STATUSES = [
+  'OPERATIONAL',
+  'REPORTED_ISSUE',
+  'UNDER_INSPECTION',
+  'IN_REPAIR',
+] as const;
+
+export type FacilityStatus = (typeof FACILITY_STATUSES)[number];
+
+// Active report status → public facility status (plan §4.6 table).
+const REPORT_STATUS_TO_FACILITY: Readonly<Record<string, FacilityStatus>> = {
+  REPORTED: 'REPORTED_ISSUE',
+  VERIFIED: 'REPORTED_ISSUE',
+  ASSIGNED: 'UNDER_INSPECTION',
+  INSPECTION: 'UNDER_INSPECTION',
+  IN_REPAIR: 'IN_REPAIR',
+};
+
+// Operational severity used when one asset has several active reports:
+// IN_REPAIR > UNDER_INSPECTION > REPORTED_ISSUE (plan §4.6).
+const FACILITY_SEVERITY: Readonly<Record<FacilityStatus, number>> = {
+  OPERATIONAL: 0,
+  REPORTED_ISSUE: 1,
+  UNDER_INSPECTION: 2,
+  IN_REPAIR: 3,
+};
+
+/**
+ * Operational severity ranking used for ordering/precedence comparisons:
+ * IN_REPAIR (3) > UNDER_INSPECTION (2) > REPORTED_ISSUE (1) > OPERATIONAL (0).
+ */
+export function facilityStatusSeverity(status: FacilityStatus): number {
+  return FACILITY_SEVERITY[status];
+}
+
+/**
+ * Derives the public facility status from the statuses of a facility's active
+
+ * reports. Unknown/terminal statuses are ignored defensively (callers must
+ * pass active statuses only, but a stray RESOLVED/CLOSED must not crash or
+ * skew the result). No active report → OPERATIONAL.
+ */
+export function deriveFacilityStatus(activeStatuses: readonly string[]): FacilityStatus {
+  let best: FacilityStatus = 'OPERATIONAL';
+  for (const status of activeStatuses) {
+    const mapped = REPORT_STATUS_TO_FACILITY[status];
+    if (mapped !== undefined && FACILITY_SEVERITY[mapped] > FACILITY_SEVERITY[best]) {
+      best = mapped;
+    }
+  }
+  return best;
+}
+
 // Phase 5 P5-1: priority scoring — pure deterministic service (pure, no I/O).
 // Baseline provisional (pending UMPER calibration).
 export const PRIORITY_LEVELS = ['LOW', 'MEDIUM', 'HIGH'] as const;

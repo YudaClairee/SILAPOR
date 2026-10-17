@@ -57,6 +57,13 @@
       "when": 1792051063197,
       "tag": "0007_careless_havok",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792221222315,
+      "tag": "0008_bent_prowler",
+      "breakpoints": true
     }
   ]
 }
