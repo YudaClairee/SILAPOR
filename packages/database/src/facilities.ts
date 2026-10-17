@@ -352,7 +352,10 @@ export async function getFacilityMaintenanceHistory(
     items: reports.map((report) => ({
       reportId: report.id,
       ticketNumber: report.ticketNumber,
-      status: report.status,
+      // Enum still carries legacy REJECTED/DUPLICATE labels (no new rows of
+      // those exist since the AI-verification merge); drop when the pg enum
+      // stops emitting them. Same DB-boundary-cast reasoning as finalPriority.
+      status: report.status as ReportStatus,
       reportedAt: report.reportedAt,
       resolvedAt: report.resolvedAt,
       closedAt: report.closedAt,
