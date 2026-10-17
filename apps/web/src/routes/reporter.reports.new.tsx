@@ -306,7 +306,7 @@ const EMPTY_VALUES: NewReportValues = {
   description: '',
 };
 
-type Phase = 'form' | 'waiting' | 'verified' | 'held' | 'failed' | 'duplicate';
+type Phase = 'form' | 'review' | 'waiting' | 'verified' | 'held' | 'failed' | 'duplicate';
 
 function NewReportPage() {
   const initial = Route.useLoaderData() as NewLoaderData;
@@ -520,7 +520,7 @@ function NewReportPage() {
       return;
     }
     setFormAlert(null);
-    void submitReport();
+    setPhase('review');
   }
 
   function retryFresh(): void {
@@ -571,7 +571,7 @@ function NewReportPage() {
         </Link>
         <Link
           to="/reporter/reports"
-          search={{ filter: 'semua', status: '', offset: 0 }}
+          search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
           className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
         >
           Laporan Saya
@@ -636,7 +636,7 @@ function NewReportPage() {
             action={
               <Link
                 to="/reporter/reports"
-                search={{ filter: 'semua', status: '', offset: 0 }}
+                search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
                 className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
               >
                 Laporan Saya
@@ -702,7 +702,7 @@ function NewReportPage() {
             </Button>
             <Link
               to="/reporter/reports"
-              search={{ filter: 'semua', status: '', offset: 0 }}
+              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Laporan Saya
@@ -735,7 +735,7 @@ function NewReportPage() {
           <p className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
             <Link
               to="/reporter/reports"
-              search={{ filter: 'semua', status: '', offset: 0 }}
+              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Laporan Saya
@@ -790,6 +790,58 @@ function NewReportPage() {
           ) : null}
           {photoCountLine()}
           {resultLinks()}
+        </div>
+      </section>
+    );
+  }
+
+  if (phase === 'review') {
+    const selectedBuilding = buildingOptions.find((item) => item.id === values.buildingId);
+    const selectedFloor = buildingFloors.find((item) => item.id === values.floorId);
+    const selectedRoom = roomOptions.find((item) => item.id === values.locationId);
+    const selectedAsset = assetOptions.find((item) => item.id === values.assetId);
+    return (
+      <section aria-labelledby="new-report-review-title" className="max-w-3xl">
+        <h1 id="new-report-review-title" className="text-2xl font-semibold text-text">
+          Tinjau Laporan
+        </h1>
+        <div className="mt-4 rounded-md border border-border bg-surface p-4 md:p-6">
+          <dl className="divide-y divide-border">
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Gedung</dt>
+              <dd className="text-sm text-text">{selectedBuilding?.name ?? values.buildingId}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Lantai</dt>
+              <dd className="text-sm text-text">
+                {floorRequired ? (selectedFloor?.name ?? values.floorId) : '—'}
+              </dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Ruangan</dt>
+              <dd className="text-sm text-text">{selectedRoom?.name ?? values.locationId}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Aset</dt>
+              <dd className="text-sm text-text">{selectedAsset?.name ?? values.assetId}</dd>
+            </div>
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Deskripsi</dt>
+              <dd className="whitespace-pre-wrap text-sm text-text">{values.description.trim()}</dd>
+            </div>
+          </dl>
+          {photoCountLine()}
+          <p className="mt-2 text-sm text-muted">
+            Foto dan deskripsi akan diperiksa AI saat laporan dikirim.
+          </p>
+          <p className="mt-6 flex flex-col gap-2 sm:flex-row">
+            <Button type="button" onClick={() => void submitReport()}>
+              Kirim laporan
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setPhase('form')}>
+              Ubah laporan
+            </Button>
+          </p>
         </div>
       </section>
     );
@@ -984,14 +1036,14 @@ function NewReportPage() {
           </div>
 
           <Button type="submit" disabled={!submittable}>
-            Kirim laporan
+            Lanjut ke review
           </Button>
         </div>
       </form>
       <p className="mt-4">
         <Link
           to="/reporter/reports"
-          search={{ filter: 'semua', status: '', offset: 0 }}
+          search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
           className="text-accent underline underline-offset-2"
         >
           Laporan Saya

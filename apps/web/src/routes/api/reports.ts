@@ -1,5 +1,6 @@
 // Reporter reports collection (Phase 3 P3-4 + Task 6 verified submit):
-// GET list mine + POST synchronous AI-verified create.
+// GET campus-wide sanitized list (+ `mine=1`) and POST synchronous
+// AI-verified create.
 //
 // Reporter-only: `requireUser` inside the try (401 anonymous); the service
 // layer re-guards on the same request. POST takes location + asset +
@@ -20,7 +21,7 @@ import {
   withRequestId,
 } from '@silapor/shared';
 import { requireUser } from '../../server/auth';
-import { listMyReportsRoute, submitVerifiedReport } from '../../server/reports';
+import { listCampusReportsRoute, submitVerifiedReport } from '../../server/reports';
 
 const logger = createLogger({ service: 'web' });
 const ROUTE = '/api/reports';
@@ -33,7 +34,7 @@ export const Route = createFileRoute('/api/reports')({
           const started = Date.now();
           try {
             const user = await requireUser(request);
-            const result = await listMyReportsRoute(request, request.url);
+            const result = await listCampusReportsRoute(request, request.url);
             logger.info('reports listed', {
               route: ROUTE,
               result: 'ok',

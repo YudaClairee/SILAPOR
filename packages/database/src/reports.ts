@@ -830,15 +830,17 @@ export async function applyVerification(
 // ---------------------------------------------------------------------------
 // P3-3 report queries + supporting links.
 //
-// Reporter read paths (`listMyReports`, `getMyReportDetail`,
-// `getMyReportTimeline`) take `reporterId` and filter by it — that IS the
-// enforcement (the repo performs no role checks; callers own ADMIN gating).
-// `getMy*` returns an identical 404 for missing vs foreign rows so existence
-// of another reporter's ticket is never revealed. Admin paths
-// (`listAllReports`, `getAdminReportDetail`) add reporter/search filters and
-// skip ownership. `linkSupportingReport` is metadata only: no status change,
-// no repair job. `countAffectedReporters` counts DISTINCT reporters over the
-// shared incident predicate above plus one hop of SUPPORTING/RELATED links.
+// Reporter read paths: `listMyReports`, `getMyReportDetail`, and
+// `getMyReportTimeline` take `reporterId` and filter by it; `getMy*` returns
+// an identical 404 for missing vs foreign rows. The campus paths
+// (`listCampusReports`, `getCampusReportDetail`) instead expose every ticket
+// through a sanitized projection (no reporter identity/idempotency/audit
+// fields; attachments/candidates stay owner-only) and 404 only when the
+// ticket itself is missing. Admin paths (`listAllReports`,
+// `getAdminReportDetail`) add reporter/search filters and skip ownership.
+// `linkSupportingReport` is metadata only: no status change, no repair job.
+// `countAffectedReporters` counts DISTINCT reporters over the shared incident
+// predicate above plus one hop of SUPPORTING/RELATED links.
 //
 // Pagination ALWAYS reuses `normalizeListOptions` (default 50, max 200) and
 // every sort ALWAYS tiebreaks by id asc so pages are stable. Errors use
@@ -1129,6 +1131,142 @@ export async function listAllReports(
   return await queryReportList(db, { ...(opts ?? {}) });
 }
 
+export interface ListCampusReportsOptions extends ListMyReportsOptions {
+  /** `true` = "Laporan Saya" filter; default is the whole campus. */
+  readonly mine?: boolean | undefined;
+}
+
+// Reporter-facing campus projection. Identity and audit-only fields never
+// leave the repository: no reporterId, idempotencyKey, priority factors, or
+// decider ids. The ticket number, safe location/asset ids, status, final
+// classification, and timestamps are enough to render the campus list.
+export interface CampusReportListItem {
+  readonly id: string;
+  readonly ticketNumber: string;
+  readonly status: schema.Report['status'];
+  readonly locationId: string;
+  readonly assetId: string | null;
+  readonly submittedCategoryId: string;
+  readonly submittedIssueTypeId: string | null;
+  readonly finalCategoryId: string | null;
+  readonly finalIssueTypeId: string | null;
+  readonly finalPriority: string | null;
+  readonly reportedAt: Date;
+  readonly resolvedAt: Date | null;
+  readonly closedAt: Date | null;
+  readonly isOwn: boolean;
+}
+
+export interface CampusReportListResult {
+  readonly items: CampusReportListItem[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+function toCampusReportListItem(row: schema.Report, viewerId: string): CampusReportListItem {
+  return {
+    id: row.id,
+    ticketNumber: row.ticketNumber,
+    status: row.status,
+    locationId: row.locationId,
+    assetId: row.assetId,
+    submittedCategoryId: row.submittedCategoryId,
+    submittedIssueTypeId: row.submittedIssueTypeId,
+    finalCategoryId: row.finalCategoryId,
+    finalIssueTypeId: row.finalIssueTypeId,
+    finalPriority: row.finalPriority,
+    reportedAt: row.reportedAt,
+    resolvedAt: row.resolvedAt,
+    closedAt: row.closedAt,
+    isOwn: row.reporterId === viewerId,
+  };
+}
+
+// Campus-wide reporter list (UI No. 5). Every authenticated reporter sees
+// all sanitized tickets; `mine=true` narrows to the viewer's own rows.
+// The shared query keeps filters, deterministic ordering, and pagination
+// identical to the reporter/admin lists.
+export async function listCampusReports(
+  db: ReportQueryDb,
+  viewerId: string,
+  opts?: ListCampusReportsOptions,
+): Promise<CampusReportListResult> {
+  const id = requireUuid(viewerId, 'viewerId');
+  const { mine, ...base } = opts ?? {};
+  const result = await queryReportList(db, {
+    ...base,
+    ...(mine === true ? { reporterId: id } : {}),
+  });
+  return {
+    items: result.items.map((row) => toCampusReportListItem(row, id)),
+    total: result.total,
+    limit: result.limit,
+    offset: result.offset,
+  };
+}
+
+export interface CampusReport {
+  readonly id: string;
+  readonly ticketNumber: string;
+  readonly status: schema.Report['status'];
+  readonly locationId: string;
+  readonly assetId: string | null;
+  readonly submittedCategoryId: string;
+  readonly submittedIssueTypeId: string | null;
+  readonly finalCategoryId: string | null;
+  readonly finalIssueTypeId: string | null;
+  readonly description: string;
+  readonly occurredAt: Date | null;
+  readonly finalPriority: string | null;
+  readonly reportedAt: Date;
+  readonly verifiedAt: Date | null;
+  readonly resolvedAt: Date | null;
+  readonly closedAt: Date | null;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+}
+
+export interface CampusReportRelation {
+  readonly id: string;
+  readonly sourceReportId: string;
+  readonly targetReportId: string;
+  readonly relationType: string;
+  readonly createdAt: Date;
+}
+
+export interface CampusReportDetail {
+  readonly report: CampusReport;
+  readonly isOwn: boolean;
+  readonly attachments: AttachmentSummary[];
+  readonly events: schema.ReportEvent[];
+  readonly relations: CampusReportRelation[];
+  readonly duplicateCandidates: DuplicateCandidate[];
+}
+
+function toCampusReport(row: schema.Report): CampusReport {
+  return {
+    id: row.id,
+    ticketNumber: row.ticketNumber,
+    status: row.status,
+    locationId: row.locationId,
+    assetId: row.assetId,
+    submittedCategoryId: row.submittedCategoryId,
+    submittedIssueTypeId: row.submittedIssueTypeId,
+    finalCategoryId: row.finalCategoryId,
+    finalIssueTypeId: row.finalIssueTypeId,
+    description: row.description,
+    occurredAt: row.occurredAt,
+    finalPriority: row.finalPriority,
+    reportedAt: row.reportedAt,
+    verifiedAt: row.verifiedAt,
+    resolvedAt: row.resolvedAt,
+    closedAt: row.closedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export interface ReportDetail {
   readonly report: schema.Report;
   // Public-safe projection only: id + display metadata + integrity fields.
@@ -1256,6 +1394,46 @@ export async function getMyReportDetail(
     .filter((event) => event.eventType !== 'INTERNAL_NOTE_ADDED')
     .map(sanitizeReporterDetailEvent);
   return { ...detail, events };
+}
+
+// Campus-wide reporter detail (UI No. 5). Another reporter's ticket is a
+// normal 200 sanitized view — never a 404/403 existence oracle. Attachments
+// and duplicate candidates remain owner-only; events use the same reporter
+// sanitization as the own-ticket path; relation `created_by` is omitted.
+export async function getCampusReportDetail(
+  db: ReportQueryDb,
+  viewerId: string,
+  reportId: string,
+): Promise<CampusReportDetail> {
+  const viewer = requireUuid(viewerId, 'viewerId');
+  const id = requireUuid(reportId, 'reportId');
+  const rows = await db
+    .select()
+    .from(schema.maintenanceReports)
+    .where(eq(schema.maintenanceReports.id, id));
+  const row = rows[0];
+  if (row === undefined) {
+    throw notFound('Report not found');
+  }
+  const isOwn = row.reporterId === viewer;
+  const detail = await loadReportDetail(db, row);
+  const events = detail.events
+    .filter((event) => event.eventType !== 'INTERNAL_NOTE_ADDED')
+    .map(sanitizeReporterDetailEvent);
+  return {
+    report: toCampusReport(row),
+    isOwn,
+    attachments: isOwn ? detail.attachments : [],
+    events,
+    relations: detail.relations.map((relation) => ({
+      id: relation.id,
+      sourceReportId: relation.sourceReportId,
+      targetReportId: relation.targetReportId,
+      relationType: relation.relationType,
+      createdAt: relation.createdAt,
+    })),
+    duplicateCandidates: isOwn ? detail.duplicateCandidates : [],
+  };
 }
 
 // Admin detail: same shape, no ownership check (404 only when truly missing).

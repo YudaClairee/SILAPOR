@@ -1,12 +1,11 @@
-// Report detail (Phase 3 P3-5): one of my reports by UUID or MNT- ticket.
-// Shows ticket, status, submitted classification labels, location/asset,
-// description, occurredAt/reportedAt, a duplicate-warning panel when the
-// server reports candidates, and a SAFE timeline subset (event-type labels
-// + timestamps only — raw message/metadata blobs are never rendered).
+// Report detail (Phase 3 P3-5 + UI No. 5): a sanitized campus ticket by UUID
+// or MNT- ticket. Shows ticket, status, classification labels, location/asset,
+// description, occurredAt/reportedAt, owner-only attachments, a duplicate
+// hint for the owner, and a SAFE timeline subset (event-type labels +
+// timestamps only — raw message/metadata blobs are never rendered).
 //
-// Missing vs foreign tickets share one identical "Laporan tidak ditemukan"
-// view (the server returns byte-identical 404s, never 403). Indonesian
-// copy, no styling framework.
+// Another reporter's ticket is a normal 200 sanitized view; only a truly
+// missing ticket renders "Laporan tidak ditemukan". Indonesian copy.
 import { useEffect, useState } from 'react';
 import {
   Link,
@@ -65,6 +64,7 @@ interface DetailAttachmentRow {
 
 interface ReportDetailData {
   readonly report: ReportRow;
+  readonly isOwn?: boolean;
   readonly events: TimelineRow[];
   readonly duplicateCandidates: DuplicateCandidate[];
   // Gallery metadata (id + display fields only — bytes come from the
@@ -293,10 +293,10 @@ function ReportDetailPage() {
         </h1>
         <Link
           to="/reporter/reports"
-          search={{ filter: 'semua', status: '', offset: 0 }}
+          search={{ filter: 'semua', status: '', mine: false, offset: 0 }}
           className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
         >
-          Laporan Saya
+          Tiket Kampus
         </Link>
       </div>
 
@@ -405,7 +405,11 @@ function ReportDetailPage() {
             <h2 id="detail-attachments-title" className="text-base font-semibold text-text">
               Lampiran
             </h2>
-            {(detail.attachments ?? []).length === 0 ? (
+            {detail.isOwn === false ? (
+              <p className="mt-1 text-sm text-muted">
+                Lampiran hanya dapat dilihat oleh pelapor tiket ini.
+              </p>
+            ) : (detail.attachments ?? []).length === 0 ? (
               <p className="mt-1 text-sm text-muted">Tidak ada lampiran.</p>
             ) : (
               <AttachmentGallery

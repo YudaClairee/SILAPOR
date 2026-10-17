@@ -19,6 +19,7 @@ import {
   normalizeCreateReportBody,
   normalizeVerifiedSubmitBody,
   parseAdminReportsQuery,
+  parseCampusReportsQuery,
   parseDuplicateCheckQuery,
   parseMyReportsQuery,
   submitVerifiedReport,
@@ -198,6 +199,22 @@ describe('parseMyReportsQuery', () => {
       expect(resolveReportSort(sort)).toBe(sort);
     }
     expect(resolveReportSort(undefined)).toBe('reported_desc');
+  });
+});
+
+describe('parseCampusReportsQuery', () => {
+  it('defaults to the whole campus', () => {
+    expect(parseCampusReportsQuery(`${BASE}/api/reports`)).toEqual({});
+  });
+
+  it('adds mine=true only for 1/true and keeps the base filters', () => {
+    expect(
+      parseCampusReportsQuery(
+        `${BASE}/api/reports?mine=1&status=REPORTED&locationId=${UUID_B}&limit=10`,
+      ),
+    ).toEqual({ mine: true, status: ['REPORTED'], locationId: UUID_B, limit: 10 });
+    expect(parseCampusReportsQuery(`${BASE}/api/reports?mine=true`)).toEqual({ mine: true });
+    expect(parseCampusReportsQuery(`${BASE}/api/reports?mine=0`)).toEqual({});
   });
 });
 

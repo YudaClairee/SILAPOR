@@ -26,42 +26,87 @@ async function loginContext(browser: Browser, username: string): Promise<Browser
   return context;
 }
 
-// Fill the new-report cascade picking the first real option at each level
-// (building → room → category → issue type), asset left at the default
-// "Tanpa asset" option. Each select asserts its options loaded first.
-async function fillReportForm(page: Page, description: string): Promise<void> {
+// Minimal 1x1 PNG shared by every report submission (the current form
+// requires 1–3 photos). Test 9 replaces it with its named fixture.
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+interface E2eLocation {
+  readonly id: string;
+  readonly type: string;
+  readonly parentId: string | null;
+}
+
+interface E2eFormOptions {
+  readonly locations: E2eLocation[];
+  readonly assets: ReadonlyArray<{ readonly id: string; readonly locationId: string | null }>;
+}
+
+// Fill the current cascade using a real asset from the seeded form options
+// (building → optional floor → room → asset), then description + one photo.
+// Picking the asset first keeps the test independent of rooms without assets.
+async function fillReportForm(page: Page, description: string, assetIndex = 0): Promise<void> {
   await page.goto('/reporter/reports/new');
   await expect(page.getByRole('heading', { name: 'Buat Laporan Baru' })).toBeVisible();
 
-  const building = page.getByLabel('Gedung', { exact: true });
-  await expect(building.locator('option').nth(1)).toBeAttached();
-  await building.selectOption({ index: 1 });
+  const optionsResponse = await page.request.get(`${BASE_URL}/api/reports/form-options`);
+  expect(optionsResponse.ok()).toBe(true);
+  const options = (await optionsResponse.json()) as E2eFormOptions;
+  const assets = options.assets.filter(
+    (asset): asset is { readonly id: string; readonly locationId: string } =>
+      asset.locationId !== null,
+  );
+  const asset = assets[assetIndex];
+  if (asset === undefined) {
+    throw new Error(`E2E: no seeded asset at index ${assetIndex}`);
+  }
+  const room = options.locations.find((location) => location.id === asset.locationId);
+  if (room === undefined) {
+    throw new Error('E2E: asset room missing from form options');
+  }
+  const parent = options.locations.find((location) => location.id === room.parentId);
+  const floor = parent?.type === 'FLOOR' ? parent : undefined;
+  const building =
+    floor === undefined
+      ? parent
+      : options.locations.find((location) => location.id === floor.parentId);
+  if (building === undefined) {
+    throw new Error('E2E: asset building missing from form options');
+  }
 
-  const room = page.getByLabel('Ruangan', { exact: true });
-  await expect(room.locator('option').nth(1)).toBeAttached();
-  await room.selectOption({ index: 1 });
-
-  const category = page.getByLabel('Kategori', { exact: true });
-  await expect(category.locator('option').nth(1)).toBeAttached();
-  await category.selectOption({ index: 1 });
-
-  const issueType = page.getByLabel('Jenis masalah', { exact: true });
-  await expect(issueType.locator('option').nth(1)).toBeAttached();
-  await issueType.selectOption({ index: 1 });
+  const buildingSelect = page.getByLabel('Gedung', { exact: true });
+  await expect(buildingSelect.locator(`option[value="${building.id}"]`)).toBeAttached();
+  await buildingSelect.selectOption(building.id);
+  if (floor !== undefined) {
+    const floorSelect = page.getByLabel('Lantai', { exact: true });
+    await expect(floorSelect.locator(`option[value="${floor.id}"]`)).toBeAttached();
+    await floorSelect.selectOption(floor.id);
+  }
+  const roomSelect = page.getByLabel('Ruangan', { exact: true });
+  await expect(roomSelect.locator(`option[value="${room.id}"]`)).toBeAttached();
+  await roomSelect.selectOption(room.id);
+  const assetSelect = page.getByLabel('Aset', { exact: true });
+  await expect(assetSelect.locator(`option[value="${asset.id}"]`)).toBeAttached();
+  await assetSelect.selectOption(asset.id);
 
   await page.getByLabel('Deskripsi', { exact: true }).fill(description);
+  await page
+    .getByLabel('Foto', { exact: true })
+    .setInputFiles([{ name: 'bukti.png', mimeType: 'image/png', buffer: PNG }]);
 }
 
-// Advance form → review, submit with whichever button the duplicate check
-// resolves to ("Kirim laporan" when clean, "Tetap kirim — masalah berbeda"
-// when candidates exist), and return the ticket from the success status.
+// Advance form → review → submit and return the ticket from the success status.
 async function submitFromReview(page: Page): Promise<string> {
   await page.getByRole('button', { name: 'Lanjut ke review' }).click();
   await expect(page.getByRole('heading', { name: 'Tinjau Laporan' })).toBeVisible();
-  const submit = page.getByRole('button', { name: /Kirim laporan|Tetap kirim/ });
+  const submit = page.getByRole('button', { name: 'Kirim laporan', exact: true });
   await expect(submit).toBeVisible();
   await submit.click();
-  await expect(page.getByRole('heading', { name: 'Laporan berhasil dikirim' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: /Laporan berhasil dikirim|Laporan menunggu pemeriksaan/ }),
+  ).toBeVisible();
   const status = page.getByRole('status');
   await expect(status).toContainText(TICKET_PATTERN);
   const text = (await status.textContent()) ?? '';
@@ -104,7 +149,7 @@ test('2 list/detail: reporter sees the ticket in the list with REPORTED status',
   const page = await context.newPage();
   try {
     await page.goto('/reporter/reports');
-    await expect(page.getByRole('heading', { name: 'Laporan Saya' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Tiket Kampus' })).toBeVisible();
     const rowLink = page.getByRole('link', { name: ticketA });
     await expect(rowLink).toBeVisible();
     await rowLink.click();
@@ -119,7 +164,7 @@ test('2 list/detail: reporter sees the ticket in the list with REPORTED status',
   }
 });
 
-test('3 ownership: reporter-B sees 404 for reporter-A ticket (UI + byte-identical API 404)', async ({
+test('3 campus visibility: reporter-B opens reporter-A ticket in sanitized form', async ({
   browser,
 }) => {
   // Fresh isolated context (separate cookie jar) is MANDATORY here.
@@ -128,15 +173,34 @@ test('3 ownership: reporter-B sees 404 for reporter-A ticket (UI + byte-identica
   try {
     await page.goto(`/reporter/reports/${ticketA}`);
     await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
-    await expect(page.getByText('Laporan tidak ditemukan')).toBeVisible();
-    await expect(page.getByText(descriptionA)).toHaveCount(0);
+    await expect(page.getByText(descriptionA)).toBeVisible();
+    await expect(page.getByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.')).toBeVisible();
+    await expect(page.getByText('Laporan tidak ditemukan')).toHaveCount(0);
 
     const foreign = await context.request.get(`${BASE_URL}/api/reports/${ticketA}`);
-    expect(foreign.status()).toBe(404);
+    expect(foreign.status()).toBe(200);
+    const body = (await foreign.json()) as {
+      isOwn?: unknown;
+      attachments?: unknown;
+      report?: Record<string, unknown>;
+    };
+    expect(body.isOwn).toBe(false);
+    expect(body.attachments).toEqual([]);
+    expect(body.report).not.toHaveProperty('reporterId');
+    expect(body.report).not.toHaveProperty('idempotencyKey');
+
     const missing = await context.request.get(`${BASE_URL}/api/reports/MNT-2099-999999`);
     expect(missing.status()).toBe(404);
-    // Missing vs foreign 404 bodies are byte-identical (server never 403s).
-    expect(await foreign.body()).toEqual(await missing.body());
+
+    // The campus list shows another reporter's ticket; the Laporan Saya
+    // filter removes it for reporter-B.
+    await page.goto('/reporter/reports');
+    await expect(page.getByRole('link', { name: ticketA })).toBeVisible();
+    await page
+      .getByRole('navigation', { name: 'Filter status' })
+      .getByRole('link', { name: 'Laporan Saya' })
+      .click();
+    await expect(page.getByRole('link', { name: ticketA })).toHaveCount(0);
   } finally {
     await context.close();
   }
@@ -179,10 +243,12 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
   const page = await context.newPage();
   try {
     const description = uniqueDescription('double-submit');
-    await fillReportForm(page, description);
+    // Use the second asset so the active first-asset ticket from scenario 1
+    // cannot block this idempotency test.
+    await fillReportForm(page, description, 1);
     await page.getByRole('button', { name: 'Lanjut ke review' }).click();
     await expect(page.getByRole('heading', { name: 'Tinjau Laporan' })).toBeVisible();
-    const submit = page.getByRole('button', { name: /Kirim laporan|Tetap kirim/ });
+    const submit = page.getByRole('button', { name: 'Kirim laporan', exact: true });
     await expect(submit).toBeVisible();
 
     // Same form instance = same idempotency key; count the POSTs and capture
@@ -199,7 +265,9 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
       }
     });
     await submit.dblclick();
-    await expect(page.getByRole('heading', { name: 'Laporan berhasil dikirim' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Laporan berhasil dikirim|Laporan menunggu pemeriksaan/ }),
+    ).toBeVisible();
     expect(postCount, 'double-click sends exactly one POST').toBe(1);
 
     const status = page.getByRole('status');
@@ -230,40 +298,32 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
     expect(replayBody.report?.ticketNumber, 'replay returns the same ticket').toBe(ticketB);
     expect(replayBody.idempotentReplay, 'replay is flagged as idempotent').toBe(true);
 
-    // Exactly one new row for the ticket in the reporter's list.
+    // Exactly one new row for the ticket in the reporter's campus list.
     await page.goto('/reporter/reports');
-    await expect(page.getByRole('heading', { name: 'Laporan Saya' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Tiket Kampus' })).toBeVisible();
     await expect(page.getByRole('link', { name: ticketB })).toHaveCount(1);
   } finally {
     await context.close();
   }
 });
 
-test('7 duplicate warning: same combo warns with first ticket ref, then creates a second ticket', async ({
+test('7 duplicate block: same reporter + active asset is blocked with the existing ticket ref', async ({
   browser,
 }) => {
   const context = await loginContext(browser, '230001');
   const page = await context.newPage();
   try {
-    // Same facility/category/issue combo as scenario 6 (identical first-option
-    // cascade), new unique description — never blocked, only warned.
-    await fillReportForm(page, uniqueDescription('duplicate-warning'));
+    // Same first asset as scenario 1; the server must block before AI.
+    await fillReportForm(page, uniqueDescription('duplicate-block'));
     await page.getByRole('button', { name: 'Lanjut ke review' }).click();
     await expect(page.getByRole('heading', { name: 'Tinjau Laporan' })).toBeVisible();
+    await page.getByRole('button', { name: 'Kirim laporan', exact: true }).click();
 
-    await expect(page.getByRole('heading', { name: 'Laporan serupa ditemukan' })).toBeVisible();
-    await expect(page.getByRole('link', { name: ticketB })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Tetap kirim — masalah berbeda' }).click();
-    await expect(page.getByRole('heading', { name: 'Laporan berhasil dikirim' })).toBeVisible();
-    const status = page.getByRole('status');
-    await expect(status).toContainText(TICKET_PATTERN);
-    const match = ((await status.textContent()) ?? '').match(TICKET_PATTERN);
-    expect(match).not.toBeNull();
-    if (match === null) {
-      throw new Error('ticket number missing from success status');
-    }
-    expect(match[0], 'second submit mints a distinct ticket').not.toBe(ticketB);
+    await expect(page.getByRole('heading', { name: 'Laporan serupa sudah tercatat' })).toBeVisible();
+    await expect(page.getByRole('link', { name: ticketA })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Laporan berhasil dikirim|Laporan menunggu pemeriksaan/ }),
+    ).toHaveCount(0);
   } finally {
     await context.close();
   }
@@ -303,9 +363,11 @@ test('9 attachments: reporter uploads a photo, sees the thumbnail, broken image 
   const context = await loginContext(browser, '230001');
   const page = await context.newPage();
   try {
-    await fillReportForm(page, uniqueDescription('upload-gate'));
+    // Use a third asset so the active tickets from earlier scenarios do not
+    // trigger the same-reporter duplicate block.
+    await fillReportForm(page, uniqueDescription('upload-gate'), 2);
     await page
-      .getByLabel('Foto (opsional)', { exact: true })
+      .getByLabel('Foto', { exact: true })
       .setInputFiles([{ name: 'lampu-rusak.png', mimeType: 'image/png', buffer: png }]);
     await expect(page.getByText('lampu-rusak.png')).toBeVisible();
 

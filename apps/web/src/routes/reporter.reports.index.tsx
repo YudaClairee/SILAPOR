@@ -1,8 +1,8 @@
-// "Laporan Saya" (Phase 3 P3-5): the session reporter's own reports
-// (server-scoped — no other reporter's data is possible). Status filter
-// chips (semua/aktif/selesai) + per-status select + prev/next pagination
-// (total/limit/offset). Loading (role=status), empty, and error-with-retry
-// states; rows keyed by report id. Indonesian copy, no styling framework.
+// "Tiket Kampus" (Phase 3 P3-5 + UI No. 5): every reporter sees the
+// sanitized campus report list, with a "Laporan Saya" filter. Status filter
+// chips (semua/laporan saya/aktif/selesai) + per-status select + prev/next
+// pagination (total/limit/offset). Loading (role=status), empty, and
+// error-with-retry states; rows keyed by report id. Indonesian copy.
 import { useEffect, useState } from 'react';
 import {
   Link,
@@ -31,8 +31,10 @@ interface MyReportRow {
   readonly status: string;
   readonly locationId: string;
   readonly submittedCategoryId: string;
+  readonly finalCategoryId: string | null;
   readonly assetId: string | null;
   readonly reportedAt: string;
+  readonly isOwn: boolean;
 }
 
 interface ReportListData {
@@ -45,6 +47,7 @@ interface ReportListData {
 interface ListSearch {
   readonly filter: string;
   readonly status: string;
+  readonly mine: boolean;
   readonly offset: number;
 }
 
@@ -96,12 +99,18 @@ export const Route = createFileRoute('/reporter/reports/')({
   validateSearch: (search: Record<string, unknown>): ListSearch => ({
     filter: typeof search['filter'] === 'string' ? search['filter'] : 'semua',
     status: typeof search['status'] === 'string' ? search['status'] : '',
+    mine: search['mine'] === true || search['mine'] === '1' || search['mine'] === 'true',
     offset:
       typeof search['offset'] === 'number' || typeof search['offset'] === 'string'
         ? Number(search['offset']) || 0
         : 0,
   }),
-  loaderDeps: ({ search }) => ({ filter: search.filter, status: search.status, offset: search.offset }),
+  loaderDeps: ({ search }) => ({
+    filter: search.filter,
+    status: search.status,
+    mine: search.mine,
+    offset: search.offset,
+  }),
   loader: async ({ deps }): Promise<ListLoaderData> => {
     const query = buildMyReportsQuery(deps);
     const bundle = await fetchListBundle(query);
@@ -122,7 +131,7 @@ function ReportsPending() {
   return (
     <section aria-labelledby="my-reports-title" className="max-w-3xl">
       <h1 id="my-reports-title" className="text-2xl font-semibold text-text">
-        Laporan Saya
+        Tiket Kampus
       </h1>
       <div className="mt-4">
         <LoadingState message="Memuat laporan…" />
@@ -202,7 +211,7 @@ function MyReportsPage() {
     <section aria-labelledby="my-reports-title" className="max-w-3xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 id="my-reports-title" className="text-2xl font-semibold text-text">
-          Laporan Saya
+          Tiket Kampus
         </h1>
         <Link
           to="/reporter/reports/new"
@@ -217,8 +226,12 @@ function MyReportsPage() {
           <li>
             <Link
               to="/reporter/reports"
-              search={{ filter: 'semua', status: '', offset: 0 }}
-              aria-current={search.filter === 'semua' && search.status === '' ? 'page' : undefined}
+              search={{ filter: 'semua', status: '', mine: false, offset: 0 }}
+              aria-current={
+                search.filter === 'semua' && search.status === '' && !search.mine
+                  ? 'page'
+                  : undefined
+              }
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Semua
@@ -227,8 +240,22 @@ function MyReportsPage() {
           <li>
             <Link
               to="/reporter/reports"
-              search={{ filter: 'aktif', status: '', offset: 0 }}
-              aria-current={search.filter === 'aktif' && search.status === '' ? 'page' : undefined}
+              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+              aria-current={search.mine && search.status === '' ? 'page' : undefined}
+              className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
+            >
+              Laporan Saya
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/reporter/reports"
+              search={{ filter: 'aktif', status: '', mine: false, offset: 0 }}
+              aria-current={
+                search.filter === 'aktif' && search.status === '' && !search.mine
+                  ? 'page'
+                  : undefined
+              }
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Aktif
@@ -237,9 +264,11 @@ function MyReportsPage() {
           <li>
             <Link
               to="/reporter/reports"
-              search={{ filter: 'selesai', status: '', offset: 0 }}
+              search={{ filter: 'selesai', status: '', mine: false, offset: 0 }}
               aria-current={
-                search.filter === 'selesai' && search.status === '' ? 'page' : undefined
+                search.filter === 'selesai' && search.status === '' && !search.mine
+                  ? 'page'
+                  : undefined
               }
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
@@ -257,7 +286,12 @@ function MyReportsPage() {
             onChange={(event) => {
               void navigate({
                 to: '/reporter/reports',
-                search: { filter: search.filter, status: event.target.value, offset: 0 },
+                search: {
+                  filter: search.filter,
+                  status: event.target.value,
+                  mine: search.mine,
+                  offset: 0,
+                },
               });
             }}
           >
@@ -322,9 +356,17 @@ function MyReportsPage() {
                       <TicketMono>{item.ticketNumber}</TicketMono>
                     </Link>
                     <StatusBadge status={item.status} />
+                    {item.isOwn ? (
+                      <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
+                        Laporan Saya
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-sm text-muted">
-                    Kategori: {categoryNames.get(item.submittedCategoryId) ?? item.submittedCategoryId}
+                    Kategori:{' '}
+                    {categoryNames.get(item.finalCategoryId ?? item.submittedCategoryId) ??
+                      item.finalCategoryId ??
+                      item.submittedCategoryId}
                   </p>
                   <p className="text-sm text-muted">
                     Lokasi: {locationNames.get(item.locationId) ?? item.locationId}
@@ -342,7 +384,12 @@ function MyReportsPage() {
               {hasPrev ? (
                 <Link
                   to="/reporter/reports"
-                  search={{ filter: search.filter, status: search.status, offset: offset - limit }}
+                  search={{
+                    filter: search.filter,
+                    status: search.status,
+                    mine: search.mine,
+                    offset: offset - limit,
+                  }}
                   className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
                 >
                   Sebelumnya
@@ -358,7 +405,12 @@ function MyReportsPage() {
               {hasNext ? (
                 <Link
                   to="/reporter/reports"
-                  search={{ filter: search.filter, status: search.status, offset: offset + limit }}
+                  search={{
+                    filter: search.filter,
+                    status: search.status,
+                    mine: search.mine,
+                    offset: offset + limit,
+                  }}
                   className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
                 >
                   Berikutnya

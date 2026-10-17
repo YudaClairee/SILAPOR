@@ -1,18 +1,20 @@
 # Execution Plan — Smart Campus Maintenance System
 
-> **Relasi dokumen:** PRD (`Tugas-Tugas Semester 7.md`) menjelaskan kebutuhan produk; `docs/decisions/PHASE-0-PRODUCT-DECISIONS.md` menjadi sumber kebenaran keputusan produk/operasional; dokumen ini menerjemahkan keduanya menjadi rencana teknis. Nilai yang masih `TBD` pada Phase 0 belum boleh diperlakukan sebagai keputusan final.
+> **Relasi dokumen:** PRD (`Tugas-Tugas Semester 7.md`) menjelaskan kebutuhan produk; `docs/decisions/PHASE-0-PRODUCT-DECISIONS.md` adalah catatan keputusan Phase 0 (status: draft; approval final mengikuti dokumen tersebut); dokumen ini mengonsolidasikan keduanya dan menjadi **sumber kebenaran eksekusi** untuk keputusan produk/UI/alur. Nilai yang masih `TBD` pada Phase 0 belum boleh diperlakukan sebagai keputusan final.
 >
-> **Keputusan UI vs Backend (`konsep_ui_vs_backend.pdf`, 12 item):** dipakai acuan **Konsep Desain UI untuk No. 2, 3, 5, 6, 7, 8, 10, 11**; dipakai aturan **api-contract (`docs/api-contract.md`) untuk No. 4, 9, 12**. Ringkasnya:
-> - No. 2 verifikasi 100% otomatis oleh AI saat submit (admin tidak verifikasi manual / tidak ubah hasil AI);
-> - No. 3 form reporter: Gedung → Lantai → Ruangan → Aset (semua wajib), tanpa input Kategori & Jenis Masalah (diisi otomatis oleh AI);
-> - No. 4 upload mengikuti backend: wajib minimal 1 foto, maksimal 3 file/laporan, maks 5 MB/file;
-> - No. 5 reporter dapat melihat seluruh tiket kampus (dengan filter "Laporan Saya"), identitas pelapor lain disembunyikan;
-> - No. 6 status fasilitas TIDAK tampil ke pelapor; hanya tampil di admin (Kelola Aset) dengan 3 status aset;
-> - No. 7 duplikat dicek otomatis saat submit (diblokir jika pelapor sama, otomatis digabung jika pelapor beda); hanya 7 status tiket (tanpa `REJECTED`/`DUPLICATE`);
-> - No. 8 status satu arah mutlak `REPORTED` s.d. `CLOSED`, tanpa reopen/mundur;
-> - No. 9 assign teknisi hanya `technicianId` (tanpa Jadwal/Instruksi), mengikuti backend;
-> - No. 10 semua catatan tampil ke pelapor, kecuali label "Laporan Palsu" yang diproyeksikan menjadi teks netral untuk pelapor;
-> - No. 11 halaman admin Scoring, Laporan Maintenance (3 grafik + tabel), dan Ekspor PDF tetap digambar penuh di UI; endpoint menyusul;
+> **Status dokumen (2026-10-17):** dokumen ini adalah **satu-satunya sumber kebenaran** untuk keputusan produk, UI, dan alur. `docs/api-contract.md` hanya mengikat untuk **No. 4, 9, 12**; untuk **No. 2, 3, 5, 6, 7, 8, 10, 11** dokumen ini dan Konsep Desain UI yang menang. Setiap bagian kontrak yang bertentangan dengan dokumen ini dianggap **superseded** dan tidak boleh dipakai sebagai acuan implementasi.
+>
+> **Keputusan UI vs Backend (`konsep_ui_vs_backend.pdf`, item 2–12):**
+> - No. 2 verifikasi otomatis oleh AI saat submit; admin tidak melakukan verifikasi manual dan tidak mengubah hasil AI. **Pengecualian operasional satu-satunya:** laporan yang ditahan sebagai `REPORTED` saat layanan AI down diverifikasi manual oleh admin (lihat §2, §4.11, dan §8).
+> - No. 3 form reporter: Gedung → Lantai → Ruangan → Aset (semua wajib), tanpa input Kategori & Jenis Masalah (diisi otomatis oleh AI).
+> - No. 4 upload mengikuti backend: wajib **1–3 file/laporan**, maks 5 MB/file.
+> - No. 5 reporter dapat melihat seluruh tiket kampus (dengan filter "Laporan Saya"), identitas pelapor lain disembunyikan.
+> - No. 6 status fasilitas TIDAK tampil ke pelapor; hanya tampil di admin (Kelola Aset) dengan 3 status aset.
+> - No. 7 duplikat dicek otomatis saat submit (diblokir jika pelapor sama, otomatis digabung jika pelapor beda); hanya 7 status tiket (tanpa `REJECTED`/`DUPLICATE`).
+> - No. 8 status satu arah mutlak `REPORTED` s.d. `CLOSED`, tanpa reopen/mundur.
+> - No. 9 assign teknisi hanya `technicianId` (tanpa Jadwal/Instruksi), mengikuti backend.
+> - No. 10 semua catatan tampil ke pelapor, kecuali label "Laporan Palsu" yang diproyeksikan menjadi teks netral untuk pelapor; tanpa pilihan `PUBLIC`/`INTERNAL`.
+> - No. 11 halaman admin **Dashboard Admin** (kartu ringkasan metrik, antrean prioritas, panel tugas aktif per teknisi), **Pengaturan Scoring**, dan **Laporan Maintenance** (3 grafik: tren laporan & rata-rata durasi, beban tugas per teknisi, tiket per kategori & gedung; tabel per periode) + **Ekspor PDF** tetap digambar penuh di UI; endpoint menyusul.
 > - No. 12 wajib menangani `409 CONFLICT` (`expectedVersion`) dengan pesan "Tiket diperbarui admin lain — muat ulang data" + tombol Refresh.
 
 ## 1. Tujuan Dokumen
@@ -34,8 +36,8 @@ Execution plan ini berfokus pada:
 
 Sistem memiliki dua area utama:
 
-- **Reporter portal** untuk membuat laporan kerusakan, mengunggah foto, memperoleh ticket ID, melacak progres, menerima notifikasi, dan melihat status fasilitas kampus.
-- **Admin portal** untuk memverifikasi laporan, menetapkan klasifikasi dan prioritas final, menugaskan teknisi, memperbarui status/progres, mengelola master data fasilitas, serta melihat histori dan analytics.
+- **Reporter portal** untuk membuat laporan kerusakan, mengunggah foto, memperoleh ticket ID, melacak progres, menerima notifikasi, dan melihat tiket kampus tersanitasi.
+- **Admin portal** untuk mengelola laporan (termasuk verifikasi HELD saat AI down), menetapkan klasifikasi dan prioritas final melalui AI, menugaskan teknisi, memperbarui status/progres, mengelola master data fasilitas, serta melihat histori dan analytics.
 
 AI berjalan **sinkron di momen submit** dan **menentukan hasil verifikasi secara otomatis** (Keputusan UI No. 2 + desain `docs/superpowers/specs/2026-10-14-ai-verification-design.md`):
 
@@ -43,10 +45,10 @@ AI berjalan **sinkron di momen submit** dan **menentukan hasil verifikasi secara
 - validasi foto (buram/gelap/tidak relevan → ditolak di tempat) dan kecocokan deskripsi dengan aset terpilih;
 - jika lolos, tiket otomatis berstatus `VERIFIED` beserta klasifikasi dan prioritas final dari master data;
 - jika tidak lolos, **tidak ada baris laporan tersimpan dan tidak ada ticket terpakai**; laporan ditolak di tempat dengan alasan dan perbaikan berarti mengisi laporan baru;
-- jika layanan AI down (timeout/5xx/429), laporan **disimpan dan ditahan** sebagai `REPORTED` belum terverifikasi + ticket diterbitkan; penahanan berakhir hanya lewat **verifikasi manual admin** (satu-satunya verifikasi manual yang ada);
-- **admin tidak melakukan verifikasi manual dan tidak dapat mengubah hasil AI** saat AI berjalan.
+- jika layanan AI down (timeout/5xx/429), laporan **disimpan dan ditahan** sebagai `REPORTED` belum terverifikasi + ticket diterbitkan; penahanan berakhir hanya lewat **verifikasi manual admin** (satu-satunya pengecualian operasional);
+- **admin tidak melakukan verifikasi manual dan tidak dapat mengubah hasil AI** saat AI berjalan. Verifikasi manual hanya berlaku untuk laporan HELD saat AI down.
 
-> Catatan konflik: `docs/api-contract.md` verifikasi manual **tidak dipakai**.
+> Catatan konflik: `docs/api-contract.md` hanya mengikat untuk No. 4, 9, 12. Bagian kontrak tentang verifikasi manual umum, `PUBLIC`/`INTERNAL`, status fasilitas publik, duplikat manual, dan `REPORTED_ISSUE` **tidak dipakai** karena bertentangan dengan dokumen ini.
 
 ```mermaid
 flowchart TD
@@ -72,7 +74,7 @@ flowchart TD
 2. **Authorization diterapkan di server.** Menyembunyikan tombol pada UI tidak cukup.
 3. **Timeline dan audit bersifat append-only.** Histori tidak boleh hilang saat nilai terbaru berubah.
 4. **State transition eksplisit.** Status tidak boleh diubah secara bebas tanpa validasi aturan transisi.
-5. **Hasil AI adalah keputusan final verifikasi (Keputusan UI No. 2).** Tidak ada pemisahan saran-vs-final; admin tidak override hasil AI; satu-satunya verifikasi manual adalah laporan yang ditahan saat AI down.
+5. **Hasil AI adalah keputusan final verifikasi (Keputusan UI No. 2).** Tidak ada pemisahan saran-vs-final; admin tidak override hasil AI; satu-satunya verifikasi manual adalah laporan yang ditahan saat AI down (pengecualian operasional yang wajib ditandai di UI/admin).
 6. **Status fasilitas diturunkan dari laporan aktif.** Hindari dua sumber kebenaran yang dapat tidak sinkron.
 7. **Gunakan master data terstruktur.** Lokasi, kategori, issue type, fasilitas, dan teknisi tidak dibuat sebagai free text pada setiap laporan.
 8. **Mulai dari vertical slice.** Selesaikan satu alur reporter–admin end-to-end sebelum menambah analytics dan AI.
@@ -111,7 +113,7 @@ Namun contoh end-to-end melewati `INSPECTION`. Keputusan ini harus dibuat ekspli
 
 | Current status | Allowed next status | Syarat minimum |
 |---|---|---|
-| `REPORTED` | `VERIFIED` | Lolos AI auto-verifikasi saat submit (Keputusan UI No. 2) |
+| `REPORTED` | `VERIFIED` | Lolos AI auto-verifikasi saat submit (Keputusan UI No. 2); atau verifikasi admin untuk laporan HELD saat AI down (pengecualian operasional) |
 | `VERIFIED` | `ASSIGNED` | AI telah menetapkan kategori, issue type, asset/lokasi, dan priority final |
 | `ASSIGNED` | `INSPECTION` | Teknisi aktif sudah ditugaskan |
 | `INSPECTION` | `IN_REPAIR` | Admin mencatat hasil inspeksi |
@@ -134,15 +136,17 @@ Bedakan dua mekanisme:
 - **Idempotency:** `idempotencyKey` mencegah double-click atau retry request membuat ticket kedua.
 - **Duplicate detection:** sistem mencari laporan aktif yang kemungkinan merujuk pada insiden yang sama.
 
-Laporan menjadi kandidat duplikat jika memenuhi kombinasi berikut:
+Kriteria wajib kandidat duplikat:
 
-- reporter/NIM yang sama;
 - asset atau lokasi yang sama;
-- kategori dan issue type yang sama;
 - laporan sebelumnya masih aktif;
 - berada dalam jendela waktu yang dikonfigurasi, dengan lookback default 14 hari untuk efisiensi pencarian.
 
-Lookback tidak boleh mencegah deteksi jika laporan aktif yang memenuhi kriteria ditemukan di luar jangka tersebut. Deskripsi bukan penentu utama; sistem dapat menormalisasi dan membandingkannya sebagai sinyal pendukung, tetapi deskripsi saja tidak cukup untuk menetapkan duplikat.
+Identitas reporter/NIM terverifikasi **menentukan aksi**, bukan syarat kandidat: reporter sama → blokir; reporter beda → auto-gabung supporting.
+
+Sinyal pendukung (bukan syarat): kategori/issue type tiket sebelumnya (final) dan/atau kategori aset, **jika sudah tersedia**. Duplicate check berjalan deterministik **sebelum AI**, jadi tidak boleh bergantung pada klasifikasi AI tiket baru yang belum ada. Deskripsi juga hanya sinyal pendukung.
+
+Lookback tidak boleh mencegah deteksi jika laporan aktif yang memenuhi kriteria ditemukan di luar jangka tersebut.
 
 Jika kandidat ditemukan: **pelapor SAMA → submit DIBLOKIR** (tampilkan referensi ticket aktif); **pelapor BERBEDA → OTOMATIS digabung sebagai laporan pendukung** (`report_relations` `SUPPORTING`) tanpa pekerjaan ganda dan tanpa aksi manual admin. Tidak ada status `DUPLICATE`/`REJECTED`. Laporan `CLOSED` tidak menghalangi laporan baru.
 
@@ -260,7 +264,7 @@ Baseline:
 
 - format: JPEG, PNG, WebP;
 - maksimal 5 MB per file;
-- maksimal 3 file per laporan (bukan wajib tepat 1; mengikuti backend No. 4);
+- wajib 1–3 file per laporan; maksimal 5 MB per file (Api Contract No. 4);
 - SVG, executable, dan file dengan MIME palsu ditolak;
 - validasi extension, MIME, dan magic bytes;
 - gambar di-decode/re-encode dan metadata EXIF dihapus;
@@ -275,7 +279,7 @@ Walaupun tidak tertulis eksplisit dalam daftar MVP, contoh end-to-end membutuhka
 - laporan diverifikasi;
 - teknisi ditugaskan;
 - status berubah;
-- public progress update ditambahkan;
+- catatan progres ditambahkan (termasuk kondisi Laporan Palsu yang diproyeksikan netral);
 - laporan diselesaikan atau ditutup.
 
 Email dan WhatsApp tetap di luar scope.
@@ -290,7 +294,7 @@ MVP mencakup:
 - penetapan kategori dan issue type final dari master data (hanya dari daftar yang ada; deskripsi yang menunjuk ke kategori berbeda dari kategori master aset = gagal `wrong-asset`, bukan rekode diam-diam);
 - penetapan `finalPriority` + snapshot skor deterministik sebagai audit;
 - auto-gabung supporting untuk pelapor berbeda (UI No. 7);
-- penahanan + verifikasi manual admin hanya saat layanan AI down.
+- penahanan + verifikasi manual admin hanya saat layanan AI down; ini **pengecualian operasional**, bukan verifikasi manual umum dan bukan override hasil AI.
 
 Tidak ada agent loop, memory, RAG, tool calling, summary otomatis, atau autonomous action. AI tidak membuat summary laporan dan tidak mengonfirmasi duplikat sebagai keputusan terpisah (duplikat bersifat deterministik dari reporter/aset/status).
 
@@ -307,11 +311,11 @@ Historical AI insight ditunda sampai data mencukupi. Analytics deterministik tet
 - reporter submit report;
 - upload gambar aman;
 - ticket ID unik;
-- daftar dan detail laporan milik reporter;
+- daftar dan detail laporan milik reporter + tiket kampus tersanitasi dengan filter "Laporan Saya" (UI No. 5);
 - admin daftar/detail seluruh laporan;
-- idempotency dan duplicate detection **otomatis** (Keputusan UI No. 7) berdasarkan reporter/NIM, asset/lokasi, issue type, status aktif, dan jendela waktu;
+- idempotency dan duplicate detection **otomatis** (Keputusan UI No. 7) berdasarkan asset/lokasi, status aktif, dan jendela waktu; identitas reporter/NIM menentukan blokir vs auto-gabung; kategori/issue type tiket sebelumnya hanya sinyal pendukung;
 - laporan pendukung otomatis digabung tanpa aksi manual admin (Keputusan UI No. 7) ke ticket utama tanpa menghapus submission asal;
-- verifikasi **otomatis AI** tanpa aksi manual admin (Keputusan UI No. 2);
+- verifikasi **otomatis AI** tanpa aksi manual admin (Keputusan UI No. 2); pengecualian: laporan HELD saat AI down;
 - final category/issue type/priority + score **otomatis oleh AI** (Keputusan UI No. 2);
 - technician assignment;
 - state transition;
@@ -322,7 +326,7 @@ Historical AI insight ditunda sampai data mencukupi. Analytics deterministik tet
 
 ### 5.2 P1 — Wajib untuk memenuhi value proposition MVP
 
-- admin dashboard;
+- admin dashboard (kartu ringkasan metrik, antrean prioritas, panel tugas aktif per teknisi);
 - filter, search, sorting, dan pagination;
 - in-app notification;
 - analytics jumlah laporan berdasarkan kategori, lokasi, dan status;
@@ -330,7 +334,7 @@ Historical AI insight ditunda sampai data mencukupi. Analytics deterministik tet
 - AI verification verdicts dan priority final otomatis (Keputusan UI No. 2);
 - Pengaturan Scoring (UI digambar penuh; endpoint menyusul, Keputusan UI No. 11);
 - concurrency protection + banner 409 + Refresh (Keputusan API No. 12);
-- export sederhana; Laporan Maintenance + Ekspor PDF digambar penuh di UI, endpoint menyusul (Keputusan UI No. 11).
+- export sederhana; Laporan Maintenance (3 grafik: tren laporan & rata-rata durasi, beban tugas per teknisi, tiket per kategori & gedung; tabel per periode) + Ekspor PDF digambar penuh di UI, endpoint menyusul (Keputusan UI No. 11).
 
 ### 5.3 P2 — Dikerjakan jika waktu memungkinkan
 
@@ -339,7 +343,7 @@ Historical AI insight ditunda sampai data mencukupi. Analytics deterministik tet
 - saved filters;
 - CSV export;
 - basic historical insight dengan threshold minimal lima laporan;
-- dashboard trend per periode.
+- dashboard trend tambahan di luar tiga grafik wajib No. 11.
 
 ### 5.4 Tetap di luar scope MVP
 
@@ -358,7 +362,7 @@ Historical AI insight ditunda sampai data mencukupi. Analytics deterministik tet
 
 ## 6. Rekomendasi Arsitektur Teknis
 
-Baseline teknis yang direkomendasikan adalah **TanStack Start fullstack modular monolith dalam satu monorepo**. Reporter UI, admin UI, SSR, server functions, server routes, authentication, authorization, dan application services berada pada aplikasi TanStack Start yang sama. Background AI berjalan sebagai proses/consumer terpisah, tetapi tetap menggunakan source code, domain rules, schema, dan repository yang sama. Profil deployment masih menunggu pengesahan Phase 0.
+Baseline teknis yang direkomendasikan adalah **TanStack Start fullstack modular monolith dalam satu monorepo**. Reporter UI, admin UI, SSR, server functions, server routes, authentication, authorization, dan application services berada pada aplikasi TanStack Start yang sama. Verifikasi AI berjalan sinkron di server-side submit path; proses worker terpisah hanya menangani notifikasi dan pekerjaan asynchronous, tetapi tetap menggunakan source code, domain rules, schema, dan repository yang sama. Profil deployment masih menunggu pengesahan Phase 0.
 
 Pemisahan worker adalah batas operasional untuk pekerjaan asynchronous, bukan pemisahan repository frontend dan backend.
 
@@ -377,7 +381,7 @@ Pemisahan worker adalah batas operasional untuk pekerjaan asynchronous, bukan pe
 | Monorepo package manager | pnpm workspaces | Instalasi dependency dan deklarasi hubungan antar workspace package |
 | Monorepo task orchestration | Moonrepo | Project graph, task dependency, affected task execution, dan caching untuk task deterministik |
 | Image storage | Cloudflare Images dengan signed delivery, atau private R2; MinIO local | Direct upload, private delivery, dan adapter storage yang dapat diganti |
-| Background job | Cloudflare Queues pada deployment Cloudflare; PostgreSQL outbox/`pg-boss` pada VPS | AI dan notifikasi tidak memblokir request utama |
+| Background job | Cloudflare Queues pada deployment Cloudflare; PostgreSQL outbox/`pg-boss` pada VPS | Notifikasi dan pekerjaan asynchronous; verifikasi AI tetap sinkron di submit |
 | AI integration | OpenRouter API melalui raw `fetch` + Zod | Sederhana, OpenAI-compatible, edge-friendly, dan cukup untuk verification/priority assistance MVP |
 | Testing | Vitest, PostgreSQL integration test, dan Playwright | Menutup domain rule, query, authorization, dan alur browser |
 | Deployment utama | Cloudflare Workers + Queues + R2 + Hyperdrive + managed PostgreSQL | Tidak memerlukan pengelolaan VPS untuk web/worker |
@@ -398,11 +402,10 @@ flowchart TB
     APP --> DB[(Managed PostgreSQL)]
     APP --> R2[(Cloudflare Images or Private R2)]
     APP --> Q[Cloudflare Queue]
-    Q --> WORKER[AI Queue Consumer Worker]
-    WORKER --> OR[OpenRouter API]
-    OR --> MODEL[ZDR Model Provider Endpoint]
+    Q --> WORKER[Notification Queue Consumer Worker]
     WORKER --> DB
-    WORKER --> R2
+    WEB --> OR[OpenRouter API]
+    OR --> MODEL[ZDR Model Provider Endpoint]
     WEB -. Hyperdrive .-> DB
 ```
 
@@ -474,7 +477,7 @@ MVP menggunakan satu structured LLM request sinkron saat submit untuk menghasilk
 
 Aturan integrasi:
 
-- panggil OpenRouter hanya dari Queue consumer Worker, tidak pernah dari browser;
+- panggil OpenRouter hanya dari server-side submit path (web) secara sinkron; queue/outbox hanya untuk notifikasi, tidak pernah dari browser;
 - simpan API key sebagai Worker secret, bukan environment variable yang masuk client bundle;
 - gunakan model slug eksplisit; jangan gunakan `openrouter/auto`, alias `latest`, atau model acak pada production;
 - wajib meminta routing `data_collection: "deny"` dan `zdr: true`;
@@ -499,7 +502,7 @@ Application code tidak boleh mengakses binding Cloudflare secara langsung dari d
 | Image storage | Cloudflare Images/R2 adapter | MinIO/S3 adapter |
 | Queue | Cloudflare Queues | PostgreSQL outbox/`pg-boss` |
 | Runtime config | Workers bindings/secrets | Environment variables |
-| AI execution | Queue consumer Worker | Node worker process |
+| AI execution | Server-side submit path (web) | Node web process submit path |
 
 Dengan boundary ini, perpindahan dari Cloudflare ke VPS tidak membutuhkan penulisan ulang domain atau UI.
 
@@ -577,13 +580,13 @@ Jangan menyimpan status operasional turunan sebagai sumber kebenaran tunggal. Ji
 - `ticket_number` unik, contoh `MNT-2026-000124`
 - `reporter_id`
 - `location_id`
-- `asset_id` nullable saat submit
-- `submitted_category_id`
-- `submitted_issue_type_id` nullable
+- `asset_id` wajib saat submit; berasal dari master data
+- ~~`submitted_category_id` DIHAPUS~~ (reporter tidak memilih kategori; final diisi AI)
+- ~~`submitted_issue_type_id` DIHAPUS~~ (reporter tidak memilih issue type; final diisi AI)
 - `final_category_id` nullable sebelum verification
 - `final_issue_type_id` nullable sebelum verification
 - `description`
-- `occurred_at` nullable
+- `occurred_at` nullable (legacy; tidak diisi reporter)
 - `status`
 - ~~`duplicate_of_report_id` DIHAPUS~~ (tanpa status DUPLICATE; relasi via `report_relations` SUPPORTING otomatis, UI No. 7)
 - `priority_score` nullable sebelum verification; hasil perhitungan rubric deterministik
@@ -661,7 +664,6 @@ Event minimal:
 - `STATUS_CHANGED`
 - `PRIORITY_CHANGED`
 - `ASSIGNMENT_CHANGED`
-- `PUBLIC_UPDATE_ADDED`
 - `PROGRESS_NOTE_ADDED` (termasuk kondisi LAPORAN_PALSU; UI No. 10)
 - `REPORT_RESOLVED`
 - `REPORT_CLOSED`
@@ -739,7 +741,6 @@ Tambahkan index pada:
 - `maintenance_reports.final_category_id`;
 - `maintenance_reports.location_id`;
 - `maintenance_reports.asset_id`;
-- `maintenance_reports.duplicate_of_report_id`;
 - `maintenance_reports.reporter_id, asset_id, status` untuk pencarian kandidat duplikat;
 - `report_relations.target_report_id, relation_type`;
 - unique relation pada `source_report_id, target_report_id, relation_type`;
@@ -772,8 +773,9 @@ Contoh: `MNT-2026-000124`.
 | Melihat seluruh tiket kampus (identitas disembunyikan; filter Laporan Saya) | Ya (UI No. 5) | Ya |
 | Mengakses attachment laporan sendiri | Ya | Ya |
 | Mengakses attachment reporter lain | Tidak | Ya |
-| Melihat campus facility status | **Tidak** (UI No. 6, admin-only) | Ya (3 status) |
-| Memverifikasi laporan manual | Tidak | **Tidak, otomatis AI** (UI No. 2) |
+| Melihat status aset (admin-only, 3 status) | **Tidak** (UI No. 6) | Ya (3 status) |
+| Memverifikasi laporan manual (umum) | Tidak | **Tidak** (UI No. 2) |
+| Memverifikasi laporan HELD saat AI down | Tidak | **Ya** — satu-satunya pengecualian operasional; `expectedVersion` wajib |
 | Menetapkan priority final manual | Tidak | **Tidak, otomatis AI** (UI No. 2) |
 | Assign/reassign teknisi | Tidak | Ya |
 | Mengubah status | Tidak | Ya |
@@ -804,8 +806,8 @@ Detail transport dapat berupa REST route handler atau server action, tetapi use 
 
 ### 9.2 Reporter
 
-- `createReport(input, idempotencyKey)` (Gedung-Lantai-Ruangan-Aset wajib; tanpa kategori/issue type; AI otomatis; duplikat otomatis) (UI No. 2+3+7)
-- `uploadReportAttachment(reportId, file)`
+- `stageReportPhotos(files)` (1–3 foto pra-submit; API No. 4)
+- `createReport(input, idempotencyKey)` (Gedung-Lantai-Ruangan-Aset wajib; `photoKeys` dari staging; tanpa kategori/issue type; AI otomatis; duplikat otomatis) (UI No. 2+3+7)
 - `listMyReports(filter, pagination)`
 - `listCampusReports(filter, pagination)` (UI No. 5)
 - `getMyReportDetail(reportId)`
@@ -820,10 +822,11 @@ Detail transport dapat berupa REST route handler atau server action, tetapi use 
 - `listAllReports(filter, search, sort, pagination)`
 - `getAdminReportDetail(reportId)`
 - ~~`verifyReport`/`rejectReport`/`markDuplicate`/`setFinalPriority` manual DIHAPUS (otomatis AI, UI No. 2+7)~~
+- `verifyHeldReport(reportId, input, expectedVersion)` — hanya laporan HELD saat AI down; satu-satunya verifikasi manual (pengecualian operasional), `expectedVersion` wajib
 - ~~`linkSupportingReport` manual DIHAPUS (auto-gabung, UI No. 7)~~
 - `assignTechnician(reportId, technicianId, expectedVersion)` (hanya technicianId, API No. 9)
-- `transitionReport` satu arah 7 status, tanpa reopen (UI No. 8)
-- `addProgressNote(reportId, condition, message)` (LAPORAN_PALSU jadi netral, UI No. 10)
+- `transitionReport(reportId, nextStatus, expectedVersion, note?)` satu arah 7 status, tanpa reopen (UI No. 8; API No. 12)
+- `addProgressNote(reportId, condition, message, expectedVersion)` (LAPORAN_PALSU jadi netral, UI No. 10; API No. 12)
 
 ### 9.4 Master data
 
@@ -832,6 +835,7 @@ Detail transport dapat berupa REST route handler atau server action, tetapi use 
 - CRUD/archive issue type;
 - CRUD/archive facility asset;
 - CRUD/archive technician;
+- `listFacilityAssetsWithStatus(filter, pagination)` — admin-only; daftar aset + derived 3-state + activeReportCount (UI No. 6);
 - `getFacilityMaintenanceHistory(assetId)`.
 
 Untuk data yang sudah direferensikan laporan, gunakan archive/`is_active = false`; jangan hard-delete.
@@ -842,7 +846,11 @@ Untuk data yang sudah direferensikan laporan, gunakan archive/`is_active = false
 - `getReportsByStatus(dateRange)`
 - `getReportsByCategory(dateRange)`
 - `getReportsByLocation(dateRange)`
-- `getResolutionTimeMetrics(dateRange)` + endpoint menyusul UI No. 11: scoring/report-grafik/PDF
+- `getResolutionTimeMetrics(dateRange)`
+- `getTechnicianWorkload(dateRange)` — UI No. 11; endpoint menyusul
+- `getReportTrend(dateRange)` — UI No. 11; endpoint menyusul
+- `getTicketsByCategoryAndBuilding(dateRange)` — UI No. 11; endpoint menyusul
+- endpoint menyusul UI No. 11: scoring/report-grafik/PDF
 
 ---
 
@@ -867,17 +875,16 @@ Form laporan mengikuti urutan:
 3. pilih ruangan (wajib);
 4. pilih aset (wajib);
 5. tulis deskripsi;
-6. unggah gambar (batas backend No. 4);
-7. unggah gambar opsional;
-8. review;
-9. submit;
-10. tampilkan ticket number dan link detail.
+6. unggah 1–3 foto (minimal 1, maksimal 3, maks 5 MB/file; API No. 4);
+7. review;
+8. submit;
+9. tampilkan ticket number dan link detail.
 
 ### 10.2 Admin portal
 
 | Route konseptual | Fungsi |
 |---|---|
-| `/admin` | Dashboard overview |
+| `/admin` | Dashboard Admin: kartu ringkasan metrik, antrean prioritas, panel tugas aktif per teknisi (UI No. 11) |
 | `/admin/reports` | Tabel, search, filter, sort, pagination |
 | `/admin/reports/:ticket` | Detail, hasil final AI, assignment, timeline + banner 409 (UI No. 2, API No. 12) |
 | `/admin/facilities` | Daftar asset + status 3-state admin-only (UI No. 6) |
@@ -886,8 +893,10 @@ Form laporan mengikuti urutan:
 | `/admin/categories` | Kelola kategori dan issue type |
 | `/admin/technicians` | Kelola teknisi |
 | `/admin/analytics` | Breakdown dan resolution time |
-| `/admin/scoring` | **[UI No. 11, endpoint menyusul]** Pengaturan Scoring |
-| `/admin/maintenance-report` | **[UI No. 11, endpoint menyusul]** 3 grafik + tabel + Ekspor PDF |
+| `/admin/scoring` | **[UI No. 11, endpoint menyusul]** Pengaturan Scoring: form bobot kriteria, batas jumlah pelapor, ambang prioritas, dan tabel skor per kategori aset/ruangan |
+| `/admin/maintenance-report` | **[UI No. 11, endpoint menyusul]** Laporan Maintenance: 3 grafik (tren laporan & rata-rata durasi, beban tugas per teknisi, tiket per kategori & gedung), tabel tiket per periode, dan tombol Ekspor PDF |
+
+> Tiga halaman UI No. 11—Dashboard Admin, Pengaturan Scoring, dan Laporan Maintenance + Ekspor PDF—digambar penuh sekarang; endpoint menyusul. Jangan menunggu endpoint untuk membuat UI.
 
 ### 10.3 UX state wajib
 
@@ -920,17 +929,17 @@ Setiap halaman data harus mempunyai:
   - tetapkan bobot kategori 0–35, aset/fasilitas 0–25, lokasi 0–25, dan frekuensi pelapor 0–15 (baseline provisional; final dikalibrasi UMPER/admin);
   - tetapkan mapping skor `LOW`/`MEDIUM`/`HIGH` (baseline provisional 0–39/40–69/70–100) serta aturan minimum `HIGH` untuk issue `DANGEROUS`;
   - sepakati bahwa AI menetapkan skor + `finalPriority` otomatis saat submit; admin tidak override (verifikasi manual hanya untuk laporan yang ditahan saat AI down).
-4a. Definisikan aturan duplicate detection: reporter/NIM terverifikasi, asset/lokasi, issue type, status aktif, dan jendela waktu.
+4a. Definisikan aturan duplicate detection: asset/lokasi, status aktif, dan jendela waktu; identitas reporter/NIM terverifikasi menentukan blokir vs auto-gabung; kategori/issue type tiket sebelumnya hanya sinyal pendukung.
 4b. Duplicate detection memblokir submit pelapor SAMA (dengan referensi ticket aktif) dan auto-gabung supporting pelapor BERBEDA; rekomendasi MVP bukan sekadar peringatan.
 5. Finalisasi taxonomy awal kategori dan issue type.
 6. Finalisasi hierarki lokasi kampus.
-7. Tentukan apakah asset wajib dipilih oleh reporter.
-8. Tentukan policy public/internal progress update.
+7. ~~Tentukan apakah asset wajib dipilih oleh reporter~~ — sudah diputuskan: aset wajib (UI No. 3).
+8. ~~Tentukan policy public/internal progress update~~ — sudah diputuskan: semua catatan tampil, tanpa PUBLIC/INTERNAL; Laporan Palsu netral (UI No. 10).
 9. Tentukan data teknisi yang boleh dilihat reporter.
 10. Putuskan authentication MVP dan metode provisioning akun.
 11. Deployment profile pilot ditetapkan: lokal saja (VPS/Cloudflare ditunda sampai pilot selesai).
 12. Jika memilih Cloudflare-first, tentukan managed PostgreSQL, konfigurasi Hyperdrive, R2, Queues, dan kebutuhan Workers Paid.
-13. Jalankan technical spike TanStack Start pada Workers, Drizzle melalui Hyperdrive, upload R2/Cloudflare Images, dan raw `fetch` OpenRouter di Queue consumer.
+13. Jalankan technical spike TanStack Start pada Workers, Drizzle melalui Hyperdrive, upload R2/Cloudflare Images, dan raw `fetch` OpenRouter di server-side submit path.
 14. Pilih serta pin model OpenRouter yang mendukung structured output dan endpoint ZDR.
 15. Kunci account privacy settings, provider routing policy, model fallback policy, budget, dan aturan data yang boleh dikirim ke OpenRouter.
 16. Tetapkan batas file, retensi, format gambar, dan apakah metadata stripping memakai Cloudflare Images atau image processor Node.
@@ -1064,7 +1073,7 @@ Role boundary dan master data stabil sebelum implementasi report.
 3. Validasi Gedung-Lantai-Ruangan-Aset wajib + aktif (tanpa kategori/issue type dari reporter; UI No. 3).
 4. Implementasikan `createReport` dalam database transaction.
 5. Gunakan idempotency key untuk mencegah duplicate akibat double-click/retry.
-6. Cari kandidat duplikat otomatis (UI No. 7): pelapor sama vs pelapor beda, asset/lokasi + issue type + status aktif + jendela waktu.
+6. Cari kandidat duplikat otomatis (UI No. 7): asset/lokasi + status aktif + jendela waktu; identitas pelapor menentukan blokir (sama) vs auto-gabung (beda); kategori/issue type tiket sebelumnya hanya sinyal pendukung.
 7. Jika kandidat pelapor SAMA: BLOKIR submit + kembalikan referensi ticket aktif (UI No. 7).
 8. Jika kandidat pelapor BERBEDA: OTOMATIS gabung sebagai SUPPORTING dalam 1 tiket (UI No. 7).
 9. Generate ticket number secara atomic.
@@ -1103,7 +1112,7 @@ Role boundary dan master data stabil sebelum implementasi report.
 - reporter dapat membaca tiket kampus tersanitasi; identitas/teknisi disembunyikan (UI No. 5+9);
 - admin dapat melihat semua report;
 - filter dan pagination tidak menghilangkan atau menggandakan item;
-- AI adalah penentu verifikasi sinkron; AI down = laporan ditahan sebagai REPORTED + ticket, menunggu verifikasi manual admin (UI No. 2).
+- AI adalah penentu verifikasi sinkron; AI down = laporan ditahan sebagai REPORTED + ticket, menunggu verifikasi manual admin (pengecualian operasional; UI No. 2).
 
 ### Release gate
 
@@ -1123,7 +1132,7 @@ Demo harus dapat menunjukkan reporter submit → memperoleh ticket → admin mel
    - private R2 dengan short-lived presigned upload/download URL.
 3. Untuk local/VPS, gunakan MinIO/S3-compatible adapter.
 3b. Foto diunggah mendahului baris laporan dan kuncinya dikirim bersama submit, agar verifikasi AI sinkron dapat membaca foto sebelum ticket diterbitkan.
-4. Batasi maksimal 3 file / 5 MB per file di client + server (API No. 4; bukan wajib tepat 1).
+4. Wajib 1–3 file/laporan dan maks 5 MB/file di client + server (API No. 4).
 5. Validasi filename hanya sebagai metadata, bukan storage path.
 6. Validasi MIME, magic bytes, dan hasil decode image; jangan percaya `Content-Type` dari browser saja.
 7. Tolak SVG dan format selain allowlist.
@@ -1198,7 +1207,7 @@ Attachment hanya dapat dibaca pengguna yang berhak dan tidak dapat dieksekusi se
 8. Form catatan progres + kondisi Laporan Palsu (UI No. 10).
 9. Tampilkan timeline admin lengkap.
 10. Tampilkan timeline reporter yang sudah disanitasi.
-11. Banner 409 "Tiket diperbarui admin lain, muat ulang data" + Refresh (API No. 12).
+11. Banner 409 "Tiket diperbarui admin lain — muat ulang data" + Refresh (API No. 12).
 
 ### Test minimum
 
@@ -1238,7 +1247,7 @@ Scenario utama harus berjalan lengkap:
 6. ~~detail proyeksi publik DIHAPUS (digantikan langkah 7; UI No. 6)~~.
 7. ~~halaman status publik DIHAPUS~~; status 3-state hanya di Kelola Aset admin (UI No. 6).
 8. Implementasikan notification worker dari outbox event.
-9. Buat notification untuk verified, assigned, status changed, public update, resolved, dan closed.
+9. Buat notification untuk verified, assigned, status changed, catatan progres, resolved, dan closed.
 10. Implementasikan unread count dan mark as read.
 11. Pastikan event diproses idempotently agar notification tidak ganda.
 12. Tambahkan retry dan dead-letter/error state untuk job gagal.
@@ -1278,6 +1287,9 @@ Definisi berikut harus digunakan konsisten oleh query, UI, dan test:
 - **Assignment time:** waktu assignment pertama - `verified_at`.
 - **Reports by category:** gunakan `final_category_id`; sebelum verified dapat ditampilkan sebagai unclassified jika diperlukan.
 - **Reports by location:** gunakan location report pada saat laporan dibuat, bukan lokasi asset yang mungkin berubah kemudian.
+- **Technician workload:** jumlah tiket aktif (`ASSIGNED`/`INSPECTION`/`IN_REPAIR`) per teknisi; dipakai untuk panel tugas dan grafik beban teknisi (UI No. 11).
+- **Report trend:** jumlah laporan dan rata-rata/median resolution time per periode (UI No. 11).
+- **Tickets by category and building:** gunakan `final_category_id` dan gedung dari lokasi laporan (UI No. 11).
 
 ### Langkah
 
@@ -1293,6 +1305,7 @@ Definisi berikut harus digunakan konsisten oleh query, UI, dan test:
 10. Pastikan chart memiliki label/summary yang dapat dibaca tanpa warna saja.
 11. Tambahkan drill-down dari metric ke filtered report list jika waktu memungkinkan.
 12. Periksa query plan dan index pada volume data target.
+13. Gambar penuh halaman UI No. 11 (endpoint menyusul): Dashboard Admin (kartu ringkasan, antrean prioritas, panel tugas per teknisi), Pengaturan Scoring, dan Laporan Maintenance (3 grafik + tabel + Ekspor PDF).
 
 ### Test minimum
 
@@ -1301,7 +1314,8 @@ Definisi berikut harus digunakan konsisten oleh query, UI, dan test:
 - unresolved report tidak masuk resolution time;
 - boundary tanggal UTC/Asia Jakarta benar;
 - data memakai klasifikasi final AI (UI No. 2);
-- dashboard kosong tetap memberikan empty state yang benar.
+- dashboard kosong tetap memberikan empty state yang benar;
+- halaman UI No. 11 tetap dapat digambar penuh dengan data mock/empty state walau endpoint belum tersedia.
 
 ### Release gate
 
@@ -1359,7 +1373,7 @@ Konfigurasi account:
 - account-level Zero Data Retention diaktifkan jika tersedia;
 - API key staging dan production dipisah;
 - setiap API key memiliki credit limit;
-- key disimpan dengan Workers Secrets dan hanya tersedia pada Queue consumer.
+- key disimpan dengan Workers Secrets dan hanya tersedia pada server-side submit path; tidak pernah di client.
 
 Setiap request menggunakan policy minimum:
 
@@ -1450,7 +1464,7 @@ Sebelum model dikunci:
 2. Buat Zod schema untuk input, output, queue message, dan OpenRouter response envelope.
 3. Buat `MockReportReviewAssistant` dengan output deterministik.
 4. Buat `OpenRouterReportReviewAssistant` menggunakan raw `fetch`; jangan tambahkan agent framework atau SDK yang tidak diperlukan.
-5. Simpan `OPENROUTER_API_KEY` hanya pada Queue consumer melalui `wrangler secret put`; jangan menaruhnya pada `wrangler.jsonc` atau prefix `VITE_`.
+5. Simpan `OPENROUTER_API_KEY` hanya pada server-side runtime submit path melalui secret manager/`wrangler secret put`; jangan menaruhnya pada `wrangler.jsonc`, client bundle, atau prefix `VITE_`.
 6. Simpan exact model slug, timeout, max output token, dan feature flag dalam server-side runtime config.
 7. Tambahkan privacy routing policy ZDR/data-collection deny pada setiap request.
 8. Version prompt, rubric, taxonomy snapshot, dan output schema.
@@ -1479,7 +1493,7 @@ Sebelum model dikunci:
 
 ### Test minimum
 
-- AI down menahan laporan sebagai REPORTED + ticket untuk verifikasi manual admin, bukan gagal retryable (UI No. 2);
+- AI down menahan laporan sebagai REPORTED + ticket untuk verifikasi manual admin, bukan gagal retryable (pengecualian operasional; UI No. 2);
 - API key tidak pernah berada pada browser bundle, response, database, atau log;
 - request selalu membawa ZDR/data-collection deny policy;
 - reconciliation mengirim outbox yang belum ter-dispatch;
@@ -1590,12 +1604,12 @@ Gunakan PostgreSQL test database nyata untuk:
 Minimum scenarios:
 
 1. reporter login → submit report → melihat ticket;
-2. reporter melihat daftar dan detail laporan sendiri;
+2. reporter melihat daftar tiket kampus tersanitasi + filter "Laporan Saya" dan detail tiket orang lain tanpa identitas pelapor;
 3. reporter tidak dapat membuka ticket reporter lain;
 4. admin login → meninjau hasil final AI → assign → update → resolve → close;
 5. reporter melihat timeline dan notifikasi hasil update admin;
 6. kondisi Laporan Palsu tampil netral untuk reporter;
-7. campus facility status berubah dan kembali operational;
+7. status aset admin berubah dan kembali operational (admin-only);
 8. maintenance history dan analytics ikut berubah;
 9. AI PASS menampilkan VERIFIED + klasifikasi final;
 10. AI down menahan laporan + verifikasi manual admin.
@@ -1611,7 +1625,7 @@ Minimum scenarios:
 - stored XSS pada description/progress message;
 - brute-force/rate-limit behavior;
 - signed URL expiration;
-- sensitive data exposure pada public facility status.
+- sensitive data exposure pada status aset admin-only; tidak ada endpoint publik.
 
 ### 12.5 Performance baseline
 
@@ -1661,7 +1675,7 @@ Sebuah backlog item dianggap selesai jika:
 - Laporan aktif pelapor SAMA diblokir + referensi ticket (UI No. 7).
 - Laporan baru tetap dapat dibuat setelah laporan sebelumnya `CLOSED` atau jika insidennya berbeda.
 - Laporan pelapor BERBEDA otomatis digabung supporting (UI No. 7).
-- Kegagalan AI menahan submit sebagai REPORTED + ticket untuk verifikasi manual admin (UI No. 2).
+- Kegagalan AI menahan submit sebagai REPORTED + ticket untuk verifikasi manual admin (pengecualian operasional; UI No. 2).
 
 ### 14.3 Upload
 
@@ -1672,7 +1686,7 @@ Sebuah backlog item dianggap selesai jika:
 ### 14.4 Admin workflow
 
 - Admin hanya dapat menjalankan transisi pada transition matrix.
-- Verifikasi otomatis AI menetapkan klasifikasi + priority final (UI No. 2).
+- Verifikasi otomatis AI menetapkan klasifikasi + priority final (UI No. 2); laporan HELD saat AI down diverifikasi admin (pengecualian operasional).
 - Skor deterministik + snapshot tersimpan decidedBy=AI (UI No. 2).
 - Perhitungan menggunakan rubric yang disepakati; laporan duplikat tidak menambah frekuensi.
 - Supporting report dari reporter berbeda menambah affected reporter count, bukan pekerjaan perbaikan baru.
@@ -1704,7 +1718,7 @@ Sebuah backlog item dianggap selesai jika:
 - Hasil AI adalah final (UI No. 2).
 - ~~accept/override DIHAPUS~~ (UI No. 2).
 - AI menetapkan VERIFIED + klasifikasi + priority final otomatis (UI No. 2).
-- AI wajib untuk verifikasi; flag hanya untuk non-verifikasi (UI No. 2).
+- AI wajib untuk verifikasi; flag hanya untuk non-verifikasi (UI No. 2). Pengecualian: laporan HELD saat AI down diverifikasi admin.
 
 ---
 
@@ -1767,14 +1781,14 @@ masa depan, bukan target pilot. Baseline spike teknis mengikuti target lokal
 |---|---|
 | TanStack Start SSR, server functions, dan server routes | Cloudflare Workers |
 | Static assets | Workers Static Assets |
-| AI dan notification consumer | Cloudflare Queue consumer Worker |
+| Notification consumer | Cloudflare Queue consumer Worker |
 | Job transport | Cloudflare Queues + dead-letter queue |
 | Gambar laporan | Cloudflare Images signed delivery atau private R2 |
 | Database | Managed PostgreSQL eksternal |
 | Database connection | Cloudflare Hyperdrive + Drizzle/`pg` |
 | Secret | Workers Secrets/Secrets Store |
 | Scheduled reconciliation | Cron Trigger atau scheduled Worker |
-| AI client | Raw `fetch` dari Queue consumer Worker |
+| AI client | Raw `fetch` dari server-side submit path (web) |
 | AI gateway | OpenRouter API dengan ZDR/data-collection deny |
 | Model endpoint | Pinned ZDR provider endpoint melalui OpenRouter |
 
@@ -1790,9 +1804,9 @@ flowchart TD
     W --> I[Cloudflare Images or R2]
     W --> Q[Cloudflare Queues]
     Q --> C[Queue Consumer Worker]
-    C --> OR[OpenRouter API]
-    OR --> M[Pinned ZDR Model Endpoint]
     C --> H
+    W --> OR[OpenRouter API]
+    OR --> M[Pinned ZDR Model Endpoint]
     S[Cron Reconciliation] --> P
     S --> Q
 ```
@@ -1807,11 +1821,11 @@ Cloudflare Queues digunakan untuk notifikasi agar tidak memblokir request utama 
 - Workers Free hanya menyediakan CPU budget kecil, sehingga SSR, response parsing, dan validation harus diukur;
 - Workers Paid lebih aman untuk staging/pilot karena CPU limit dapat dikonfigurasi lebih tinggi;
 - waktu menunggu network/provider tidak dihitung sebagai CPU, tetapi parsing, validation, prompt construction, dan framework runtime tetap dihitung;
-- Queue consumer mempunyai wall-clock limit, jadi tetapkan provider timeout jauh di bawah limit tersebut;
-- `waitUntil()` bukan pengganti durable queue untuk AI job;
+- AI submit timeout harus jauh di bawah wall-clock limit request web; queue consumer hanya menangani notifikasi;
+- `waitUntil()` bukan pengganti durable queue untuk notifikasi;
 - batasi bundle dan top-level initialization agar startup Worker tetap cepat;
-- gunakan raw `fetch` agar AI worker tidak membawa agent framework atau SDK yang tidak diperlukan;
-- `OPENROUTER_API_KEY` hanya tersedia pada Queue consumer melalui Workers Secret;
+- gunakan raw `fetch` agar submit path tidak membawa agent framework atau SDK yang tidak diperlukan;
+- `OPENROUTER_API_KEY` hanya tersedia pada server-side submit path melalui Workers Secret; tidak pernah di client;
 - koneksi PostgreSQL dibuat per invocation menggunakan Hyperdrive connection string sesuai pola Workers;
 - upload gambar besar dilakukan direct-to-provider agar body tidak perlu dibuffer oleh Worker.
 
@@ -1844,13 +1858,13 @@ Web dan worker tetap berasal dari monorepo yang sama. Tidak perlu memecah fronte
 
 ### 16.5 Hybrid fallback
 
-Raw `fetch` OpenRouter kompatibel dengan Workers, sehingga VPS tidak diperlukan untuk AI MVP. Namun jika Queue consumer perlu dipindahkan karena kebijakan kampus atau kebutuhan operasional:
+Raw `fetch` OpenRouter kompatibel dengan Workers, sehingga VPS tidak diperlukan untuk AI MVP. Namun jika server-side AI client perlu dipindahkan karena kebijakan kampus atau kebutuhan operasional:
 
 - tetap deploy TanStack Start pada Cloudflare Workers;
 - tetap gunakan Images/R2 untuk attachment;
 - jalankan `OpenRouterReportReviewAssistant` pada Node VPS/managed container;
-- gunakan pull consumer/HTTP dispatch yang terautentikasi atau PostgreSQL outbox;
-- pertahankan queue message dan `ReportReviewAssistant` contract yang sama;
+- gunakan endpoint server-side terautentikasi atau PostgreSQL outbox untuk notifikasi;
+- pertahankan `ReportReviewAssistant` contract dan queue message contract untuk notifikasi;
 - tetap gunakan privacy routing, secret isolation, timeout, dan data minimization yang sama.
 
 Hybrid fallback lebih kecil risikonya daripada memindahkan seluruh aplikasi ke VPS.
@@ -1922,8 +1936,8 @@ Estimasi berikut cocok sebagai baseline satu semester untuk tim kecil. Sesuaikan
 | M1 | Foundation, database, auth | 1–2 minggu | Login, RBAC, master data |
 | M2 | Core reporting | 1–2 minggu | Reporter submit dan admin melihat report |
 | M3 | Upload dan workflow | 2 minggu | Ticket bergerak sampai closed |
-| M4 | Facility, history, notification | 1 minggu | Status kampus dan timeline transparan |
-| M5 | Dashboard dan analytics | 1 minggu | Overview dan metric konsisten |
+| M4 | Facility, history, notification | 1 minggu | Status aset admin 3-state, maintenance history, dan notifikasi |
+| M5 | Dashboard dan analytics | 1 minggu | Overview, metric konsisten, dan UI No. 11 (Dashboard/Scoring/Laporan Maintenance/PDF) |
 | M6 | AI verifikasi sinkron + klasifikasi + prioritas final | 1 minggu | Verifikasi otomatis AI saat submit (UI No. 2) |
 | M7 | Hardening dan UAT | 1–2 minggu | Staging siap demo/pilot |
 
@@ -1995,14 +2009,14 @@ Untuk solo developer, kerjakan berurutan sesuai Phase 0–9; jangan mengerjakan 
 | OpenRouter outage/cost | Verdict tertunda atau biaya tinggi | Verifikasi sinkron dengan timeout, klasifikasi DOWN-vs-FAIL, penahanan + verifikasi manual, credit limit, usage/cost metric |
 | Data dikirim berlebihan ke OpenRouter/provider | Risiko privasi | Data minimization, sanitization, ZDR, privacy notice, dan provider policy review |
 | Metric berbeda antarhalaman | Admin tidak percaya dashboard | Satu definisi metric, shared query/service, fixture test |
-| Facility status berbeda dari report | Informasi publik salah | Derived status, bukan manual duplicate state |
+| Facility status berbeda dari report | Informasi status aset admin salah | Derived status, bukan manual duplicate state |
 | Teknisi tidak punya akun | Update terlambat | Admin menjadi recorder resmi; actor audit tetap admin; ukur delay sebagai evaluasi |
 | Data awal terlalu sedikit untuk insight | Insight menyesatkan | Tampilkan sample size; historical insight ditunda; threshold bukan bukti kausal |
 | Master data berubah | Histori kehilangan konteks | Archive, bukan delete; simpan snapshot penting pada report jika dibutuhkan |
-| Workers Free kehabisan CPU/memory | SSR atau AI consumer gagal | Ukur bundle/runtime; gunakan Workers Paid atau pindahkan worker ke Node |
+| Workers Free kehabisan CPU/memory | SSR atau submit path AI gagal | Ukur bundle/runtime; gunakan Workers Paid atau pindahkan submit path/worker ke Node |
 | OpenRouter merutekan request ke endpoint non-ZDR | Data dapat disimpan provider | Wajib `zdr: true`, `data_collection: deny`, account privacy setting, dan provider allowlist |
 | PostgreSQL connection tidak efisien dari Workers | Latency atau connection exhaustion | Gunakan Hyperdrive, driver yang didukung, client per invocation, dan query/index review |
-| Queue dan database tidak atomic | Job AI hilang atau terkirim ganda | Transactional outbox, reconciliation, dan idempotent consumer |
+| Queue dan database tidak atomic | Job notifikasi hilang atau terkirim ganda | Transactional outbox, reconciliation, dan idempotent consumer |
 | OpenRouter API key bocor | Penyalahgunaan dan biaya tidak terkendali | Workers Secret, key terpisah per environment, credit limit, rotation, dan secret scanning |
 | Model/provider berubah perilaku | Kualitas klasifikasi turun | Pin exact model slug, version prompt, evaluation dataset, dan approval sebelum perubahan |
 | Cloudflare vendor coupling | Migrasi deployment mahal | Port/adapters untuk database, queue, storage, config, dan AI runtime |
@@ -2071,7 +2085,7 @@ Urutan tindakan setelah execution plan ini disetujui:
 1. Kunci baseline TanStack Start + Drizzle + PostgreSQL + OpenRouter raw `fetch`.
 2. Pilih managed PostgreSQL dan akun Cloudflare untuk staging.
 3. Buat akun/workspace OpenRouter, nonaktifkan input/output logging dan data-use opt-in, lalu buat API key staging dengan credit limit.
-4. Jalankan technical spike TanStack Start Worker, Hyperdrive, Images/R2, Queue consumer, dan OpenRouter ZDR request.
+4. Jalankan technical spike TanStack Start Worker, Hyperdrive, Images/R2, server-side OpenRouter submit path, dan Queue consumer untuk notifikasi.
 5. Susun evaluation dataset 30–50 laporan dan pilih pinned model yang memenuhi threshold.
 6. Jadwalkan workshop aturan operasional dengan UMPER.
 7. Kunci auth mode, lifecycle, priority rubric, dan upload policy.

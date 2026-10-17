@@ -223,7 +223,7 @@ describe('reporter form render', () => {
   it('disables submit with no photo and requires the full asset chain', async () => {
     stubFetch();
     renderPage();
-    const submit = await screen.findByRole('button', { name: /kirim laporan/i });
+    const submit = await screen.findByRole('button', { name: /lanjut ke review/i });
     expect(submit).toBeDisabled();
     expect(screen.queryByLabelText(/kategori/i)).not.toBeInTheDocument();
     for (const label of ['Gedung', 'Lantai', 'Ruangan', 'Aset', 'Deskripsi', 'Foto']) {
@@ -234,19 +234,21 @@ describe('reporter form render', () => {
   it('keeps submit disabled until the chain and a photo are complete', async () => {
     stubFetch();
     renderPage();
-    await screen.findByRole('button', { name: /kirim laporan/i });
+    await screen.findByRole('button', { name: /lanjut ke review/i });
     fillChain();
-    expect(screen.getByRole('button', { name: /kirim laporan/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /lanjut ke review/i })).toBeDisabled();
     attachPhoto();
-    expect(screen.getByRole('button', { name: /kirim laporan/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /lanjut ke review/i })).toBeEnabled();
   });
 
   it('stages photos first and shows the verified ticket', async () => {
     const fetchMock = stubFetch();
     renderPage();
-    await screen.findByRole('button', { name: /kirim laporan/i });
+    await screen.findByRole('button', { name: /lanjut ke review/i });
     fillChain();
     attachPhoto();
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    expect(await screen.findByRole('heading', { name: 'Tinjau Laporan' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
     expect(await screen.findByText('MNT-2026-000007')).toBeInTheDocument();
     const submits = fetchMock.mock.calls.filter(([url]) => url === '/api/reports');
@@ -260,10 +262,11 @@ describe('reporter form render', () => {
   it('shows the fail reason with a fresh-report retry', async () => {
     stubFetch({ reportsStatus: 422, reportsBody: { reason: 'Foto kurang jelas.' } });
     renderPage();
-    await screen.findByRole('button', { name: /kirim laporan/i });
+    await screen.findByRole('button', { name: /lanjut ke review/i });
     fillChain();
     attachPhoto();
-    fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
     expect(await screen.findByText('Foto kurang jelas.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /buat laporan baru/i }));
     expect(await screen.findByLabelText('Gedung')).toBeInTheDocument();
@@ -275,10 +278,11 @@ describe('reporter form render', () => {
       reportsBody: { ticketNumber: 'MNT-2026-000009', message: 'Laporan menunggu pemeriksaan.' },
     });
     renderPage();
-    await screen.findByRole('button', { name: /kirim laporan/i });
+    await screen.findByRole('button', { name: /lanjut ke review/i });
     fillChain();
     attachPhoto();
-    fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
     expect(await screen.findByText('MNT-2026-000009')).toBeInTheDocument();
     expect(await screen.findByText('Laporan menunggu pemeriksaan.')).toBeInTheDocument();
   });

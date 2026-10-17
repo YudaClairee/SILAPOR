@@ -236,6 +236,12 @@ describe('buildMyReportsQuery', () => {
     expect(buildMyReportsQuery({})).toBe('sort=reported_desc&limit=50&offset=0');
   });
 
+  it('adds mine=1 for the Laporan Saya filter', () => {
+    expect(buildMyReportsQuery({ mine: true })).toBe(
+      'sort=reported_desc&limit=50&mine=1&offset=0',
+    );
+  });
+
   it('passes an exact status through', () => {
     expect(buildMyReportsQuery({ status: 'REPORTED' })).toBe(
       'sort=reported_desc&limit=50&offset=0&status=REPORTED',

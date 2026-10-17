@@ -1,10 +1,19 @@
 # API Contract — UI/UX Handoff
 
-> Sumber kebenaran: implementasi aktual di `apps/web/src/routes/api/**` dan
-> `apps/web/src/server/**` (Phase 2–5). Endpoint bertanda **[Phase 6]** belum
-> dibangun — bentuk di bawah adalah kontrak yang akan diimplementasikan;
-> beri tahu backend sebelum mendesain alur yang bergantung padanya supaya
-> field-nya dikunci lebih dulu.
+> **Sumber kebenaran produk/UI:** `EXECUTION-PLAN.md`. Dokumen ini adalah
+> kontrak transport untuk endpoint yang sudah/akan dibangun; jika ada konflik
+> keputusan produk/UI, `EXECUTION-PLAN.md` menang.
+>
+> **Aturan konflik (`konsep_ui_vs_backend.pdf`):**
+> - **No. 4, 9, 12** — dokumen ini mengikat (upload, assignment, 409).
+> - **No. 2, 3, 5, 6, 7, 8, 10, 11** — ikuti `EXECUTION-PLAN.md`/Konsep Desain UI.
+>   Bagian dokumen ini yang bertentangan (verifikasi manual umum,
+>   `PUBLIC`/`INTERNAL`, status fasilitas publik 4-state, duplikat manual,
+>   `REPORTED_ISSUE`, reopen) adalah **superseded**.
+>
+> Endpoint bertanda **[Phase 6]** belum dibangun — bentuk di bawah adalah
+> kontrak yang akan diimplementasikan; beri tahu backend sebelum mendesain alur
+> yang bergantung padanya supaya field-nya dikunci lebih dulu.
 >
 > Semua endpoint mengembalikan JSON. Autentikasi memakai **session cookie**
 > (setelah login) — tidak ada `Authorization` header / token manual.
@@ -29,13 +38,16 @@
   `UNSUPPORTED_TYPE`, `MIME_MISMATCH`, `CORRUPT_IMAGE`,
   `INVALID_FILENAME`, `EMPTY_FILE`.
 - **409 CONFLICT** = optimistic locking: tiket diubah admin lain.
-  UI wajib menampilkan pesan "refresh & tinjau ulang", bukan retry diam-diam.
+  UI wajib menampilkan pesan **"Tiket diperbarui admin lain — muat ulang data"**
+  dengan tombol Refresh, bukan retry diam-diam.
 - **401** memakai pesan generik (`"Kredensial salah"` / `"Belum login"`) —
   tidak boleh dipakai untuk menebak keberadaan akun.
 - **Enum untuk UI:**
   - Status tiket (7 status — design AI verification 2026-10-14): `REPORTED → VERIFIED → ASSIGNED → INSPECTION → IN_REPAIR → RESOLVED → CLOSED`. Tidak ada lagi `REJECTED`/`DUPLICATE`: verifikasi gagal tidak menyimpan apapun (422), duplikat diblokir/merge otomatis di submit.
   - Priority: `LOW | MEDIUM | HIGH` (tidak ada CRITICAL)
-  - Visibility update: `PUBLIC | INTERNAL`
+  - Progress note: tanpa `PUBLIC`/`INTERNAL`; semua catatan tampil ke pelapor.
+    Kondisi opsional `LAPORAN_PALSU` diproyeksikan netral untuk pelapor
+    ("Kerusakan tidak ditemukan saat pemeriksaan").
 - **Verifikasi (penting):** verifikasi laporan dilakukan **AI di submit** (lihat §2);
   admin hanya fallback manual untuk laporan yang disimpan sementara saat layanan
   AI down (§5 held-verify). Bagian manual-verification lama di §5 (verify bebas,
@@ -47,7 +59,7 @@
 
 | Endpoint | Method | Request | Sukses | Gagal |
 |---|---|---|---|---|
-| `/api/auth/login` | POST | `{ "username": "...", "password": "..." }` | `200 { "user": { "id", "username", "role": "REPORTER"|"ADMIN" } }` + Set-Cookie | `401` kredensial salah; `429` rate-limit (5 gagal / 10 menit) |
+| `/api/auth/login` | POST | `{ "username": "...", "password": "..." }` | `200 { "user": { "id", "username", "role": "REPORTER"\|"ADMIN" } }` + Set-Cookie | `401` kredensial salah; `429` rate-limit (5 gagal / 10 menit) |
 | `/api/auth/logout` | POST | — | `200`, cookie dihapus | — |
 | `/api/auth/me` | GET | — | `200 { "user": { "id", "username", "role" } }` | `401` belum login |
 
@@ -57,11 +69,11 @@
 | Endpoint | Method | Request | Sukses |
 |---|---|---|---|
 | `/api/reports/form-options` | GET | — | `200 { "locations": [], "categories": [], "issueTypes": [], "assets": [] }` — hanya data aktif. **Reporter tidak memilih kategori/issue**: kategori ditentukan dari asset (dependent select: lokasi → asset), issue type & priority ditetapkan AI. List `categories`/`issueTypes` tetap ada di response untuk pemakaian admin (filter). |
-| `/api/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `q`, `limit`, `offset` | `200 { "items": ReportItem[], "total": number }` — selalu **hanya laporan milik sendiri** (laporan sendiri yang di-hold tampil sebagai pending check di sini; antrian held penuh hanya untuk admin) |
+| `/api/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `q`, `mine=1`, `limit`, `offset` | `200 { "items": ReportItem[], "total": number }` — default **seluruh tiket kampus tersanitasi** (tanpa identitas pelapor lain, deskripsi sensitif, attachment, atau internal note); `mine=1` untuk filter "Laporan Saya". Laporan sendiri yang di-hold tampil sebagai pending check di sini. |
 | `/api/reports` | POST | header **wajib** `x-idempotency-key`; body: `{ "location_id" (UUID, wajib), "asset_id" (UUID, wajib), "description" (10–2000 char), "photo_keys" (1–3 storage key dari POST /api/uploads, wajib) }` — **tanpa** kategori/issue/occurred_at dari reporter (400 bila dikirim) | verifikasi sinkron saat submit — lihat kontrak submit AI di bawah |
-| `/api/reports/duplicate-check` | GET | query: `location_id`, `category_id`, `issue_type_id`?, `asset_id`? | `200 { "count": number, "candidates": [{ "ticketNumber", "status", "reportedAt" }] }` — **warning saja**, tidak memblokir submit; tawarkan link ke ticket existing |
-| `/api/reports/:id` | GET | — | `200` detail; ownership dijaga server — 404 identik untuk tiket milik orang lain (jangan tampilkan "bukan milik Anda") |
-| `/api/reports/:id/timeline` | GET | — | `200` array `TimelineEntry` terurut kronologis — **sudah disanitasi**: entri INTERNAL hilang, `actorId = null`, note hanya untuk event publik |
+| `/api/reports/duplicate-check` | GET | query: `location_id`, `asset_id`? | `200 { "count": number, "candidates": [{ "ticketNumber", "status", "reportedAt" }] }` — **legacy/opsional, bukan gate**. Keputusan duplikat terjadi otomatis di `POST /api/reports`: pelapor sama → `409`; pelapor beda → `SUPPORTING`. |
+| `/api/reports/:id` | GET | — | `200` detail **tersanitasi** untuk semua reporter (identitas pelapor, teknisi, dan internal note dihilangkan); `isOwn` menandai pemilik, dan attachment hanya disertakan untuk pemilik; `404` jika tiket tidak ada. |
+| `/api/reports/:id/timeline` | GET | — | `200` array `TimelineEntry` terurut kronologis — **sudah disanitasi**: semua catatan tampil, `actorId = null`, kondisi `LAPORAN_PALSU` diproyeksikan netral; tanpa visibility. |
 
 ### Kontrak submit AI (design `2026-10-14-ai-verification-design.md`)
 
@@ -117,8 +129,7 @@ flow) — submit tidak lagi menerima multipart langsung.
   "at": "ISO-8601",
   "actorId": null,
   "label": "STATUS_CHANGED",
-  "detail": { "": "tergantung kind" },
-  "visibility": null
+  "detail": { "": "tergantung kind" }
 }
 ```
 
@@ -126,10 +137,13 @@ flow) — submit tidak lagi menerima multipart langsung.
 
 | Endpoint | Method | Request | Sukses | Ditolak dengan |
 |---|---|---|---|---|
-| `/api/reports/:id/attachments` | POST | `multipart/form-data`; **maks 3 file/laporan, 5 MB/file, hanya JPEG/PNG/WebP** | `200/201` metadata attachment | `TOO_MANY_FILES`, `FILE_TOO_LARGE`, `UNSUPPORTED_TYPE`, `MIME_MISMATCH`, `CORRUPT_IMAGE` |
+| `/api/reports/:id/attachments` | POST | `multipart/form-data`; **1–3 file/laporan, 5 MB/file, hanya JPEG/PNG/WebP** | `200/201` metadata attachment | `TOO_MANY_FILES`, `FILE_TOO_LARGE`, `UNSUPPORTED_TYPE`, `MIME_MISMATCH`, `CORRUPT_IMAGE` |
 | `/api/reports/:id/attachments/:attachmentId` | GET | — | `200` bytes gambar (ownership dicek server) | `404` |
 
 Tidak ada public URL untuk file — akses selalu lewat endpoint berotorisasi.
+Flow utama adalah staging pra-submit `POST /api/uploads` + `photo_keys` pada
+`POST /api/reports`; endpoint attachment pasca-submit di atas bersifat
+legacy/opsional. Batas upload tetap **1–3 file/laporan, 5 MB/file** (API No. 4).
 
 ## 4. Admin — master data
 
@@ -153,11 +167,11 @@ Data terarsip tidak muncul di pilihan baru, tapi histori lama tetap valid
 |---|---|---|---|
 | `/api/admin/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `q` (ticket/deskripsi), `sort`, `limit`, `offset` | `200 { "items", "total" }` — semua laporan |
 | `/api/admin/reports/:id` | GET | — | `200` detail lengkap (priority score, factors, version, dll.) |
-| `/api/admin/reports/:id/timeline` | GET | — | `200` `TimelineEntry[]` **versi admin**: termasuk entri `visibility: "INTERNAL"`, actor terlihat |
+| `/api/admin/reports/:id/timeline` | GET | — | `200` `TimelineEntry[]` **versi admin**: semua catatan terlihat, termasuk kondisi `LAPORAN_PALSU` asli; actor terlihat; tanpa visibility. |
 | `/api/admin/reports/:id/verify` | POST | `{ "priority": "LOW"\|"MEDIUM"\|"HIGH" }` **atau** full codes `{ "category": "<CATEGORY_CODE>", "issueType": "<ISSUE_TYPE_CODE>", "priority": ... }` **atau** full ids `{ "finalCategoryId", "finalIssueTypeId", "finalPriority" }`; + `expectedVersion` **wajib** — hanya untuk tiket **HELD** (status `REPORTED`, belum punya klasifikasi final) | `200` report — setara `VERIFIED` AI: status jadi `VERIFIED`, klasifikasi final diset, lalu timeline/assignment/notification berjalan sama persis seperti hasil AI |
 | `/api/admin/reports/:id/assign` | POST | `{ "technicianId", "expectedVersion" }` — hanya teknisi aktif | `200` |
 | `/api/admin/reports/:id/transition` | POST | `{ "status", "note"?, "expectedVersion" }` — `note` wajib untuk inspection/resolution | `200` |
-| `/api/admin/reports/:id/updates` | POST | `{ "visibility": "PUBLIC"\|"INTERNAL", "message" }` | `200/201` |
+| `/api/admin/reports/:id/updates` | POST | `{ "condition"?: "LAPORAN_PALSU", "message", "expectedVersion" }` — tanpa `PUBLIC`/`INTERNAL`; semua catatan tampil ke pelapor, kondisi `LAPORAN_PALSU` diproyeksikan netral; stale version → `409` | `200/201` |
 
 > **SUPERSEDED (legacy manual-verification oleh design AI 2026-10-14).** Verifikasi
 > manual bebas (form lengkap di atas tiket mana pun), `reject`, `duplicate`,
@@ -175,7 +189,8 @@ Data terarsip tidak muncul di pilihan baru, tapi histori lama tetap valid
   statusnya bukan `REPORTED`): hold tidak pernah dioverride, hanya resolve
   sekali.
 - `409` — `expectedVersion` usang (stale): tampilkan panel
-  "Laporan diubah admin lain — muat ulang", jangan retry diam-diam.
+  "Tiket diperbarui admin lain — muat ulang data" dengan tombol Refresh,
+  jangan retry diam-diam.
 
 **Aturan UI wajib dari state machine:**
 
@@ -193,18 +208,29 @@ ada panel "saran AI yang bisa di-override" — admin tidak pernah mengubah hasil
 AI yang sudah lolos (design 2026-10-14, no-override). Tampilkan keduanya
 sebagai panel/kolom **berbeda**.
 
-## 6. [Phase 6 — kontrak rencana, belum dibangun]
+## 6. [Phase 6 — status aset admin-only, maintenance history, notification]
 
-| Endpoint | Method | Sukses (rencana) |
+| Endpoint | Method | Sukses |
 |---|---|---|
-| `/api/facilities/status` | GET | query: `location_id`, `category_id`, `status`, `limit`, `offset` → `{ "items": [{ "assetId", "assetName", "locationLabel", "categoryName", "derivedStatus", "lastUpdated" }], "total" }` — projection publik **tanpa identitas reporter, deskripsi, attachment, internal note** |
-| `/api/admin/assets/:id/history` | GET | semua ticket per asset + status + tanggal (maintenance history) |
-| `/api/notifications` | GET | `{ "items": [{ "id", "type", "title", "message", "reportId"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja |
-| `/api/notifications/:id/read` | POST | `200` |
+| `/api/admin/assets/:id/history` | GET | `200 { "asset": { "assetId", "assetCode", "assetName", "isActive", "locationLabel", "categoryName", "derivedStatus" }, "items": [{ "reportId", "ticketNumber", "status", "reportedAt", "resolvedAt"?, "closedAt"?, "finalPriority"? }] }` — admin-only; semua tiket per asset + status + tanggal, terbaru dulu; `404` unknown asset. |
+| `/api/notifications` | GET | `200 { "items": [{ "id", "type", "title", "message", "reportId"?, "ticketNumber"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja. |
+| `/api/notifications/:id/read` | POST | `200` — idempoten; id milik user lain/tidak ada → `404`. |
+| `/api/notifications/read-all` | POST | `200 { "updated" }` — tandai semua belum-dibaca milik sesi sebagai dibaca; idempoten, `updated: 0` valid. |
 
-`derivedStatus`: `OPERATIONAL | REPORTED_ISSUE | UNDER_INSPECTION | IN_REPAIR`
-— diturunkan dari laporan aktif (bukan field manual); precedence
-`IN_REPAIR > UNDER_INSPECTION > REPORTED_ISSUE`.
+**Status aset (admin-only, 3-state):** `OPERATIONAL | UNDER_INSPECTION | IN_REPAIR`.
+Precedence: `IN_REPAIR > UNDER_INSPECTION > OPERATIONAL`.
+Tidak ada `REPORTED_ISSUE` dan **tidak ada endpoint publik `/api/facilities/status`**
+(UI No. 6). Status 3-state hanya ditampilkan di halaman admin Kelola Aset;
+endpoint daftar status admin menyusul. Kandidat kontrak: `GET /api/admin/assets`
+menyertakan `derivedStatus` 3-state + `activeReportCount` (admin-only).
+
+**Notification types:** `REPORT_VERIFIED`, `REPORT_ASSIGNED`, `STATUS_CHANGED`,
+`PROGRESS_NOTE_ADDED`, `REPORT_RESOLVED`, `REPORT_CLOSED` (tanpa tipe
+`PUBLIC_UPDATE_ADDED`; `LAPORAN_PALSU` diproyeksikan netral di sisi pelapor).
+
+**UI-only (No. 11):** Dashboard Admin (kartu ringkasan, antrean prioritas, panel
+tugas per teknisi), Pengaturan Scoring, dan Laporan Maintenance (3 grafik +
+tabel) + Ekspor PDF digambar penuh di UI; endpoint menyusul.
 
 ## 7. Health
 

@@ -10,10 +10,10 @@
 // - `reporterId` ALWAYS comes from the session user, NEVER from the client —
 //   `normalizeCreateReportBody` deliberately drops any client-supplied
 //   reporter/user id before the repo sees the input.
-// - All 404s use the repo's exact `'Report not found'` message so a missing
-//   row, a foreign row (another reporter's ticket), and an unresolvable
-//   ticket/UUID reference produce byte-identical HTTP bodies (no existence
-//   oracle for other reporters' tickets).
+// - Missing/unresolvable report refs use the repo's exact
+//   `'Report not found'` message. Reporter detail is campus-wide and
+//   sanitized, so a foreign ticket is a normal 200; only attachments remain
+//   owner/admin-only.
 // - `getMyTimelineRoute` returns SANITIZED `TimelineEntry` rows (Phase 5
 //   reporter projection: no INTERNAL updates/notes, no actor/author PII);
 //   the reporter UI renders labels + timestamps only.
@@ -31,12 +31,14 @@ import {
   findReportByKey as repoFindReportByKey,
   getAdminReportDetail as repoGetAdminReportDetail,
   getAsset as repoGetAsset,
+  getCampusReportDetail as repoGetCampusReportDetail,
   getDb,
   getLocation as repoGetLocation,
   getMyReportDetail as repoGetMyReportDetail,
   getReporterTimeline as repoGetReporterTimeline,
   listAllReports as repoListAllReports,
   listAssets as repoListAssets,
+  listCampusReports as repoListCampusReports,
   listCategories as repoListCategories,
   listIssueTypes as repoListIssueTypes,
   listLocations as repoListLocations,
@@ -53,7 +55,10 @@ import {
   type FacilityAsset,
   type FacilityCategory,
   type IssueType,
+  type CampusReportDetail,
+  type CampusReportListResult,
   type ListAllReportsOptions,
+  type ListCampusReportsOptions,
   type ListMyReportsOptions,
   type Location,
   type Report,
@@ -129,9 +134,9 @@ export function classifyReportRef(ref: string): ReportRefKind {
 }
 
 // Resolves a reporter-facing `ref` (UUID or `MNT-…` ticket) to a row id.
-// Ticket lookups are scoped to `reporterId` when non-null (reporter routes:
-// resolve-then-check, foreign ticket → identical 404); admin routes pass
-// null (unscoped). Invalid UUIDs → 404, not 500.
+// Ticket lookups are scoped to `reporterId` when non-null (own-report paths:
+// resolve-then-check, foreign ticket → identical 404); campus and admin
+// routes pass null (unscoped). Invalid UUIDs → 404, not 500.
 export async function resolveReportId(
   db: ReportQueryDb,
   reporterId: string | null,
@@ -365,9 +370,17 @@ function parseBaseListQuery(params: URLSearchParams): ListMyReportsOptions {
 }
 
 // Pure parser for `GET /api/reports` query (?status&categoryId&locationId&
-// priority&from&to&limit&offset&sort).
+// priority&from&to&limit&offset&sort&mine). `mine=1|true` selects the
+// "Laporan Saya" filter; absence means the whole campus.
 export function parseMyReportsQuery(url: string | URL): ListMyReportsOptions {
   return parseBaseListQuery(searchParamsOf(url));
+}
+
+export function parseCampusReportsQuery(url: string | URL): ListCampusReportsOptions {
+  const params = searchParamsOf(url);
+  const base = parseBaseListQuery(params);
+  const mine = queryParam(params, ['mine']);
+  return mine === '1' || mine === 'true' ? { ...base, mine: true } : base;
 }
 
 // Pure parser for `GET /api/admin/reports` query (base filters +
@@ -403,6 +416,23 @@ export async function listMyReportsRoute(
   }
 }
 
+// Campus-wide list for any authenticated reporter (UI No. 5). The session
+// user is only used for the `mine` filter and the per-row `isOwn` badge;
+// no client-supplied reporter id is accepted.
+export async function listCampusReportsRoute(
+  req: Request,
+  url: string | URL,
+): Promise<CampusReportListResult> {
+  const user = await requireUser(req);
+  const options = parseCampusReportsQuery(url);
+  const conn = getDb();
+  try {
+    return await repoListCampusReports(conn.db, user.id, options);
+  } finally {
+    await conn.close().catch(() => undefined);
+  }
+}
+
 export async function listAllReportsRoute(
   req: Request,
   url: string | URL,
@@ -427,6 +457,23 @@ export async function getMyReportRoute(req: Request, ref: string): Promise<Repor
   try {
     const id = await resolveReportId(conn.db, user.id, ref);
     return await repoGetMyReportDetail(conn.db, user.id, id);
+  } finally {
+    await conn.close().catch(() => undefined);
+  }
+}
+
+// Campus-wide reporter detail (UI No. 5). Ticket refs resolve unscoped;
+// the repo returns 404 only when the ticket is genuinely missing and
+// sanitizes another reporter's view (no identity/technician/attachments).
+export async function getCampusReportRoute(
+  req: Request,
+  ref: string,
+): Promise<CampusReportDetail> {
+  const user = await requireUser(req);
+  const conn = getDb();
+  try {
+    const id = await resolveReportId(conn.db, null, ref);
+    return await repoGetCampusReportDetail(conn.db, user.id, id);
   } finally {
     await conn.close().catch(() => undefined);
   }

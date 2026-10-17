@@ -44,6 +44,7 @@ import {
   createReport,
   findDuplicateCandidates,
   getAdminReportDetail,
+  getCampusReportDetail,
   getJakartaYear,
   getMyReportDetail,
   getMyReportTimeline,
@@ -51,6 +52,7 @@ import {
   isUniqueViolation,
   linkSupportingReport,
   listAllReports,
+  listCampusReports,
   listMyReports,
   reportOrderBy,
   validateCreateReportInput,
@@ -1584,6 +1586,40 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
       (error: unknown) => error,
     );
     expect(String((foreign as Error).message)).toBe(String((missing as Error).message));
+  });
+
+  it('lists every campus ticket with a sanitized projection; mine narrows to the viewer', async () => {
+    const campus = await listCampusReports(db!, reporterB, {});
+    expect(campus.total).toBe(5);
+    expect(campus.items).toHaveLength(5);
+    expect(campus.items.filter((item) => item.isOwn)).toHaveLength(2);
+    for (const item of campus.items) {
+      expect(Object.keys(item)).not.toContain('reporterId');
+      expect(Object.keys(item)).not.toContain('idempotencyKey');
+    }
+
+    const mine = await listCampusReports(db!, reporterB, { mine: true });
+    expect(mine.total).toBe(2);
+    expect(mine.items).toHaveLength(2);
+    expect(mine.items.every((item) => item.isOwn)).toBe(true);
+  });
+
+  it('returns sanitized campus detail for another reporter but owner-only attachments/candidates', async () => {
+    const foreign = await getCampusReportDetail(db!, reporterB, a1Id);
+    expect(foreign.isOwn).toBe(false);
+    expect(foreign.attachments).toEqual([]);
+    expect(foreign.duplicateCandidates).toEqual([]);
+    expect(Object.keys(foreign.report)).not.toContain('reporterId');
+    expect(Object.keys(foreign.report)).not.toContain('idempotencyKey');
+    expect(foreign.report.ticketNumber).toBe(a1Ticket);
+    for (const relation of foreign.relations) {
+      expect(Object.keys(relation)).not.toContain('createdBy');
+    }
+
+    const own = await getCampusReportDetail(db!, reporterA, a1Id);
+    expect(own.isOwn).toBe(true);
+    expect(own.attachments).toHaveLength(1);
+    expect(own.duplicateCandidates.length).toBeGreaterThan(0);
   });
 
   it('sees all 5 rows from the admin list with total matching items length', async () => {

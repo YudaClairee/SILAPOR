@@ -1,16 +1,13 @@
-// Reporter report detail (Phase 3 P3-4): GET one of mine.
-//
-// Reporter-only: `requireUser` inside the try (401 anonymous); the service
-// layer re-guards on the same request. `:id` accepts a row UUID or a ticket
-// number (`MNT-…`, resolved then ownership-checked); missing, foreign, and
-// unresolvable references all → identical 404. Returns `{ report,
-// attachments, events, relations, duplicateCandidates }`. See reports.ts
-// for the guard/log contract.
+// Reporter report detail (Phase 3 P3-4 + UI No. 5): GET a sanitized campus
+// ticket. Any authenticated reporter may open any ticket; the repo hides
+// reporter identity, technician identity, other reporters' attachments, and
+// internal notes. Missing/unresolvable references → 404. Returns
+// `{ report, isOwn, attachments, events, relations, duplicateCandidates }`.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
 import { createLogger, redact, toHttpResponse, withRequestId } from '@silapor/shared';
 import { requireUser } from '../../server/auth';
-import { getMyReportRoute } from '../../server/reports';
+import { getCampusReportRoute } from '../../server/reports';
 
 const logger = createLogger({ service: 'web' });
 const ROUTE = '/api/reports/$id';
@@ -23,7 +20,7 @@ export const Route = createFileRoute('/api/reports/$id')({
           const started = Date.now();
           try {
             const user = await requireUser(request);
-            const result = await getMyReportRoute(request, params.id);
+            const result = await getCampusReportRoute(request, params.id);
             logger.info('report read', {
               route: ROUTE,
               result: 'ok',

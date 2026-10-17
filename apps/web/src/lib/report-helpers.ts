@@ -224,11 +224,15 @@ function isKnownStatus(value: string): boolean {
 export function buildMyReportsQuery(input: {
   readonly filter?: string | undefined;
   readonly status?: string | undefined;
+  readonly mine?: boolean | undefined;
   readonly offset?: number | undefined;
 }): string {
   const search = new URLSearchParams();
   search.set('sort', 'reported_desc');
   search.set('limit', '50');
+  if (input.mine === true) {
+    search.set('mine', '1');
+  }
   const offset = input.offset ?? 0;
   search.set('offset', String(Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0));
   const exact = input.status ?? '';
