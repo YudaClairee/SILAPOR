@@ -19,6 +19,8 @@ import { Route as ApiNotificationsRouteImport } from './routes/api/notifications
 import { Route as ApiReportsRouteImport } from './routes/api/reports'
 import { Route as ApiUploadsRouteImport } from './routes/api/uploads'
 import { Route as ReporterNotifikasiRouteImport } from './routes/reporter.notifikasi'
+import { Route as AdminFacilitiesIndexRouteImport } from './routes/admin.facilities.index'
+import { Route as AdminFacilitiesAssetIdRouteImport } from './routes/admin.facilities.$assetId'
 import { Route as AdminReportsIndexRouteImport } from './routes/admin.reports.index'
 import { Route as AdminReportsTicketRouteImport } from './routes/admin.reports.$ticket'
 import { Route as ApiAdminAssetsRouteImport } from './routes/api/admin/assets'
@@ -30,6 +32,7 @@ import { Route as ApiAdminTechniciansRouteImport } from './routes/api/admin/tech
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
+import { Route as ApiFacilitiesStatusRouteImport } from './routes/api/facilities.status'
 import { Route as ApiNotificationsReadAllRouteImport } from './routes/api/notifications.read-all'
 import { Route as ApiReportsIdRouteImport } from './routes/api/reports.$id'
 import { Route as ApiReportsDuplicateCheckRouteImport } from './routes/api/reports.duplicate-check'
@@ -46,6 +49,7 @@ import { Route as ApiAdminTechniciansIdRouteImport } from './routes/api/admin/te
 import { Route as ApiNotificationsIdReadRouteImport } from './routes/api/notifications.$id.read'
 import { Route as ApiReportsIdAttachmentsRouteImport } from './routes/api/reports.$id.attachments'
 import { Route as ApiReportsIdTimelineRouteImport } from './routes/api/reports.$id.timeline'
+import { Route as ApiAdminAssetsIdHistoryRouteImport } from './routes/api/admin/assets.$id.history'
 import { Route as ApiAdminReportsIdAssignRouteImport } from './routes/api/admin/reports.$id.assign'
 import { Route as ApiAdminReportsIdTimelineRouteImport } from './routes/api/admin/reports.$id.timeline'
 import { Route as ApiAdminReportsIdTransitionRouteImport } from './routes/api/admin/reports.$id.transition'
@@ -103,6 +107,16 @@ const ReporterNotifikasiRoute = ReporterNotifikasiRouteImport.update({
   path: '/notifikasi',
   getParentRoute: () => ReporterRoute,
 } as any)
+const AdminFacilitiesIndexRoute = AdminFacilitiesIndexRouteImport.update({
+  id: '/facilities/',
+  path: '/facilities/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminFacilitiesAssetIdRoute = AdminFacilitiesAssetIdRouteImport.update({
+  id: '/facilities/$assetId',
+  path: '/facilities/$assetId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminReportsIndexRoute = AdminReportsIndexRouteImport.update({
   id: '/reports/',
   path: '/reports/',
@@ -156,6 +170,11 @@ const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
 const ApiAuthMeRoute = ApiAuthMeRouteImport.update({
   id: '/api/auth/me',
   path: '/api/auth/me',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiFacilitiesStatusRoute = ApiFacilitiesStatusRouteImport.update({
+  id: '/api/facilities/status',
+  path: '/api/facilities/status',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiNotificationsReadAllRoute = ApiNotificationsReadAllRouteImport.update({
@@ -239,6 +258,11 @@ const ApiReportsIdTimelineRoute = ApiReportsIdTimelineRouteImport.update({
   path: '/timeline',
   getParentRoute: () => ApiReportsIdRoute,
 } as any)
+const ApiAdminAssetsIdHistoryRoute = ApiAdminAssetsIdHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => ApiAdminAssetsIdRoute,
+} as any)
 const ApiAdminReportsIdAssignRoute = ApiAdminReportsIdAssignRouteImport.update({
   id: '/assign',
   path: '/assign',
@@ -285,6 +309,7 @@ export interface FileRoutesByFullPath {
   '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/uploads': typeof ApiUploadsRoute
   '/reporter/notifikasi': typeof ReporterNotifikasiRoute
+  '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -295,15 +320,17 @@ export interface FileRoutesByFullPath {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/facilities/status': typeof ApiFacilitiesStatusRoute
   '/api/notifications/read-all': typeof ApiNotificationsReadAllRoute
   '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
   '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
+  '/admin/facilities/': typeof AdminFacilitiesIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
   '/reporter/reports/': typeof ReporterReportsIndexRoute
-  '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
+  '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
@@ -312,6 +339,7 @@ export interface FileRoutesByFullPath {
   '/api/notifications/$id/read': typeof ApiNotificationsIdReadRoute
   '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/admin/assets/$id/history': typeof ApiAdminAssetsIdHistoryRoute
   '/api/admin/reports/$id/assign': typeof ApiAdminReportsIdAssignRoute
   '/api/admin/reports/$id/timeline': typeof ApiAdminReportsIdTimelineRoute
   '/api/admin/reports/$id/transition': typeof ApiAdminReportsIdTransitionRoute
@@ -330,6 +358,7 @@ export interface FileRoutesByTo {
   '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/uploads': typeof ApiUploadsRoute
   '/reporter/notifikasi': typeof ReporterNotifikasiRoute
+  '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -340,15 +369,17 @@ export interface FileRoutesByTo {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/facilities/status': typeof ApiFacilitiesStatusRoute
   '/api/notifications/read-all': typeof ApiNotificationsReadAllRoute
   '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
   '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
+  '/admin/facilities': typeof AdminFacilitiesIndexRoute
   '/admin/reports': typeof AdminReportsIndexRoute
   '/reporter/reports': typeof ReporterReportsIndexRoute
-  '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
+  '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
@@ -357,6 +388,7 @@ export interface FileRoutesByTo {
   '/api/notifications/$id/read': typeof ApiNotificationsIdReadRoute
   '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/admin/assets/$id/history': typeof ApiAdminAssetsIdHistoryRoute
   '/api/admin/reports/$id/assign': typeof ApiAdminReportsIdAssignRoute
   '/api/admin/reports/$id/timeline': typeof ApiAdminReportsIdTimelineRoute
   '/api/admin/reports/$id/transition': typeof ApiAdminReportsIdTransitionRoute
@@ -376,6 +408,7 @@ export interface FileRoutesById {
   '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/uploads': typeof ApiUploadsRoute
   '/reporter/notifikasi': typeof ReporterNotifikasiRoute
+  '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -386,15 +419,17 @@ export interface FileRoutesById {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/facilities/status': typeof ApiFacilitiesStatusRoute
   '/api/notifications/read-all': typeof ApiNotificationsReadAllRoute
   '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
   '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
+  '/admin/facilities/': typeof AdminFacilitiesIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
   '/reporter/reports/': typeof ReporterReportsIndexRoute
-  '/api/admin/assets/$id': typeof ApiAdminAssetsIdRoute
+  '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
   '/api/admin/locations/$id': typeof ApiAdminLocationsIdRoute
@@ -403,6 +438,7 @@ export interface FileRoutesById {
   '/api/notifications/$id/read': typeof ApiNotificationsIdReadRoute
   '/api/reports/$id/attachments': typeof ApiReportsIdAttachmentsRouteWithChildren
   '/api/reports/$id/timeline': typeof ApiReportsIdTimelineRoute
+  '/api/admin/assets/$id/history': typeof ApiAdminAssetsIdHistoryRoute
   '/api/admin/reports/$id/assign': typeof ApiAdminReportsIdAssignRoute
   '/api/admin/reports/$id/timeline': typeof ApiAdminReportsIdTimelineRoute
   '/api/admin/reports/$id/transition': typeof ApiAdminReportsIdTransitionRoute
@@ -423,6 +459,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/api/uploads'
     | '/reporter/notifikasi'
+    | '/admin/facilities/$assetId'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -433,12 +470,14 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/me'
+    | '/api/facilities/status'
     | '/api/notifications/read-all'
     | '/api/reports/$id'
     | '/api/reports/duplicate-check'
     | '/api/reports/form-options'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
+    | '/admin/facilities/'
     | '/admin/reports/'
     | '/reporter/reports/'
     | '/api/admin/assets/$id'
@@ -450,6 +489,7 @@ export interface FileRouteTypes {
     | '/api/notifications/$id/read'
     | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/admin/assets/$id/history'
     | '/api/admin/reports/$id/assign'
     | '/api/admin/reports/$id/timeline'
     | '/api/admin/reports/$id/transition'
@@ -468,6 +508,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/api/uploads'
     | '/reporter/notifikasi'
+    | '/admin/facilities/$assetId'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -478,12 +519,14 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/me'
+    | '/api/facilities/status'
     | '/api/notifications/read-all'
     | '/api/reports/$id'
     | '/api/reports/duplicate-check'
     | '/api/reports/form-options'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
+    | '/admin/facilities'
     | '/admin/reports'
     | '/reporter/reports'
     | '/api/admin/assets/$id'
@@ -495,6 +538,7 @@ export interface FileRouteTypes {
     | '/api/notifications/$id/read'
     | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/admin/assets/$id/history'
     | '/api/admin/reports/$id/assign'
     | '/api/admin/reports/$id/timeline'
     | '/api/admin/reports/$id/transition'
@@ -513,6 +557,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/api/uploads'
     | '/reporter/notifikasi'
+    | '/admin/facilities/$assetId'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -523,12 +568,14 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/logout'
     | '/api/auth/me'
+    | '/api/facilities/status'
     | '/api/notifications/read-all'
     | '/api/reports/$id'
     | '/api/reports/duplicate-check'
     | '/api/reports/form-options'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
+    | '/admin/facilities/'
     | '/admin/reports/'
     | '/reporter/reports/'
     | '/api/admin/assets/$id'
@@ -540,6 +587,7 @@ export interface FileRouteTypes {
     | '/api/notifications/$id/read'
     | '/api/reports/$id/attachments'
     | '/api/reports/$id/timeline'
+    | '/api/admin/assets/$id/history'
     | '/api/admin/reports/$id/assign'
     | '/api/admin/reports/$id/timeline'
     | '/api/admin/reports/$id/transition'
@@ -567,6 +615,7 @@ export interface RootRouteChildren {
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthMeRoute: typeof ApiAuthMeRoute
+  ApiFacilitiesStatusRoute: typeof ApiFacilitiesStatusRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -640,6 +689,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/reporter/notifikasi'
       preLoaderRoute: typeof ReporterNotifikasiRouteImport
       parentRoute: typeof ReporterRoute
+    }
+    '/admin/facilities/': {
+      id: '/admin/facilities/'
+      path: '/facilities'
+      fullPath: '/admin/facilities/'
+      preLoaderRoute: typeof AdminFacilitiesIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/facilities/$assetId': {
+      id: '/admin/facilities/$assetId'
+      path: '/facilities/$assetId'
+      fullPath: '/admin/facilities/$assetId'
+      preLoaderRoute: typeof AdminFacilitiesAssetIdRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/reports/': {
       id: '/admin/reports/'
@@ -716,6 +779,13 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/me'
       fullPath: '/api/auth/me'
       preLoaderRoute: typeof ApiAuthMeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/facilities/status': {
+      id: '/api/facilities/status'
+      path: '/api/facilities/status'
+      fullPath: '/api/facilities/status'
+      preLoaderRoute: typeof ApiFacilitiesStatusRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/notifications/read-all': {
@@ -830,6 +900,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReportsIdTimelineRouteImport
       parentRoute: typeof ApiReportsIdRoute
     }
+    '/api/admin/assets/$id/history': {
+      id: '/api/admin/assets/$id/history'
+      path: '/history'
+      fullPath: '/api/admin/assets/$id/history'
+      preLoaderRoute: typeof ApiAdminAssetsIdHistoryRouteImport
+      parentRoute: typeof ApiAdminAssetsIdRoute
+    }
     '/api/admin/reports/$id/assign': {
       id: '/api/admin/reports/$id/assign'
       path: '/assign'
@@ -876,12 +953,16 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminFacilitiesAssetIdRoute: typeof AdminFacilitiesAssetIdRoute
   AdminReportsTicketRoute: typeof AdminReportsTicketRoute
+  AdminFacilitiesIndexRoute: typeof AdminFacilitiesIndexRoute
   AdminReportsIndexRoute: typeof AdminReportsIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminFacilitiesAssetIdRoute: AdminFacilitiesAssetIdRoute,
   AdminReportsTicketRoute: AdminReportsTicketRoute,
+  AdminFacilitiesIndexRoute: AdminFacilitiesIndexRoute,
   AdminReportsIndexRoute: AdminReportsIndexRoute,
 }
 
@@ -963,12 +1044,23 @@ const ApiReportsRouteWithChildren = ApiReportsRoute._addFileChildren(
   ApiReportsRouteChildren,
 )
 
+interface ApiAdminAssetsIdRouteChildren {
+  ApiAdminAssetsIdHistoryRoute: typeof ApiAdminAssetsIdHistoryRoute
+}
+
+const ApiAdminAssetsIdRouteChildren: ApiAdminAssetsIdRouteChildren = {
+  ApiAdminAssetsIdHistoryRoute: ApiAdminAssetsIdHistoryRoute,
+}
+
+const ApiAdminAssetsIdRouteWithChildren =
+  ApiAdminAssetsIdRoute._addFileChildren(ApiAdminAssetsIdRouteChildren)
+
 interface ApiAdminAssetsRouteChildren {
-  ApiAdminAssetsIdRoute: typeof ApiAdminAssetsIdRoute
+  ApiAdminAssetsIdRoute: typeof ApiAdminAssetsIdRouteWithChildren
 }
 
 const ApiAdminAssetsRouteChildren: ApiAdminAssetsRouteChildren = {
-  ApiAdminAssetsIdRoute: ApiAdminAssetsIdRoute,
+  ApiAdminAssetsIdRoute: ApiAdminAssetsIdRouteWithChildren,
 }
 
 const ApiAdminAssetsRouteWithChildren = ApiAdminAssetsRoute._addFileChildren(
@@ -1069,6 +1161,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthMeRoute: ApiAuthMeRoute,
+  ApiFacilitiesStatusRoute: ApiFacilitiesStatusRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
