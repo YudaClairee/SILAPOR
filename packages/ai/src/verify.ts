@@ -50,7 +50,12 @@ export const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completion
 
 function isDisallowedModel(model: string): boolean {
   const slug = model.toLowerCase();
-  return slug.includes('auto') || slug.includes('latest');
+  // Slugs match only on exact boundaries: `openrouter/auto` (the auto-router)
+  // and any model whose last `/`- or `:`-separated segment is exactly
+  // `latest` (unpinned alias tags like `vendor/model:latest`). Legit slugs
+  // that merely contain the substring (e.g. `vendor/autonomous-x`) pass.
+  const lastSegment = slug.split(/[:/]/).pop() ?? '';
+  return slug === 'openrouter/auto' || lastSegment === 'latest';
 }
 
 function photoRef(photo: VerifyPhoto | string): string {
@@ -111,7 +116,12 @@ export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promis
     return { kind: 'FAIL', reason: 'INVALID_INPUT' };
   }
   const model = opts.model ?? '';
-  if (model !== '' && isDisallowedModel(model)) {
+  if (model === '') {
+    // An empty resolved model is a server deployment fault (no pinned slug),
+    // not reporter evidence: hold for admin instead of logging a FAIL 422.
+    return { kind: 'DOWN' };
+  }
+  if (isDisallowedModel(model)) {
     return { kind: 'FAIL', reason: 'UNKNOWN_MODEL', model };
   }
   const fetchImpl = opts.fetch ?? fetch;
@@ -155,7 +165,9 @@ export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promis
       signal: controller.signal,
     });
   } catch {
-    // Timeouts, 5xx, 429, and network aborts are transient, so the report is held for admin rather than rejected.
+    // Only timeouts and network aborts reach this catch (5xx and 429 are
+    // classified below), and both are transient, so the report is held for
+    // admin rather than rejected.
     return { kind: 'DOWN' };
   } finally {
     clearTimeout(timer);

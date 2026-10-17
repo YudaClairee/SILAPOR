@@ -181,3 +181,7 @@ export function scorePriority(input: PriorityScoreInput): PriorityScoreResult {
     scoringConfigVersion: SCORING_CONFIG_VERSION,
   };
 }
+
+// Task 2: AI-verdict mapping (pure, no imports beyond this package).
+export { mapAiVerdict } from './ai-verdict.js';
+export type { AiVerdictInput, AiVerdictResult } from './ai-verdict.js';

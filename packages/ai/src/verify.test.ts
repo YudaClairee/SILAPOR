@@ -68,7 +68,7 @@ describe('verifyReport', () => {
   });
 
   it('rejects disallowed model slugs as FAIL without calling fetch', async () => {
-    for (const model of ['openrouter/auto', 'some-model:latest']) {
+    for (const model of ['openrouter/auto', 'some-model:latest', 'Some/Model/LATEST']) {
       const fetch = vi.fn(hangingFetch);
       const out = await verifyReport(input, { ...opts, model, fetch });
       expect(out.kind).toBe('FAIL');
@@ -76,9 +76,23 @@ describe('verifyReport', () => {
     }
   });
 
-  it('maps a blank-model upstream rejection to FAIL', async () => {
-    const out = await verifyReport(input, { ...opts, model: '', fetch: jsonFetch(400, { error: 'no model' }) });
-    expect(out.kind).toBe('FAIL');
+  it('accepts model slugs that merely contain the banned substrings', async () => {
+    for (const model of ['vendor/autonomous-x', 'vendor/latestdump', 'openrouter/auto-cart']) {
+      const fetch = jsonFetch(200, verdictBody({ verdict: 'FAIL', reason: 'Unclear.' }));
+      const out = await verifyReport(input, { ...opts, model, fetch });
+      expect(out.kind).toBe('FAIL');
+      if (out.kind !== 'FAIL') {
+        throw new Error('expected a FAIL');
+      }
+      expect(out.model).toBe(model);
+    }
+  });
+
+  it('maps an empty resolved model to DOWN without calling fetch', async () => {
+    const fetch = vi.fn(hangingFetch);
+    const out = await verifyReport(input, { ...opts, model: '', fetch });
+    expect(out).toEqual({ kind: 'DOWN' });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('returns raw PASS codes with model, confidence, and reasons', async () => {

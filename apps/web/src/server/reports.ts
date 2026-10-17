@@ -64,9 +64,16 @@ import {
   type SupportingRelationRef,
   type TimelineEntry,
 } from '@silapor/database';
-import { scorePriority } from '@silapor/domain';
+import { mapAiVerdict, scorePriority } from '@silapor/domain';
 import { verifyReport as aiVerifyReport } from '@silapor/ai';
-import { badRequest, getRuntimeConfig, internal, isAppError, notFound } from '@silapor/shared';
+import {
+  badRequest,
+  conflict,
+  getRuntimeConfig,
+  internal,
+  isAppError,
+  notFound,
+} from '@silapor/shared';
 import { createAttachmentStorage, type AttachmentStorage } from '@silapor/storage';
 import { requireAdmin, requireUser } from './auth';
 import { removeStagedObjects, resolveStagedPhotoKeys } from './uploads.js';
@@ -653,54 +660,9 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   };
 }
 
-export interface SubmitAiVerdictInput {
-  readonly impliedCategory: string;
-  readonly assetCategory: string;
-  readonly category: string;
-  readonly issueType: string;
-  readonly priority: string;
-  readonly categories: readonly string[];
-  readonly issueTypes: readonly string[];
-}
-
-export type SubmitAiVerdict =
-  | { ok: true; categoryCode: string; issueTypeCode: string; priority: string }
-  | { ok: false; reason: 'WRONG_ASSET' | 'UNCLEAR_EVIDENCE' | 'UNKNOWN_CODE' };
-
-// Local copy of the Task 2 mapping (kept in sync by hand: `@silapor/domain`
-// does not export `mapAiVerdict`, and this package must not deep-import it).
-export function mapSubmitAiVerdict(input: SubmitAiVerdictInput): SubmitAiVerdict {
-  const raw = (input ?? {}) as unknown as Partial<Record<string, unknown>>;
-  const implied =
-    typeof raw['impliedCategory'] === 'string' ? (raw['impliedCategory'] as string).trim() : '';
-  if (implied === '') {
-    return { ok: false, reason: 'UNCLEAR_EVIDENCE' };
-  }
-  if (
-    typeof raw['assetCategory'] !== 'string' ||
-    typeof raw['category'] !== 'string' ||
-    typeof raw['issueType'] !== 'string'
-  ) {
-    return { ok: false, reason: 'UNKNOWN_CODE' };
-  }
-  const assetCategory = (raw['assetCategory'] as string).trim();
-  const category = (raw['category'] as string).trim();
-  const issueType = (raw['issueType'] as string).trim();
-  const priority =
-    typeof raw['priority'] === 'string' ? (raw['priority'] as string).trim() : input.priority;
-  if (
-    !input.categories.includes(implied) ||
-    !input.categories.includes(assetCategory) ||
-    !input.categories.includes(category) ||
-    !input.issueTypes.includes(issueType)
-  ) {
-    return { ok: false, reason: 'UNKNOWN_CODE' };
-  }
-  if (implied !== assetCategory) {
-    return { ok: false, reason: 'WRONG_ASSET' };
-  }
-  return { ok: true, categoryCode: category, issueTypeCode: issueType, priority };
-}
+// The Task 2 mapping is imported from `@silapor/domain` (`mapAiVerdict`) so
+// the submit path and any other consumer share one hand-sync risk instead of
+// a third copy drifting silently.
 
 const REPORTER_REASONS: Record<string, string> = {
   INVALID_INPUT:
@@ -747,13 +709,18 @@ export type SubmitVerifyOutcome =
 
 export type SubmitVerifyFn = (
   input: SubmitVerifyInput,
-  opts: { readonly timeoutMs: number; readonly model?: string },
+  opts: {
+    readonly timeoutMs: number;
+    readonly model?: string;
+    readonly apiKey?: string;
+  },
 ) => Promise<SubmitVerifyOutcome>;
 
 export interface SubmitVerifyDeps {
   readonly verify?: SubmitVerifyFn;
   readonly timeoutMs?: number;
   readonly model?: string;
+  readonly apiKey?: string;
   readonly storage?: AttachmentStorage;
 }
 
@@ -787,11 +754,25 @@ export type SubmitVerifiedResult =
       readonly message: string;
       readonly verification: { readonly status: 'HELD' };
     }
+  | {
+      // Auto-merged as SUPPORTING evidence into another reporter's active
+      // ticket at submit: the row + relation stay for audit, verification is
+      // deliberately skipped in favor of the target's.
+      readonly status: 201;
+      readonly ticketNumber: string;
+      readonly report: Report;
+      readonly relation: SupportingRelationRef;
+      readonly duplicateCandidates: DuplicateCandidate[];
+      readonly message: string;
+      readonly verification: { readonly status: 'MERGED' };
+    }
   | { readonly status: 422; readonly reason: string };
 
-// Timeout/model resolution uses the shared runtime config (AI_VERIFY_TIMEOUT_MS,
-// OPENROUTER_MODEL) unless the caller overrides them; empty model keeps the
-// AI package's pinned default. Direct process.env reads are forbidden here.
+// Timeout/model/key resolution uses the shared runtime config
+// (AI_VERIFY_TIMEOUT_MS, OPENROUTER_MODEL, OPENROUTER_API_KEY) unless the
+// caller overrides them; an empty model or key resolves to undefined. Empty
+// values are deployment faults handled below (held), never reporter rejections.
+// Direct process.env reads are forbidden here.
 function resolveVerifyTimeoutMs(override?: number): number {
   if (override !== undefined && Number.isSafeInteger(override) && override > 0) {
     return override;
@@ -804,18 +785,29 @@ function resolveAiModel(override?: string): string | undefined {
   return configured === '' ? undefined : configured;
 }
 
+function resolveAiApiKey(override?: string): string | undefined {
+  const configured = (override ?? getRuntimeConfig().openrouterApiKey).trim();
+  return configured === '' ? undefined : configured;
+}
+
 // Static dependency on `@silapor/ai` (no lazy-load fallback): the AI client
 // itself classifies upstream errors into FAIL (deterministic) or DOWN
 // (transient), so any unexpected throw only falls back to held, never
 // rejected.
 async function defaultSubmitVerify(
   input: SubmitVerifyInput,
-  opts: { readonly timeoutMs: number; readonly model?: string },
+  opts: { readonly timeoutMs: number; readonly model?: string; readonly apiKey?: string },
 ): Promise<SubmitVerifyOutcome> {
+  // An unconfigured API key is a deployment fault, not reporter evidence:
+  // hold for admin (same ruling as an unconfigured model), never 422.
+  if (opts.apiKey === undefined) {
+    return { kind: 'DOWN' };
+  }
   try {
     return await aiVerifyReport(input, {
       timeoutMs: opts.timeoutMs,
       ...(opts.model === undefined ? {} : { model: opts.model }),
+      apiKey: opts.apiKey,
     });
   } catch {
     return { kind: 'DOWN' };
@@ -841,8 +833,29 @@ async function compensateFailedSubmit(db: SubmitDb, reportId: string): Promise<v
   });
 }
 
+// The supporting-merged row is deliberately never verified (one verification
+// per incident lives on the target ticket), so its PENDING review request is
+// dropped — the queue worker would otherwise re-run the verification.
+async function dropPendingAiReview(db: SubmitDb, reportId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.type, 'AI_REVIEW_REQUESTED'),
+          eq(outboxEvents.status, 'PENDING'),
+          sql`${outboxEvents.payload}->>'reportId' = ${reportId}`,
+        ),
+      );
+  });
+}
+
 const HELD_MESSAGE =
   'Verification is temporarily unavailable. Your report has been saved and is waiting for review.';
+
+function mergedMessage(targetTicket: string): string {
+  return `Report saved as additional evidence for ticket ${targetTicket}, which covers the same incident. Follow that ticket for updates.`;
+}
 
 function normalizeAiPriority(value: string): 'LOW' | 'MEDIUM' | 'HIGH' | undefined {
   const priority = value.trim().toUpperCase();
@@ -855,7 +868,11 @@ function normalizeAiPriority(value: string): 'LOW' | 'MEDIUM' | 'HIGH' | undefin
 // Synchronous verified submit: duplicate-first create (a same-reporter
 // active block throws DUPLICATE_ACTIVE before any AI call), inline verify,
 // then PASS → VERIFIED + ticket (201), FAIL → 422 with no row left behind,
-// DOWN → held REPORTED + ticket (202). Idempotent replays skip AI.
+// DOWN → held REPORTED + ticket (202). A submit auto-merged as SUPPORTING
+// evidence into another reporter's ticket skips the AI call entirely: its
+// response (201 + MERGED) points the reporter at the target ticket and the
+// row stays unverified outside the hand-verify queue. Idempotent replays
+// skip AI.
 export async function submitVerifiedReport(
   req: Request,
   body: unknown,
@@ -870,6 +887,7 @@ export async function submitVerifiedReport(
   const normalized = normalizeVerifiedSubmitBody(body);
   const timeoutMs = resolveVerifyTimeoutMs(deps?.timeoutMs);
   const model = resolveAiModel(deps?.model);
+  const apiKey = resolveAiApiKey(deps?.apiKey);
   const verify = deps?.verify ?? defaultSubmitVerify;
   const conn = getDb();
   try {
@@ -910,14 +928,37 @@ export async function submitVerifiedReport(
       };
     }
     const report = created.report;
-    // FAIL cleanup removes the staged objects (best-effort) and rows so a
-    // rejected submit leaves no row, no ticket, and no staged leftovers
-    // (the TTL janitor backstops a removal failure; the 422 stands).
+    // Auto-gabung: another reporter's active ticket already runs the one
+    // verification for this incident, so the AI call and analysis row are
+    // suppressed entirely — the row stays REPORTED linked SUPPORTING (kept
+    // for audit, excluded from the hand-verify queue) with its photos
+    // attached, and the reply reports the merge instead of a verdict.
+    if (created.relation !== null) {
+      await dropPendingAiReview(conn.db, report.id);
+      await linkPhotosOrCompensate(report.id);
+      return {
+        status: 201,
+        ticketNumber: report.ticketNumber,
+        report,
+        relation: created.relation,
+        duplicateCandidates: created.duplicateCandidates,
+        message: mergedMessage(created.relation.targetTicket),
+        verification: { status: 'MERGED' },
+      };
+    }
+    // FAIL cleanup deletes only this submitter's UNCLAIMED staged rows so a
+    // concurrent submit's keys are never touched, then removes the storage
+    // objects whose rows were deleted (best-effort; the TTL janitor
+    // backstops a removal failure). The 422 stands either way.
     async function discardStagedPhotos(): Promise<void> {
-      const storage = deps?.storage ?? createAttachmentStorage();
-      await removeStagedObjects(storage, [...normalized.photoKeys]);
       try {
-        await repoDeleteStagedUploads(conn.db, [...normalized.photoKeys]);
+        const deleted = await repoDeleteStagedUploads(
+          conn.db,
+          user.id,
+          [...normalized.photoKeys],
+        );
+        const storage = deps?.storage ?? createAttachmentStorage();
+        await removeStagedObjects(storage, [...deleted]);
       } catch {
         // Janitor backstop — never flips the verdict.
       }
@@ -964,7 +1005,7 @@ export async function submitVerifiedReport(
         categories: categories.map((entry) => entry.code),
         issueTypes: issueTypes.map((entry) => entry.code),
       },
-      { timeoutMs, ...(model === undefined ? {} : { model }) },
+      { timeoutMs, ...(model === undefined ? {} : { model }), ...(apiKey === undefined ? {} : { apiKey }) },
     );
     // DOWN is transient (timeout/5xx/429): hold the REPORTED row with its
     // PENDING analysis for manual verification instead of rejecting it.
@@ -989,7 +1030,7 @@ export async function submitVerifiedReport(
       await compensateFailedSubmit(conn.db, report.id);
       return { status: 422, reason: toReporterReason(outcome.reason) };
     }
-    const mapped = mapSubmitAiVerdict({
+    const mapped = mapAiVerdict({
       impliedCategory: outcome.category,
       assetCategory: assetCategory.code,
       category: outcome.category,
@@ -1065,9 +1106,21 @@ export async function submitVerifiedReport(
         version: verified.version + 1,
         updatedAt: new Date(),
       })
-      .where(eq(maintenanceReports.id, verified.id))
+      .where(and(eq(maintenanceReports.id, verified.id), eq(maintenanceReports.version, verified.version)))
       .returning();
-    const finalRow = snapped[0] ?? verified;
+    const finalRow = snapped[0];
+    if (finalRow === undefined) {
+      // The row changed between verification and the snapshot — same mutating
+      // race as the FAIL path: mark the analysis failed, drop the staged
+      // leftovers, remove the row, and surface the conflict.
+      await repoMarkAiAnalysis(conn.db, analysis.id, {
+        status: 'FAILED',
+        errorCode: 'CONFLICT',
+      });
+      await discardStagedPhotos();
+      await compensateFailedSubmit(conn.db, report.id);
+      throw conflict('Report was modified during verification; please try again');
+    }
     // Photos link atomically with the claim before the analysis is marked,
     // so SUCCEEDED always means verified plus linked.
     await linkPhotosOrCompensate(finalRow.id);

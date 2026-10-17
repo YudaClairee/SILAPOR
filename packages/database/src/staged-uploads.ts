@@ -135,18 +135,35 @@ export async function claimStagedUploads(
   return claimed.map(toStagedUpload);
 }
 
+// Deletes staged rows for a key set. Only UNCLAIMED rows are ever deleted;
+// when `uploadedBy` is a UUID, also only that uploader's rows (the FAIL
+// path) — a key claimed by a concurrent submit's report in the same key
+// list therefore survives with its object. The janitor passes `null` (its
+// input rows are already unclaimed-only, and the claimed filter still
+// guards the list→delete race). Returns the keys whose rows were deleted,
+// so callers remove storage objects only for those keys.
 export async function deleteStagedUploads(
   db: Database,
+  uploadedBy: string | null,
   keys: readonly string[],
-): Promise<number> {
+): Promise<readonly string[]> {
+  // Validate before any query so pure tests fail loudly on the stub, not on
+  // the database seam.
+  const owner = uploadedBy === null ? null : requireUuid(uploadedBy, 'uploadedBy');
   if (keys.length === 0) {
-    return 0;
+    return [];
   }
   const deleted = await db
     .delete(schema.stagedUploads)
-    .where(inArray(schema.stagedUploads.storageKey, [...keys]))
+    .where(
+      and(
+        inArray(schema.stagedUploads.storageKey, [...keys]),
+        isNull(schema.stagedUploads.claimedReportId),
+        ...(owner === null ? [] : [eq(schema.stagedUploads.uploadedBy, owner)]),
+      ),
+    )
     .returning({ storageKey: schema.stagedUploads.storageKey });
-  return deleted.length;
+  return deleted.map((row) => row.storageKey);
 }
 
 export async function listExpiredUnclaimedStaged(
@@ -343,7 +360,7 @@ export async function cleanupStagedUploads(
       removed += 1;
     }
     if (expired.length > 0) {
-      await deleteStagedUploads(db, expired.map((row) => row.storageKey));
+      await deleteStagedUploads(db, null, expired.map((row) => row.storageKey));
     }
   }
   return {

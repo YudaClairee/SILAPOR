@@ -19,12 +19,15 @@ export interface RuntimeConfig {
   // warning logs.
   readonly authProvider: string;
   // AI verification (Task 2026-10-14): submit-time verify timeout in
-  // milliseconds (AI_VERIFY_TIMEOUT_MS; only positive integers are honored)
-  // and the pinned OpenRouter model slug (OPENROUTER_MODEL; empty when
-  // unset so the caller keeps its built-in default). Neither carries a
-  // secret — the API key is read by the AI package itself, server-side.
+  // milliseconds (AI_VERIFY_TIMEOUT_MS; only positive integers are honored),
+  // the pinned OpenRouter model slug (OPENROUTER_MODEL; empty when unset so
+  // the caller keeps its built-in default), and the OpenRouter API key
+  // (OPENROUTER_API_KEY; empty when unset — callers treat empty as a
+  // deployment fault and hold, never as a verdict). The key never leaves the
+  // server; every accessor is server-only.
   readonly aiVerifyTimeoutMs: number;
   readonly openrouterModel: string;
+  readonly openrouterApiKey: string;
 }
 
 const DEFAULT_PORT = 3000;
@@ -37,7 +40,8 @@ type EnvName =
   | 'PORT'
   | 'AUTH_PROVIDER'
   | 'AI_VERIFY_TIMEOUT_MS'
-  | 'OPENROUTER_MODEL';
+  | 'OPENROUTER_MODEL'
+  | 'OPENROUTER_API_KEY';
 
 function readEnv(name: EnvName): string | undefined {
   if (typeof process === 'undefined' || process.env === undefined) {
@@ -77,5 +81,6 @@ export function getRuntimeConfig(): RuntimeConfig {
     aiVerifyTimeoutMs:
       parsePositiveInt(readEnv('AI_VERIFY_TIMEOUT_MS')) ?? DEFAULT_AI_VERIFY_TIMEOUT_MS,
     openrouterModel: readEnv('OPENROUTER_MODEL') ?? '',
+    openrouterApiKey: readEnv('OPENROUTER_API_KEY') ?? '',
   };
 }

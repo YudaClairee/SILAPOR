@@ -347,7 +347,7 @@ export async function markAiAnalysis(
         .where(eq(schema.aiAnalyses.id, analysisId))
     )[0];
     if (existing === undefined) {
-      throw notFound('AI analysis not found');
+      throw notFound('Report not found');
     }
     patch.completedAt = existing.completedAt ?? new Date();
   } else {
@@ -362,7 +362,7 @@ export async function markAiAnalysis(
       .returning();
     const row = updated[0];
     if (row === undefined) {
-      throw notFound('AI analysis not found');
+      throw notFound('Report not found');
     }
     return row;
   } catch (error) {

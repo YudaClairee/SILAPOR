@@ -1174,13 +1174,88 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
         { finalCategoryId: catHvac, finalIssueTypeId: itHvac, finalPriority: 'LOW' },
       ),
     ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      applyVerification(db!, randomUUID(), {
-        finalCategoryId: catHvac,
-        finalIssueTypeId: itHvac,
-        finalPriority: 'LOW',
-      }),
-    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('floors a hand-verified DANGEROUS issue type to minimum HIGH', async () => {
+    const asset = await createAsset('T3-ASSET-AV-DANGER', catElec);
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('verifikasi berbahaya'),
+      },
+      randomUUID(),
+    );
+    const itDangerous = (
+      await db!
+        .insert(issueTypes)
+        .values({ code: 'DANGEROUS', name: 'T3 Dangerous', categoryId: catElec })
+        .returning({ id: issueTypes.id })
+    )[0]?.id as string;
+    // Hand verify writes DANGEROUS + LOW; the stored final must be floored.
+    const next = await applyVerification(
+      db!,
+      created.report.id,
+      { finalCategoryId: catElec, finalIssueTypeId: itDangerous, finalPriority: 'LOW' },
+    );
+    expect(next.status).toBe('VERIFIED');
+    expect(next.finalIssueTypeId).toBe(itDangerous);
+    expect(next.finalPriority).toBe('HIGH');
+    const events = await db!
+      .select()
+      .from(reportEvents)
+      .where(eq(reportEvents.reportId, created.report.id));
+    const verifiedEvent = events.find((e) => e.eventType === 'REPORT_VERIFIED');
+    expect((verifiedEvent?.metadata as Record<string, unknown>)?.['finalPriority']).toBe('HIGH');
+  });
+
+  it('hides supporting-merged unverified rows from the REPORTED queue but keeps them in list-all', async () => {
+    const reporterC = (
+      await db!
+        .insert(users)
+        .values({ username: `p32-queue-${randomUUID()}`, role: 'REPORTER' })
+        .returning({ id: users.id })
+    )[0]?.id as string;
+    const asset = await createAsset('T3-ASSET-QUEUE', catElec);
+    const target = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('antrian target pertama'),
+      },
+      randomUUID(),
+    );
+    const merged = await createReport(
+      db!,
+      {
+        reporterId: reporterC,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('antrian digabung kedua'),
+      },
+      randomUUID(),
+    );
+    expect(merged.relation).not.toBeNull();
+
+    const heldQueue = await listAllReports(db!, {
+      status: 'REPORTED',
+      reporterId: reporterC,
+    });
+    expect(heldQueue.items.map((r) => r.ticketNumber)).not.toContain(merged.report.ticketNumber);
+
+    const targetQueue = await listAllReports(db!, {
+      status: 'REPORTED',
+      reporterId: reporterA,
+    });
+    expect(targetQueue.items.map((r) => r.ticketNumber)).toContain(target.report.ticketNumber);
+
+    // Audit visibility: without a status filter the merged row still exists.
+    const unfiltered = await listAllReports(db!, { reporterId: reporterC });
+    expect(unfiltered.items.map((r) => r.ticketNumber)).toContain(merged.report.ticketNumber);
   });
 });
 it('reports Task 3 availability (informational)', () => {

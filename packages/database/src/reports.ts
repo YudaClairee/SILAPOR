@@ -23,7 +23,7 @@
 // `details`, 409 mapped to idempotent replay on a key race). This module logs
 // nothing and carries no PII in messages.
 
-import { and, asc, count, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, lte, ne, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
   AppError,
@@ -667,7 +667,8 @@ export interface ApplyVerificationInput {
 // fail with 400 instead of double-writing. SUPPORTING links are never
 // touched — verification must not disturb the submit-time auto-merge.
 // Priority scoring snapshots stay with the caller; this writes the decided
-// `finalPriority` verbatim.
+// `finalPriority`, floored to HIGH when the final issue type is DANGEROUS
+// (spec: DANGEROUS keeps minimum HIGH, for the AI path and hand verify alike).
 export async function applyVerification(
   db: Database,
   reportId: string,
@@ -770,6 +771,13 @@ export async function applyVerification(
         throw badRequest('Final category does not match asset category');
       }
 
+      // Spec floor: a DANGEROUS final issue type keeps minimum HIGH, whether
+      // the verdict came from the AI or a hand verify.
+      const finalPriority =
+        issueType.code === 'DANGEROUS' && finals.finalPriority !== 'HIGH'
+          ? 'HIGH'
+          : finals.finalPriority;
+
       const now = new Date();
       const updated = await tx
         .update(schema.maintenanceReports)
@@ -777,7 +785,7 @@ export async function applyVerification(
           status: 'VERIFIED',
           finalCategoryId: finals.finalCategoryId,
           finalIssueTypeId: finals.finalIssueTypeId,
-          finalPriority: finals.finalPriority,
+          finalPriority,
           verifiedAt: now,
           version: report.version + 1,
           updatedAt: now,
@@ -803,7 +811,7 @@ export async function applyVerification(
         metadata: {
           finalCategoryId: finals.finalCategoryId,
           finalIssueTypeId: finals.finalIssueTypeId,
-          finalPriority: finals.finalPriority,
+          finalPriority,
         },
       });
       return next;
@@ -1043,6 +1051,19 @@ async function queryReportList(
   }
   if (statuses !== undefined) {
     conditions.push(inArray(schema.maintenanceReports.status, statuses));
+    if (statuses.includes('REPORTED')) {
+      // Held-queue exclusion: rows auto-merged as SUPPORTING evidence at
+      // submit are never verified (one verification per incident lives on
+      // the target), so unclassified supporting-linked rows stay out of the
+      // REPORTED queue. Other status filters and list-all views keep them
+      // visible for audit.
+      conditions.push(
+        or(
+          isNotNull(schema.maintenanceReports.finalCategoryId),
+          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
+        ),
+      );
+    }
   }
   if (categoryId !== undefined) {
     // Verification may retarget the category, so the filter matches either.

@@ -186,13 +186,18 @@ describe('stageUploads', () => {
     setupReporter();
     const storage = mockStorage();
     recordStagedUploadMock.mockRejectedValueOnce(new Error('db down'));
-    deleteStagedUploadsMock.mockResolvedValue(1);
+    deleteStagedUploadsMock.mockResolvedValue(['first']);
     await expect(
       stageUploads(new Request('http://localhost/x'), [pngFile(), pngFile('b.png')], storage),
     ).rejects.toThrow('db down');
     expect(storage.put).toHaveBeenCalledTimes(2);
     expect(storage.remove).toHaveBeenCalledTimes(2);
     expect(deleteStagedUploadsMock).toHaveBeenCalledTimes(1);
+    expect(deleteStagedUploadsMock).toHaveBeenCalledWith(
+      FAKE_DB,
+      requireUserFake.id,
+      [expect.any(String), expect.any(String)],
+    );
   });
 });
 

@@ -140,7 +140,7 @@ export async function stageUploads(
       }
     } catch (error) {
       await Promise.allSettled(storedKeys.map((key) => storage.remove(key)));
-      await repoDeleteStagedUploads(conn.db, storedKeys).catch(() => undefined);
+      await repoDeleteStagedUploads(conn.db, user.id, storedKeys).catch(() => undefined);
       throw error;
     }
     return { keys: saves.map((save) => save.key) };

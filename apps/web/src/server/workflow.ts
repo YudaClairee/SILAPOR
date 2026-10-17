@@ -8,7 +8,7 @@
 //   (same helper shape as `normalizeCreateReportBody`); unknown shapes pass
 //   through so repo validators — not this layer — produce the 400.
 // - `expectedVersion` MUST be a present integer in every mutation body
-//   (400 `'expectedVersion' is required'` otherwise) — optimistic locking.
+//   (400 `expectedVersion is required` otherwise) — optimistic locking.
 // - The manual verify/reject/duplicate/priority mutations were removed per
 //   the 2026-10-14 AI verification design: submit verifies via AI (held on
 //   outage) and holds resolve through the held-verify transport in

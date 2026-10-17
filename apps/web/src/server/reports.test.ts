@@ -11,11 +11,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DuplicateActiveError, resolveReportSort } from '@silapor/database';
 import { conflict, notFound, toHttpResponse } from '@silapor/shared';
+import { mapAiVerdict } from '@silapor/domain';
 import type { AttachmentStorage } from '@silapor/storage';
 import {
   classifyReportRef,
   isReporterVisibleLocation,
-  mapSubmitAiVerdict,
   normalizeCreateReportBody,
   normalizeVerifiedSubmitBody,
   parseAdminReportsQuery,
@@ -49,6 +49,15 @@ const dbMocks = vi.hoisted(() => ({
   linkStagedUploads: vi.fn(),
   deleteStagedUploads: vi.fn(),
   requireUser: vi.fn(),
+}));
+
+const aiMocks = vi.hoisted(() => ({
+  verifyReport: vi.fn(),
+}));
+
+vi.mock('@silapor/ai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@silapor/ai')>()),
+  verifyReport: aiMocks.verifyReport,
 }));
 
 vi.mock('@silapor/database', async (importOriginal) => ({
@@ -387,7 +396,7 @@ function stagedRow() {
 function arrangeStagedKeys() {
   dbMocks.getStagedUploadsByKeys.mockResolvedValue([stagedRow()]);
   dbMocks.linkStagedUploads.mockResolvedValue([]);
-  dbMocks.deleteStagedUploads.mockResolvedValue(1);
+  dbMocks.deleteStagedUploads.mockResolvedValue([SUBMIT_STAGED_KEY]);
 }
 
 function fakeStorage(): AttachmentStorage {
@@ -531,7 +540,9 @@ describe('submitVerifiedReport held fallback', () => {
         update: () => ({
           set: () => ({
             where: () => ({
-              returning: async () => [],
+              returning: async () => [
+                { id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 },
+              ],
             }),
           }),
         }),
@@ -614,7 +625,9 @@ describe('submitVerifiedReport held fallback', () => {
         update: () => ({
           set: (values: unknown) => ({
             where: () => ({
-              returning: async () => [],
+              returning: async () => [
+                { id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 },
+              ],
             }),
           }),
         }),
@@ -683,7 +696,7 @@ describe('submitVerifiedReport held fallback', () => {
             where: () => ({
               returning: async () => {
                 calls.updated.push(values);
-                return [];
+                return [{ id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 }];
               },
             }),
           }),
@@ -786,7 +799,13 @@ describe('submitVerifiedReport held fallback', () => {
         transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
           cb({ delete: () => ({ where: async () => [] }) }),
         update: () => ({
-          set: () => ({ where: () => ({ returning: async () => [] }) }),
+          set: () => ({
+            where: () => ({
+              returning: async () => [
+                { id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 },
+              ],
+            }),
+          }),
         }),
       },
       close: async () => undefined,
@@ -829,7 +848,7 @@ describe('submitVerifiedReport held fallback', () => {
       storage: fakeStorage(),
     });
     expect(res.status).toBe(201);
-    if (res.status !== 201) {
+    if (res.status !== 201 || res.verification.status !== 'VERIFIED') {
       throw new Error('expected a verified submit result');
     }
     expect(res.verification.priority).toBe('HIGH');
@@ -896,9 +915,250 @@ describe('submitVerifiedReport held fallback', () => {
     expect(storage.remove).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
     expect(dbMocks.deleteStagedUploads).toHaveBeenCalledWith(
       expect.anything(),
+      SUBMIT_REPORTER_ID,
       [SUBMIT_STAGED_KEY],
     );
     expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
+  });
+
+  it('keeps keys claimed by another submit when the AI fails', async () => {
+    arrangeMasterContext();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    // Simulate the race: another submit claimed one of these keys between
+    // the staged resolve and the FAIL cleanup, so the repo deletes nothing.
+    dbMocks.deleteStagedUploads.mockResolvedValue([]);
+    const storage = fakeStorage();
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-claim-shield-1', {
+      verify: async () => ({ kind: 'FAIL', reason: 'UNCLEAR_EVIDENCE' }),
+      model: 'test-model',
+      timeoutMs: 50,
+      storage,
+    });
+    expect(res.status).toBe(422);
+    expect(storage.remove).not.toHaveBeenCalled();
+  });
+
+  it('compensates and 409s when the snapshot update loses a version race', async () => {
+    arrangeMasterContext();
+    let compensated = 0;
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({
+            delete: () => ({
+              where: async () => {
+                compensated += 1;
+                return [];
+              },
+            }),
+          }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: async () => [],
+            }),
+          }),
+        }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    dbMocks.applyVerification.mockResolvedValue({
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'VERIFIED',
+      version: 2,
+    });
+    const storage = fakeStorage();
+    await expect(
+      submitVerifiedReport(submitRequest(), submitBody(), 'key-snapshot-race-1', {
+        verify: async () => ({
+          kind: 'PASS',
+          category: 'PLUMBING',
+          issueType: 'LEAKING',
+          priority: 'MEDIUM',
+          confidence: 0.9,
+          reasons: ['photo shows a leak under the sink'],
+          model: 'test-model',
+          promptVersion: 'v1',
+          schemaVersion: 'v1',
+        }),
+        model: 'test-model',
+        timeoutMs: 50,
+        storage,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
+      expect.anything(),
+      SUBMIT_ANALYSIS_ID,
+      { status: 'FAILED', errorCode: 'CONFLICT' },
+    );
+    expect(compensated).toBeGreaterThan(0);
+    expect(dbMocks.deleteStagedUploads).toHaveBeenCalled();
+    expect(storage.remove).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
+  });
+
+  it('returns a merged outcome without any AI verification when auto-merged', async () => {
+    arrangeMasterContext();
+    let compensated = 0;
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({
+            delete: () => ({
+              where: async () => {
+                compensated += 1;
+                return [];
+              },
+            }),
+          }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000009',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: { type: 'SUPPORTING', targetTicket: 'MNT-2026-000001' },
+      idempotentReplay: false,
+    });
+    const verify = vi.fn().mockResolvedValue({ kind: 'DOWN' });
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-merged-1', {
+      verify,
+      model: 'test-model',
+      timeoutMs: 50,
+      storage: fakeStorage(),
+    });
+    expect(res.status).toBe(201);
+    const merged = res as Extract<
+      typeof res,
+      { verification: { status: 'MERGED' } }
+    >;
+    expect(merged.verification).toEqual({ status: 'MERGED' });
+    expect(merged.relation).toEqual({ type: 'SUPPORTING', targetTicket: 'MNT-2026-000001' });
+    expect(merged.message).toContain('MNT-2026-000001');
+    expect(verify).not.toHaveBeenCalled();
+    expect(dbMocks.recordAiAnalysis).not.toHaveBeenCalled();
+    expect(dbMocks.markAiAnalysis).not.toHaveBeenCalled();
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+    // Photos still attach to the merged row for audit.
+    expect(dbMocks.linkStagedUploads).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reportId: SUBMIT_REPORT_ID }),
+    );
+    // The PENDING AI review request is dropped so no worker re-verifies.
+    expect(compensated).toBeGreaterThan(0);
+  });
+
+  it('threads the OPENROUTER_API_KEY through the default verify call', async () => {
+    arrangeMasterContext();
+    dbMocks.getDb.mockReturnValue({ db: {}, close: async () => undefined });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    aiMocks.verifyReport.mockResolvedValue({ kind: 'DOWN' });
+    vi.stubEnv('OPENROUTER_API_KEY', 'test-openrouter-key');
+    try {
+      // No deps.verify: the default (real AI wiring) runs, holding as DOWN.
+      const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-aikey-1', {
+        model: 'test-model',
+        timeoutMs: 50,
+        storage: fakeStorage(),
+      });
+      expect(res.status).toBe(202);
+      expect(aiMocks.verifyReport).toHaveBeenCalledTimes(1);
+      const opts = aiMocks.verifyReport.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(opts['apiKey']).toBe('test-openrouter-key');
+      expect(opts['model']).toBe('test-model');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('holds without an AI call when no API key is configured', async () => {
+    arrangeMasterContext();
+    dbMocks.getDb.mockReturnValue({ db: {}, close: async () => undefined });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    aiMocks.verifyReport.mockRejectedValue(new Error('verify must not run without a key'));
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-nokey-1', {
+      model: 'test-model',
+      timeoutMs: 50,
+      storage: fakeStorage(),
+    });
+    expect(res.status).toBe(202);
+    if (res.status !== 202) {
+      throw new Error('expected a held submit result');
+    }
+    expect(res.verification).toEqual({ status: 'HELD' });
+    expect(aiMocks.verifyReport).not.toHaveBeenCalled();
   });
 
   it('rejects with 422 when the AI verdict points at the wrong asset', async () => {
@@ -1010,12 +1270,12 @@ describe('normalizeVerifiedSubmitBody', () => {
   });
 });
 
-describe('mapSubmitAiVerdict', () => {
+describe('mapAiVerdict (domain, submit wiring)', () => {
   const lists = { categories: ['PLUMBING', 'HVAC'], issueTypes: ['LEAKING'] };
 
   it('passes a matching verdict through', () => {
     expect(
-      mapSubmitAiVerdict({
+      mapAiVerdict({
         impliedCategory: 'PLUMBING',
         assetCategory: 'PLUMBING',
         category: 'PLUMBING',
@@ -1028,7 +1288,7 @@ describe('mapSubmitAiVerdict', () => {
 
   it('fails unknown codes before the asset check', () => {
     expect(
-      mapSubmitAiVerdict({
+      mapAiVerdict({
         impliedCategory: 'ROOFING',
         assetCategory: 'PLUMBING',
         category: 'ROOFING',
@@ -1041,7 +1301,7 @@ describe('mapSubmitAiVerdict', () => {
 
   it('fails a category mismatch as WRONG_ASSET', () => {
     expect(
-      mapSubmitAiVerdict({
+      mapAiVerdict({
         impliedCategory: 'HVAC',
         assetCategory: 'PLUMBING',
         category: 'HVAC',

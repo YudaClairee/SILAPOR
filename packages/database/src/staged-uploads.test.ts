@@ -19,7 +19,6 @@ import {
   deleteStagedUploads,
   getStagedUploadsByKeys,
   linkStagedUploads,
-  listExpiredUnclaimedStaged,
   recordStagedUpload,
 } from './staged-uploads.js';
 
@@ -64,7 +63,13 @@ describe('staged uploads validation (pure)', () => {
   it('returns empty results for empty key sets without I/O', async () => {
     await expect(getStagedUploadsByKeys(stubDb, [])).resolves.toEqual([]);
     await expect(claimStagedUploads(stubDb, randomUUID(), [])).resolves.toEqual([]);
-    await expect(deleteStagedUploads(stubDb, [])).resolves.toBe(0);
+    await expect(deleteStagedUploads(stubDb, null, [])).resolves.toEqual([]);
+  });
+
+  it('rejects an unowned delete with 400 before any I/O', async () => {
+    await expect(deleteStagedUploads(stubDb, 'nope', ['staging_k'])).rejects.toMatchObject({
+      status: 400,
+    });
   });
 });
 
@@ -121,7 +126,7 @@ describe.skipIf(!enabled)('staged uploads persistence (requires reachable Postgr
           .insert(users)
           .values({ username: 'staged-reporter', role: 'REPORTER' })
           .returning({ id: users.id })
-      )[0]?.id!;
+          )[0]?.id as string;
       const locationId = (
         await db!
           .insert(locations)
@@ -150,7 +155,7 @@ describe.skipIf(!enabled)('staged uploads persistence (requires reachable Postgr
             status: 'REPORTED',
           })
           .returning({ id: maintenanceReports.id })
-      )[0]?.id!;
+          )[0]?.id as string;
     },
     120_000,
   );
@@ -173,8 +178,13 @@ describe.skipIf(!enabled)('staged uploads persistence (requires reachable Postgr
     expect(found.map((row) => row.storageKey)).toEqual([key]);
     const claimed = await claimStagedUploads(db!, reportId, [key]);
     expect(claimed.map((row) => row.claimedReportId)).toEqual([reportId]);
-    expect(await deleteStagedUploads(db!, [key])).toBe(1);
-    await expect(getStagedUploadsByKeys(db!, [key])).resolves.toEqual([]);
+    // A claimed key is never deleted, even by its own uploader.
+    await expect(deleteStagedUploads(db!, userId, [key])).resolves.toEqual([]);
+    await expect(getStagedUploadsByKeys(db!, [key])).resolves.toHaveLength(1);
+    const freshKey = `staging_${randomUUID()}`;
+    await recordStagedUpload(db!, { ...STAGED_INPUT, storageKey: freshKey, uploadedBy: userId });
+    await expect(deleteStagedUploads(db!, userId, [freshKey])).resolves.toEqual([freshKey]);
+    await expect(getStagedUploadsByKeys(db!, [freshKey])).resolves.toEqual([]);
   });
 
   it('links staged keys into attachment rows atomically', async () => {
@@ -198,6 +208,33 @@ describe.skipIf(!enabled)('staged uploads persistence (requires reachable Postgr
         uploadedBy: userId,
       }),
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('keeps keys claimed by another report or owned by another user on FAIL-cleanup deletes', async () => {
+    const otherUser = (
+      await db!
+        .insert(users)
+        .values({ username: `staged-other-${randomUUID()}`, role: 'REPORTER' })
+        .returning({ id: users.id })
+        )[0]?.id as string;
+    const ownKey = `staging_${randomUUID()}`;
+    const claimedKey = `staging_${randomUUID()}`;
+    const foreignKey = `staging_${randomUUID()}`;
+    for (const storageKey of [ownKey, claimedKey]) {
+      await recordStagedUpload(db!, { ...STAGED_INPUT, storageKey, uploadedBy: userId });
+    }
+    await recordStagedUpload(db!, { ...STAGED_INPUT, storageKey: foreignKey, uploadedBy: otherUser });
+    // A concurrent submit claims its key: the row is now attached to a report.
+    await claimStagedUploads(db!, reportId, [claimedKey]);
+
+    const deleted = await deleteStagedUploads(
+      db!,
+      userId,
+      [ownKey, claimedKey, foreignKey],
+    );
+    expect(deleted).toEqual([ownKey]);
+    const remaining = await getStagedUploadsByKeys(db!, [claimedKey, foreignKey]);
+    expect(remaining.map((row) => row.storageKey).sort()).toEqual([claimedKey, foreignKey].sort());
   });
 
   it('removes expired unclaimed rows and rowless objects past the TTL', async () => {

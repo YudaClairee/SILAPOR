@@ -153,6 +153,24 @@ describe('verifyHeldReport', () => {
     expect(dbMocks.applyVerification).not.toHaveBeenCalled();
   });
 
+  it('refuses a supporting-merged row as non-verifiable with 410 and no write', async () => {
+    dbMocks.getAdminReportDetail.mockResolvedValue({
+      report: heldRow(),
+      relations: [
+        { relationType: 'SUPPORTING', sourceReportId: heldId, targetReportId: 'target-1' },
+      ],
+    });
+    await expect(
+      verifyHeldReport(
+        admin,
+        heldId,
+        { category: 'PLUMBING', issueType: 'LEAKING', priority: 'HIGH' },
+        v,
+      ),
+    ).rejects.toMatchObject({ status: 410 });
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+  });
+
   it('verifies a held row with resolved ids and the admin as actor', async () => {
     const verified = { ...heldRow(), status: 'VERIFIED', version: 2 };
     dbMocks.getAdminReportDetail.mockResolvedValue({ report: heldRow() });
@@ -265,5 +283,14 @@ describe('isHeldReport', () => {
     expect(
       isHeldReport({ status: 'REPORTED', finalCategoryId: CAT_PLUMBING, verifiedAt: null }),
     ).toBe(false);
+  });
+
+  it('rejects a supporting-linked row as non-verifiable', () => {
+    expect(
+      isHeldReport({ status: 'REPORTED', finalCategoryId: null, verifiedAt: null, supportingLinked: true }),
+    ).toBe(false);
+    expect(
+      isHeldReport({ status: 'REPORTED', finalCategoryId: null, verifiedAt: null, supportingLinked: false }),
+    ).toBe(true);
   });
 });
