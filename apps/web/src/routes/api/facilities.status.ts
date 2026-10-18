@@ -1,10 +1,10 @@
 // Facility status list (Phase 6 P6-5c): GET /api/facilities/status.
 //
-// ANY authenticated role (pilot ruling: access-restricted, not anonymous).
-// Sanitization is by-construction in the DB layer (no reporter identity, no
-// report content); dates serialize as ISO strings via Response.json, matching
-// the report endpoints. See server/facilities.ts for the guard/query
-// contract.
+// Admin-only (plan §8 realignment 2026-10-17: facility status is reporter-
+// invisible). Sanitization is by-construction in the DB layer (no reporter
+// identity, no report content); dates serialize as ISO strings via
+// Response.json, matching the report endpoints. See server/facilities.ts for
+// the guard/query contract.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
 import { createLogger, redact, toHttpResponse, withRequestId } from '@silapor/shared';

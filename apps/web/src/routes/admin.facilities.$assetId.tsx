@@ -61,14 +61,12 @@ const DEFAULT_FACILITY_SEARCH = { locationId: '', status: '', includeInactive: '
 
 const FACILITY_TONES: Record<string, string> = {
   OPERATIONAL: 'bg-tint-success text-badge-success',
-  REPORTED_ISSUE: 'bg-tint-warning text-badge-warning',
   UNDER_INSPECTION: 'bg-tint-info text-badge-info',
   IN_REPAIR: 'bg-tint-danger text-badge-danger',
 };
 
 const FACILITY_STATUS_LABELS: Record<string, string> = {
   OPERATIONAL: 'Operasional',
-  REPORTED_ISSUE: 'Ada kendala',
   UNDER_INSPECTION: 'Inspeksi',
   IN_REPAIR: 'Dalam perbaikan',
 };

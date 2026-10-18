@@ -274,11 +274,11 @@ describe.skipIf(!enabled)('facility status + history (requires reachable Postgre
     expect(retired?.derivedStatus).toBe('OPERATIONAL');
   });
 
-  it('derives REPORTED_ISSUE from an active REPORTED ticket', async () => {
+  it('derives UNDER_INSPECTION from an asset with only a held REPORTED report', async () => {
     await insertReport({ assetId, status: 'REPORTED' });
     const result = await listFacilityStatus(requireDb(), {});
     const ac = result.items.find((item) => item.assetId === assetId);
-    expect(ac?.derivedStatus).toBe('REPORTED_ISSUE');
+    expect(ac?.derivedStatus).toBe('UNDER_INSPECTION');
     expect(ac?.activeReportCount).toBe(1);
   });
 

@@ -20,13 +20,11 @@ vi.mock('@silapor/database', async (importOriginal) => ({
 }));
 
 vi.mock('./auth', () => ({
-  requireUser: vi.fn(),
   requireAdmin: vi.fn(),
 }));
 
-import { requireAdmin, requireUser } from './auth.js';
+import { requireAdmin } from './auth.js';
 
-const requireUserMock = vi.mocked(requireUser);
 const requireAdminMock = vi.mocked(requireAdmin);
 
 const userId = '11111111-1111-1111-1111-111111111111';
@@ -43,7 +41,7 @@ const STATUS_RESULT = {
       assetName: 'Proyektor Ruang 101',
       locationLabel: 'Gedung A · Ruang 101',
       categoryName: 'Elektronik',
-      derivedStatus: 'REPORTED_ISSUE',
+      derivedStatus: 'UNDER_INSPECTION',
       isActive: true,
       activeReportCount: 2,
       lastUpdated: new Date('2026-01-02T08:00:00Z'),
@@ -84,7 +82,6 @@ function request(url: string): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   dbMocks.getDb.mockReturnValue({ db: {}, close: async () => undefined });
-  requireUserMock.mockResolvedValue({ id: userId, username: 'rudi', role: 'ADMIN' });
   requireAdminMock.mockResolvedValue({ id: userId, username: 'rudi', role: 'ADMIN' });
 });
 
@@ -106,12 +103,12 @@ describe('parseFacilityStatusQuery', () => {
   it('tolerates snake_case params', () => {
     expect(
       parseFacilityStatusQuery(
-        `http://x/api/facilities/status?location_id=${LOC_ID}&category_id=${CAT_ID}&status=REPORTED_ISSUE&include_inactive=true`,
+        `http://x/api/facilities/status?location_id=${LOC_ID}&category_id=${CAT_ID}&status=UNDER_INSPECTION&include_inactive=true`,
       ),
     ).toEqual({
       locationId: LOC_ID,
       categoryId: CAT_ID,
-      status: 'REPORTED_ISSUE',
+      status: 'UNDER_INSPECTION',
       includeInactive: true,
     });
   });
@@ -124,7 +121,7 @@ describe('parseFacilityStatusQuery', () => {
   });
 
   it('rejects a status outside FACILITY_STATUSES with 400', () => {
-    for (const status of ['BROKEN', 'RESOLVED', 'operational']) {
+    for (const status of ['BROKEN', 'RESOLVED', 'REPORTED_ISSUE', 'operational']) {
       const error = (() => {
         try {
           parseFacilityStatusQuery(`http://x/api/facilities/status?status=${status}`);
@@ -192,19 +189,19 @@ describe('listFacilityStatusRoute', () => {
   it('delegates to the repo with the parsed options and closes the connection', async () => {
     dbMocks.listFacilityStatus.mockResolvedValue(STATUS_RESULT);
     const result = await listFacilityStatusRoute(
-      request('http://x/api/facilities/status?status=REPORTED_ISSUE&limit=10&offset=5'),
-      'http://x/api/facilities/status?status=REPORTED_ISSUE&limit=10&offset=5',
+      request('http://x/api/facilities/status?status=UNDER_INSPECTION&limit=10&offset=5'),
+      'http://x/api/facilities/status?status=UNDER_INSPECTION&limit=10&offset=5',
     );
     expect(result).toEqual(STATUS_RESULT);
     expect(dbMocks.listFacilityStatus).toHaveBeenCalledWith(
       {},
-      { status: 'REPORTED_ISSUE', limit: 10, offset: 5 },
+      { status: 'UNDER_INSPECTION', limit: 10, offset: 5 },
     );
     expect(dbMocks.getDb).toHaveBeenCalledOnce();
   });
 
-  it('propagates a 401 from requireUser without touching the repo', async () => {
-    requireUserMock.mockRejectedValue(unauthorized('Belum login'));
+  it('propagates a 401 from requireAdmin without touching the repo', async () => {
+    requireAdminMock.mockRejectedValue(unauthorized('Belum login'));
     const url = 'http://x/api/facilities/status';
     await expect(listFacilityStatusRoute(request(url), url)).rejects.toMatchObject({
       status: 401,
@@ -212,11 +209,13 @@ describe('listFacilityStatusRoute', () => {
     expect(dbMocks.listFacilityStatus).not.toHaveBeenCalled();
   });
 
-  it('ignores the admin-only include_inactive flag for non-admin sessions', async () => {
-    requireUserMock.mockResolvedValue({ id: userId, username: 'rina', role: 'REPORTER' });
+  it('propagates a 403 for non-admin callers from requireAdmin', async () => {
+    requireAdminMock.mockRejectedValue(forbidden('Akses ditolak'));
     const url = 'http://x/api/facilities/status?include_inactive=true';
-    await listFacilityStatusRoute(request(url), url);
-    expect(dbMocks.listFacilityStatus).toHaveBeenCalledWith({}, {});
+    await expect(listFacilityStatusRoute(request(url), url)).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(dbMocks.listFacilityStatus).not.toHaveBeenCalled();
   });
 
   it('propagates a 400 for invalid UUID filters throwing in the repo', async () => {

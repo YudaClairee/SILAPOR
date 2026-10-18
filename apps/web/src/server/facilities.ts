@@ -1,6 +1,6 @@
-// Facility status transport service (Phase 6 P6-5c; mirrors `./reports.ts`).
-// Thin: `requireUser` (status list, any role) / `requireAdmin` (maintenance
-// history) guards, one database connection per call, delegate to the repo in
+// Facility status transport service (Phase 6 P6-5c; realigned 2026-10-17).
+// Thin: `requireAdmin` guards (plan §8 — facility status is reporter-
+// invisible), one database connection per call, delegate to the repo in
 // `@silapor/database`, close the connection. Repo `AppError`s propagate
 // untouched for routes to map with `toHttpResponse` (400 for invalid
 // UUID/status filters, 404 for an unknown asset). Response sanitization
@@ -19,7 +19,7 @@ import {
   type FacilityStatusResult,
 } from '@silapor/database';
 import { badRequest } from '@silapor/shared';
-import { requireAdmin, requireUser } from './auth';
+import { requireAdmin } from './auth';
 
 const FACILITY_STATUS_SET: ReadonlySet<string> = new Set(FACILITY_STATUSES);
 
@@ -131,21 +131,18 @@ export function parseFacilityStatusQuery(url: string | URL): FacilityStatusOptio
   return options;
 }
 
-// Public facility status projection for ANY authenticated session (pilot
-// ruling: the list is access-restricted, never anonymous). The admin extra
-// `include_inactive` is stripped for non-admin sessions — they always see the
-// active-only projection, silently, never an error.
+// Admin-only facility status projection (plan §8: "Melihat status aset —
+// Reporter: Tidak"). The admin extra `include_inactive` needs no stripping
+// logic anymore — non-admin sessions never reach the repo.
 export async function listFacilityStatusRoute(
   req: Request,
   url: string | URL,
 ): Promise<FacilityStatusResult> {
-  const user = await requireUser(req);
+  await requireAdmin(req);
   const parsed = parseFacilityStatusQuery(url);
-  const options: FacilityStatusOptions =
-    user.role !== 'ADMIN' ? { ...parsed, includeInactive: undefined } : parsed;
   const conn = getDb();
   try {
-    return await repoListFacilityStatus(conn.db, options);
+    return await repoListFacilityStatus(conn.db, parsed);
   } finally {
     await conn.close().catch(() => undefined);
   }

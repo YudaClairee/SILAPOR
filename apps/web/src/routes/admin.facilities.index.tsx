@@ -71,14 +71,12 @@ const FACILITY_STATUS_LIMIT = 50;
 
 const FACILITY_TONES: Record<string, string> = {
   OPERATIONAL: 'bg-tint-success text-badge-success',
-  REPORTED_ISSUE: 'bg-tint-warning text-badge-warning',
   UNDER_INSPECTION: 'bg-tint-info text-badge-info',
   IN_REPAIR: 'bg-tint-danger text-badge-danger',
 };
 
 const FACILITY_STATUS_LABELS: Record<string, string> = {
   OPERATIONAL: 'Operasional',
-  REPORTED_ISSUE: 'Ada kendala',
   UNDER_INSPECTION: 'Inspeksi',
   IN_REPAIR: 'Dalam perbaikan',
 };
@@ -332,7 +330,6 @@ function AdminFacilitiesPage() {
             >
               <option value="">Semua status</option>
               <option value="OPERATIONAL">Operasional</option>
-              <option value="REPORTED_ISSUE">Ada kendala</option>
               <option value="UNDER_INSPECTION">Inspeksi</option>
               <option value="IN_REPAIR">Dalam perbaikan</option>
             </Select>

@@ -197,15 +197,15 @@ sebagai panel/kolom **berbeda**.
 
 | Endpoint | Method | Sukses |
 |---|---|---|
-| `/api/facilities/status` | GET | query: `location_id`, `category_id`, `status`, `limit`, `offset` + `include_inactive` (khusus admin; non-admin: flag di-strip senyap) → `{ "items": [{ "assetId", "assetCode", "assetName", "locationLabel", "categoryName", "derivedStatus", "isActive", "activeReportCount", "lastUpdated" }], "total", "limit", "offset" }` — akses butuh sesi (semua role, bukan anonim); proyeksi tersanitasi **tanpa identitas reporter, deskripsi, attachment, internal note** |
+| `/api/facilities/status` | GET | query: `location_id`, `category_id`, `status`, `limit`, `offset` + `include_inactive` (admin-only flag; non-admin tidak relevan karena route admin-only) → `{ "items": [{ "assetId", "assetCode", "assetName", "locationLabel", "categoryName", "derivedStatus", "isActive", "activeReportCount", "lastUpdated" }], "total", "limit", "offset" }` — akses **admin-only** (sesi admin; bukan semua role); proyeksi tersanitasi **tanpa identitas reporter, deskripsi, attachment, internal note** |
 | `/api/admin/assets/:id/history` | GET | admin-only — `200 { "asset": { ..., "derivedStatus" }, "items": [{ "reportId", "ticketNumber", "status", "reportedAt", "resolvedAt"?, "closedAt"?, "finalPriority"? }] }` (tanggal ISO, terbaru dulu) — semua tiket per asset; asset tidak ada → `404` |
 | `/api/notifications` | GET | `200 { "items": [{ "id", "type", "title", "message", "reportId"?, "ticketNumber"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja; `ticketNumber` join untuk deeplink |
 | `/api/notifications/:id/read` | POST | `200` — idempoten; id milik user lain/tidak ada → `404` |
 | `/api/notifications/read-all` | POST | `200 { "updated" }` — tandai semua belum-dibaca milik sesi sebagai dibaca (idempoten, `updated: 0` valid) |
 
-`derivedStatus`: `OPERATIONAL | REPORTED_ISSUE | UNDER_INSPECTION | IN_REPAIR`
-— diturunkan dari laporan aktif (bukan field manual); precedence
-`IN_REPAIR > UNDER_INSPECTION > REPORTED_ISSUE`.
+`derivedStatus`: `OPERATIONAL | UNDER_INSPECTION | IN_REPAIR` — diturunkan dari
+laporan aktif (bukan field manual); precedence `IN_REPAIR > UNDER_INSPECTION > OPERATIONAL`.
+Laporan aktif `REPORTED`/`VERIFIED` turun ke `UNDER_INSPECTION` (realignment 2026-10-17).
 
 Jenis notifikasi yang diproduksi worker: `REPORT_VERIFIED`,
 `REPORT_ASSIGNED`, `STATUS_CHANGED`, `PUBLIC_UPDATE_ADDED`,
