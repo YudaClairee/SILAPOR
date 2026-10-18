@@ -288,7 +288,7 @@ function NotifikasiPage() {
               action={
                 <Link
                   to="/reporter/reports"
-                  search={{ filter: 'semua', status: '', offset: 0 }}
+                  search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
                   className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
                 >
                   Lihat laporan saya
