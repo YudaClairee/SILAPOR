@@ -40,6 +40,7 @@ import { Route as ApiReportsFormOptionsRouteImport } from './routes/api/reports.
 import { Route as ReporterReportsIndexRouteImport } from './routes/reporter.reports.index'
 import { Route as ReporterReportsTicketRouteImport } from './routes/reporter.reports.$ticket'
 import { Route as ReporterReportsNewRouteImport } from './routes/reporter.reports.new'
+import { Route as ApiAdminAnalyticsOverviewRouteImport } from './routes/api/admin/analytics.overview'
 import { Route as ApiAdminAssetsIdRouteImport } from './routes/api/admin/assets.$id'
 import { Route as ApiAdminCategoriesIdRouteImport } from './routes/api/admin/categories.$id'
 import { Route as ApiAdminIssueTypesIdRouteImport } from './routes/api/admin/issue-types.$id'
@@ -213,6 +214,12 @@ const ReporterReportsNewRoute = ReporterReportsNewRouteImport.update({
   path: '/reports/new',
   getParentRoute: () => ReporterRoute,
 } as any)
+const ApiAdminAnalyticsOverviewRoute =
+  ApiAdminAnalyticsOverviewRouteImport.update({
+    id: '/api/admin/analytics/overview',
+    path: '/api/admin/analytics/overview',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAdminAssetsIdRoute = ApiAdminAssetsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -330,6 +337,7 @@ export interface FileRoutesByFullPath {
   '/admin/facilities/': typeof AdminFacilitiesIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
   '/reporter/reports/': typeof ReporterReportsIndexRoute
+  '/api/admin/analytics/overview': typeof ApiAdminAnalyticsOverviewRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
@@ -379,6 +387,7 @@ export interface FileRoutesByTo {
   '/admin/facilities': typeof AdminFacilitiesIndexRoute
   '/admin/reports': typeof AdminReportsIndexRoute
   '/reporter/reports': typeof ReporterReportsIndexRoute
+  '/api/admin/analytics/overview': typeof ApiAdminAnalyticsOverviewRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
@@ -429,6 +438,7 @@ export interface FileRoutesById {
   '/admin/facilities/': typeof AdminFacilitiesIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
   '/reporter/reports/': typeof ReporterReportsIndexRoute
+  '/api/admin/analytics/overview': typeof ApiAdminAnalyticsOverviewRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
   '/api/admin/issue-types/$id': typeof ApiAdminIssueTypesIdRoute
@@ -480,6 +490,7 @@ export interface FileRouteTypes {
     | '/admin/facilities/'
     | '/admin/reports/'
     | '/reporter/reports/'
+    | '/api/admin/analytics/overview'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
     | '/api/admin/issue-types/$id'
@@ -529,6 +540,7 @@ export interface FileRouteTypes {
     | '/admin/facilities'
     | '/admin/reports'
     | '/reporter/reports'
+    | '/api/admin/analytics/overview'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
     | '/api/admin/issue-types/$id'
@@ -578,6 +590,7 @@ export interface FileRouteTypes {
     | '/admin/facilities/'
     | '/admin/reports/'
     | '/reporter/reports/'
+    | '/api/admin/analytics/overview'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
     | '/api/admin/issue-types/$id'
@@ -616,6 +629,7 @@ export interface RootRouteChildren {
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthMeRoute: typeof ApiAuthMeRoute
   ApiFacilitiesStatusRoute: typeof ApiFacilitiesStatusRoute
+  ApiAdminAnalyticsOverviewRoute: typeof ApiAdminAnalyticsOverviewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -836,6 +850,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/reporter/reports/new'
       preLoaderRoute: typeof ReporterReportsNewRouteImport
       parentRoute: typeof ReporterRoute
+    }
+    '/api/admin/analytics/overview': {
+      id: '/api/admin/analytics/overview'
+      path: '/api/admin/analytics/overview'
+      fullPath: '/api/admin/analytics/overview'
+      preLoaderRoute: typeof ApiAdminAnalyticsOverviewRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/admin/assets/$id': {
       id: '/api/admin/assets/$id'
@@ -1162,6 +1183,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthMeRoute: ApiAuthMeRoute,
   ApiFacilitiesStatusRoute: ApiFacilitiesStatusRoute,
+  ApiAdminAnalyticsOverviewRoute: ApiAdminAnalyticsOverviewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

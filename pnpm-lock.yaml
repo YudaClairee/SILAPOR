@@ -35,6 +35,9 @@ importers:
       '@silapor/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@silapor/analytics':
+        specifier: workspace:*
+        version: link:../../packages/analytics
       '@silapor/auth':
         specifier: workspace:*
         version: link:../../packages/auth
