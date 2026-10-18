@@ -109,6 +109,7 @@ export function AppShell({ user, onLogout, action, children }: AppShellProps) {
                   to={item.to}
                   className={NAV_LINK_CLASSES}
                   activeProps={{ 'aria-current': 'page' }}
+                  activeOptions={item.to === '/admin' ? { exact: true, includeSearch: false } : {}}
                 >
                   {item.label}
                 </Link>
