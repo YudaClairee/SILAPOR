@@ -69,3 +69,9 @@ Branch phase-6-p6-5 from main aa8b9d8 (P6-1..P6-4 already merged to main; migrat
 - Semantic integration verified: P6-5a kind conditional survived their workflow-extra rewrite; their addProgressNote→PROGRESS_NOTE_ADDED + mapper case 79 both present pre-commit.
 - Merge follow-up: reporter.notifikasi Link needed their new required `mine` search param (typecheck-only failure; fixed post-merge).
 - Post-merge verification green: domain 60/60, web 228/228, database 208 pass + 1 skip (13 files), worker 3/3; :lint ×10, :typecheck ×10 pass. Migration 0009 applied to dev DB (report_updates.condition verified).
+
+## Phase 7 (Dashboard + deterministic analytics) — SDD bootstrap (2026-10-18)
+- Worktree `.worktrees/phase-7-analytics`, branch `phase-7-analytics` from 816af0b (main post-P6 merge). Plan committed 47c27b5: docs/superpowers/plans/2026-10-18-phase-7-analytics.md.
+- User decisions 2026-10-18: SDD flow (worktree/ledger/briefs/reviews, continuous execution); hand-rolled SVG charts, no chart lib; UI No. 11 = Dashboard real + Pengaturan Scoring / Laporan Maintenance mock-only (disabled submit + "Endpoint menyusul" note); playwright system deps installed by user.
+- Pre-task e2e triage (env now works): scenarios 7 and 9 red. 7 = stale selector for the P5-reworked duplicate-block screen; 9 = hardcoded asset index 2 already reporter-active on the persistent dev DB + stacked second photo (success screen showed "2 foto terlampir."). Both test-only; fix 86beff9 (auto-pick first asset without a reporter-active ticket, single named-photo fixture, current block-screen link + href assert). Full e2e dir 10/10 green after fix.
+- Observation (benign, no action): e2e runs log dev-server `unhandled: true` ECONNRESET "aborted" entries — in-flight requests aborted at browser-context close; no test impact; structured rejection audits (NOT_FOUND/FORBIDDEN/DUPLICATE_ACTIVE) appear as designed.
