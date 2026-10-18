@@ -12,6 +12,9 @@ export type { AppShellNavItem, AppShellProps, AppShellRole, AppShellUser } from 
 export { AttachmentGallery } from './AttachmentGallery';
 export type { AttachmentGalleryProps, GalleryAttachment } from './AttachmentGallery';
 
+export { BarChart } from './BarChart';
+export type { BarChartDatum, BarChartProps } from './BarChart';
+
 export { Button, buttonBaseClasses, buttonVariantClasses } from './Button';
 export type { ButtonProps, ButtonVariant } from './Button';
 
