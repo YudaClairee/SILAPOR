@@ -61,3 +61,4 @@ export * from './ai-analyses.js';
 export * from './facilities.js';
 export * from './notifications.js';
 export * from './outbox-consumer.js';
+export * from './migrate.js';
