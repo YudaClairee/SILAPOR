@@ -95,3 +95,7 @@ Branch phase-6-p6-5 from main aa8b9d8 (P6-1..P6-4 already merged to main; migrat
 - Documented approximations (accepted, no code change): priority card (active+HIGH) drills into `?priority=HIGH` which lists all statuses — the list cannot express "active"; byCategory uses final_category_id per spec while the list category filter matches either submitted/final.
 - Deferred minors (T1–T8 lists above): all SHIP — mock-page cosmetics (T7 hint), test-quality gaps noted per task, projection choices; no rework.
 - Ledger polish: T6 nav-fix commit id corrected to 856f354.
+## P7 merge to main + post-merge verification (2026-10-18)
+- Merge 77bd907 (--no-ff) of phase-7-analytics (df834ec) into main (816af0b); clean ort merge, no conflicts. Delivered: @silapor/analytics package (Jakarta helpers + dashboard queries), GET /api/admin/analytics/overview + contract §7, admin dashboard page, hand-rolled BarChart, scoring/maintenance mock pages (UI No. 11), e2e rerunnability fix (86beff9), release-gate alignment fix (f5441f9).
+- Post-merge verification: :lint ×10 + :typecheck ×10 pass; :test ×10 pass — database:test hit the known scratch-DB parallel hook-timeout flake (2 suites failed in beforeAll under full-suite load, 200 pass); forced standalone re-run green (209 pass + 1 skip, no assertion failures). e2e 10/10 green; WebServer ECONNRESET log noise benign as documented.
+- Cleanup: worktree tar-backed up to /tmp/opencode/worktree-backup/phase-7-analytics-final.tar, worktree removed, branch deleted. Phase 7 COMPLETE.
