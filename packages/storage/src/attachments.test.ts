@@ -7,6 +7,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_REPORT,
   canAddAttachments,
+  prepareVisionImage,
   processImage,
   sanitizeOriginalFilename,
   sniffImageKind,
@@ -293,6 +294,44 @@ describe('empty files', () => {
       'EMPTY_FILE',
     );
     await expectAsyncCode(() => processImage(empty), 'EMPTY_FILE');
+  });
+});
+
+describe('prepareVisionImage', () => {
+  it('downscales the longest edge to the bound without enlarging', async () => {
+    const large = await sharp({
+      create: { width: 3000, height: 2000, channels: 3, background: '#808080' },
+    })
+      .jpeg()
+      .toBuffer();
+    const out = await prepareVisionImage(large);
+    expect(out.mimeType).toBe('image/jpeg');
+    expect(Math.max(out.width, out.height)).toBe(1280);
+    const meta = await sharp(out.bytes).metadata();
+    expect(meta.format).toBe('jpeg');
+    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(1280);
+
+    const kept = await prepareVisionImage(await makeJpeg(800, 600));
+    expect(kept.width).toBe(800);
+    expect(kept.height).toBe(600);
+  });
+
+  it('flattens transparency onto white', async () => {
+    const png = await sharp({
+      create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    })
+      .png()
+      .toBuffer();
+    const out = await prepareVisionImage(png);
+    const meta = await sharp(out.bytes).metadata();
+    expect(meta.hasAlpha).toBe(false);
+  });
+
+  it('rejects empty and undecodable bytes', async () => {
+    await expect(prepareVisionImage(new Uint8Array(0))).rejects.toMatchObject({ code: 'EMPTY_FILE' });
+    await expect(prepareVisionImage(Buffer.from('not an image'))).rejects.toMatchObject({
+      code: 'CORRUPT_IMAGE',
+    });
   });
 });
 
