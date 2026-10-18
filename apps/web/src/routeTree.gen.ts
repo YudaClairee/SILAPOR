@@ -15,6 +15,7 @@ import { Route as KebijakanPrivasiRouteImport } from './routes/kebijakan-privasi
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminMaintenanceReportRouteImport } from './routes/admin.maintenance-report'
 import { Route as AdminScoringRouteImport } from './routes/admin.scoring'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiNotificationsRouteImport } from './routes/api/notifications'
@@ -88,6 +89,11 @@ const ReporterRoute = ReporterRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMaintenanceReportRoute = AdminMaintenanceReportRouteImport.update({
+  id: '/maintenance-report',
+  path: '/maintenance-report',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminScoringRoute = AdminScoringRouteImport.update({
@@ -323,6 +329,7 @@ export interface FileRoutesByFullPath {
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
+  '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/api/health': typeof ApiHealthRoute
   '/api/notifications': typeof ApiNotificationsRouteWithChildren
@@ -374,6 +381,7 @@ export interface FileRoutesByTo {
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
+  '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/api/health': typeof ApiHealthRoute
   '/api/notifications': typeof ApiNotificationsRouteWithChildren
@@ -427,6 +435,7 @@ export interface FileRoutesById {
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
+  '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/api/health': typeof ApiHealthRoute
   '/api/notifications': typeof ApiNotificationsRouteWithChildren
@@ -481,6 +490,7 @@ export interface FileRouteTypes {
     | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
+    | '/admin/maintenance-report'
     | '/admin/scoring'
     | '/api/health'
     | '/api/notifications'
@@ -532,6 +542,7 @@ export interface FileRouteTypes {
     | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
+    | '/admin/maintenance-report'
     | '/admin/scoring'
     | '/api/health'
     | '/api/notifications'
@@ -584,6 +595,7 @@ export interface FileRouteTypes {
     | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
+    | '/admin/maintenance-report'
     | '/admin/scoring'
     | '/api/health'
     | '/api/notifications'
@@ -696,6 +708,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/maintenance-report': {
+      id: '/admin/maintenance-report'
+      path: '/maintenance-report'
+      fullPath: '/admin/maintenance-report'
+      preLoaderRoute: typeof AdminMaintenanceReportRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/scoring': {
@@ -1010,6 +1029,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminMaintenanceReportRoute: typeof AdminMaintenanceReportRoute
   AdminScoringRoute: typeof AdminScoringRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminFacilitiesAssetIdRoute: typeof AdminFacilitiesAssetIdRoute
@@ -1019,6 +1039,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminMaintenanceReportRoute: AdminMaintenanceReportRoute,
   AdminScoringRoute: AdminScoringRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminFacilitiesAssetIdRoute: AdminFacilitiesAssetIdRoute,
