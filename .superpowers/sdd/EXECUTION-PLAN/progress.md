@@ -63,3 +63,9 @@ Branch phase-6-p6-5 from main aa8b9d8 (P6-1..P6-4 already merged to main; migrat
 - P6-6-final: dispatch final whole-branch review (aa8b9d8..2c0cf6b, all Phase 6 + realignment work) with deferred-minors triage.
 - P6-6-final: review READY (no Critical/Important; test-minimum checklist fully mapped; deferred minors all SHIP except 1-line contract preamble → fixed in 631a7c8; scoped re-review clean).
 - Phase 6: COMPLETE on branch phase-6-p6-5. Merge to main follows; ledger workspace retained until merge verified.
+## P6-5 merge to main (2026-10-18)
+- Main moved during P6-5 SDD: user committed 283c2f9 (P5 e2e incl. UI No. 10 progress-note rework — addProgressNote single note with condition, migration 0009, PROGRESS_NOTE_ADDED notifications, LAPORAN_PALSU neutral projection — the deferred rule's successor work landed) and b1f2768 (phase-3 fixes: /reporter/reports gains mine param, nav label Tiket Kampus).
+- Merge 5786ac8 resolved 3 conflicts: AppShell (reporter nav = Laporkan + Tiket Kampus + Notifikasi), progress.md (kept user's 2 ruling lines + full P6-5/P6-6 section), api-contract.md (their supersede-preamble kept + built-state sentence; §6 merged: their heading/assertion + built /api/facilities/status admin-only row; "endpoint daftar status admin menyusul" moot + removed; notification kinds now name PROGRESS_NOTE_ADDED produced, PUBLIC_UPDATE_ADDED legacy-only).
+- Semantic integration verified: P6-5a kind conditional survived their workflow-extra rewrite; their addProgressNote→PROGRESS_NOTE_ADDED + mapper case 79 both present pre-commit.
+- Merge follow-up: reporter.notifikasi Link needed their new required `mine` search param (typecheck-only failure; fixed post-merge).
+- Post-merge verification green: domain 60/60, web 228/228, database 208 pass + 1 skip (13 files), worker 3/3; :lint ×10, :typecheck ×10 pass. Migration 0009 applied to dev DB (report_updates.condition verified).
