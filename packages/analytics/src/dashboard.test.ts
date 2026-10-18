@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REPORT_STATUS } from '@silapor/domain';
 import {
   facilityAssets,
   facilityCategories,
   getDb,
+  listAllReports,
   locations,
   maintenanceReports,
   reportAssignments,
+  reportRelations,
   resolveDatabaseUrl,
   runMigrations,
   technicians,
@@ -482,5 +484,57 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
     expect(after.totalReports).toBe(before.totalReports + 200);
     const byStatus = await getReportsByStatus(requireDb(), range);
     expect(byStatus.reduce((sum, item) => sum + item.count, 0)).toBe(after.totalReports);
+  });
+
+  it('mirrors the report-list REPORTED facet for supporting-held rows', async () => {
+    const before = await getReportsByStatus(requireDb(), range);
+    const target = await requireDb()
+      .select({ id: maintenanceReports.id })
+      .from(maintenanceReports)
+      .where(eq(maintenanceReports.ticketNumber, r2Ticket));
+    const targetId = target[0]?.id;
+    if (targetId === undefined) {
+      throw new Error('fixture: queue target missing');
+    }
+    const held = await requireDb()
+      .insert(maintenanceReports)
+      .values({
+        ticketNumber: 'P7-HELD-0001',
+        idempotencyKey: randomUUID(),
+        reporterId: reporterAId,
+        locationId: roomId,
+        assetId: null,
+        submittedCategoryId: hvacId,
+        description: 'Laporan serupa yang tertaut sebagai bukti pendukung kejadian.',
+        status: 'REPORTED' as const,
+        reportedAt: new Date(Date.UTC(2026, 9, 6, 0, 0, 0)),
+      })
+      .returning({ id: maintenanceReports.id });
+    const heldId = held[0]?.id;
+    if (heldId === undefined) {
+      throw new Error('fixture: held report insert failed');
+    }
+    await requireDb().insert(reportRelations).values({
+      sourceReportId: heldId,
+      targetReportId: targetId,
+      relationType: 'SUPPORTING' as const,
+      createdBy: reporterAId,
+    });
+
+    // The held row is real (cards count it) but never shows in a status bucket,
+    // exactly like the list's REPORTED queue view.
+    const beforeTotal = before.reduce((sum, item) => sum + item.count, 0);
+    const after = await getReportsByStatus(requireDb(), range);
+    expect(after).toEqual(before);
+    const cards = await getOverviewCards(requireDb(), range, octNow);
+    expect(cards.totalReports).toBe(beforeTotal + 1);
+
+    // Same filter through the report list must agree with the facet.
+    const list = await listAllReports(requireDb(), {
+      status: 'REPORTED',
+      from: '2026-10-01',
+      to: '2026-10-18',
+    });
+    expect(list.total).toBe(before.find((item) => item.status === 'REPORTED')?.count);
   });
 });

@@ -10,6 +10,7 @@ import {
   isNull,
   lt,
   ne,
+  or,
   sql,
   type SQL,
 } from 'drizzle-orm';
@@ -141,7 +142,19 @@ export async function getReportsByStatus(
   const rows = await db
     .select({ status: maintenanceReports.status, value: count() })
     .from(maintenanceReports)
-    .where(and(...reportedConditions(range)))
+    .where(
+      and(
+        ...reportedConditions(range),
+        // Mirrors the report list's REPORTED held-queue exclusion, so the
+        // chart drill-down and the list agree on the same filter. Other
+        // facets (cards, total) still count these rows.
+        or(
+          ne(maintenanceReports.status, 'REPORTED'),
+          isNotNull(maintenanceReports.finalCategoryId),
+          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
+        ),
+      ),
+    )
     .groupBy(maintenanceReports.status);
   const counts = new Map(rows.map((row) => [row.status, row.value]));
   return REPORT_STATUS.map((status) => ({ status, count: counts.get(status) ?? 0 }));

@@ -1928,4 +1928,36 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
       }),
     ).toBe(2);
   });
+
+  it('treats date-only filters as inclusive Jakarta days on the report list', async () => {
+    const insertAt = async (ticketNumber: string, reportedAt: Date): Promise<void> => {
+      await db!.insert(maintenanceReports).values({
+        ticketNumber,
+        idempotencyKey: randomUUID(),
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: null,
+        submittedCategoryId: catA,
+        description: 'Uji batas hari Jakarta pada filter tanggal daftar laporan.',
+        status: 'REPORTED',
+        reportedAt,
+      });
+    };
+    // Jakarta 2026-03-01 spans [2026-02-28T17:00Z, 2026-03-01T17:00Z).
+    await insertAt('P33-JB-IN-START', new Date('2026-02-28T17:00:00.000Z'));
+    await insertAt('P33-JB-OUT-BEFORE', new Date('2026-02-28T16:59:59.000Z'));
+    await insertAt('P33-JB-IN-END', new Date('2026-03-01T16:59:59.000Z'));
+    await insertAt('P33-JB-OUT-AFTER', new Date('2026-03-01T17:00:00.000Z'));
+
+    const page = await listAllReports(db!, {
+      from: '2026-03-01',
+      to: '2026-03-01',
+      limit: 50,
+    });
+    const tickets = page.items.map((item) => item.ticketNumber);
+    expect(tickets).toContain('P33-JB-IN-START');
+    expect(tickets).toContain('P33-JB-IN-END');
+    expect(tickets).not.toContain('P33-JB-OUT-BEFORE');
+    expect(tickets).not.toContain('P33-JB-OUT-AFTER');
+  });
 });

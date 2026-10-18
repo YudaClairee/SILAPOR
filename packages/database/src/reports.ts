@@ -33,6 +33,7 @@ import {
   ilike,
   inArray,
   isNotNull,
+  lt,
   lte,
   ne,
   or,
@@ -971,15 +972,40 @@ function parsePriorityFilter(priority: unknown): string | undefined {
   return priority;
 }
 
-function parseDateBound(value: unknown, field: string): Date | undefined {
+const JAKARTA_DAY_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const JAKARTA_OFFSET_MS = 7 * 3_600_000;
+
+interface ListDateBound {
+  readonly instant: Date;
+  readonly exclusive: boolean;
+}
+
+function parseDateBound(value: unknown, field: string): ListDateBound | undefined {
   if (value === undefined || value === null) {
     return undefined;
+  }
+  if (typeof value === 'string' && JAKARTA_DAY_ONLY_PATTERN.test(value)) {
+    const [year, month, day] = value.split('-').map(Number) as [number, number, number];
+    const dayStart = new Date(Date.UTC(year, month - 1, day) - JAKARTA_OFFSET_MS);
+    const roundTrip = new Date(dayStart.getTime() + JAKARTA_OFFSET_MS);
+    if (
+      roundTrip.getUTCFullYear() !== year ||
+      roundTrip.getUTCMonth() !== month - 1 ||
+      roundTrip.getUTCDate() !== day
+    ) {
+      throw badRequest(`Invalid ${field} date`);
+    }
+    // Date-only values name inclusive Jakarta business days, matching the
+    // dashboard ranges; `to` ends at the next day's start.
+    return field === 'to'
+      ? { instant: new Date(dayStart.getTime() + 24 * 3_600_000), exclusive: true }
+      : { instant: dayStart, exclusive: false };
   }
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) {
     throw badRequest(`Invalid ${field} date`);
   }
-  return date;
+  return { instant: date, exclusive: false };
 }
 
 export interface ListMyReportsOptions {
@@ -1073,10 +1099,14 @@ async function queryReportList(
     conditions.push(eq(schema.maintenanceReports.finalPriority, priority));
   }
   if (from !== undefined) {
-    conditions.push(gte(schema.maintenanceReports.reportedAt, from));
+    conditions.push(gte(schema.maintenanceReports.reportedAt, from.instant));
   }
   if (to !== undefined) {
-    conditions.push(lte(schema.maintenanceReports.reportedAt, to));
+    conditions.push(
+      to.exclusive
+        ? lt(schema.maintenanceReports.reportedAt, to.instant)
+        : lte(schema.maintenanceReports.reportedAt, to.instant),
+    );
   }
   if (pattern !== null) {
     conditions.push(
