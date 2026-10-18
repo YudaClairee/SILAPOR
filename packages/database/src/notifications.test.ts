@@ -16,7 +16,13 @@ import {
   outboxEvents,
   users,
 } from './schema.js';
-import { buildNotificationContent, processNotificationOutboxEvent } from './notifications.js';
+import {
+  buildNotificationContent,
+  listNotificationsForUser,
+  markAllNotificationsRead,
+  markNotificationRead,
+  processNotificationOutboxEvent,
+} from './notifications.js';
 
 type NotificationTestDb = Parameters<typeof processNotificationOutboxEvent>[0];
 
@@ -255,5 +261,223 @@ describe.skipIf(!enabled)('notification processing (requires reachable PostgreSQ
     await expect(
       processNotificationOutboxEvent(requireDb(), missingReportId),
     ).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P6-5b notification queries (scratch database, live only).
+// ---------------------------------------------------------------------------
+
+const QUERY_SCRATCH_DB_NAME = 'silapor_p65b_test';
+
+function queryScratchUrl(base: string): string {
+  const url = new URL(base);
+  url.pathname = `/${QUERY_SCRATCH_DB_NAME}`;
+  return url.toString();
+}
+
+describe.skipIf(!enabled)('notification queries (requires reachable PostgreSQL)', () => {
+  const url = queryScratchUrl(baseUrl);
+  let close: () => Promise<void> = async () => undefined;
+  let db: ReturnType<typeof getDb>['db'] | undefined;
+
+  let reporterAId = '';
+  let reporterBId = '';
+  let reportId = '';
+  // Row ids for reporter A: oldest → middle (reportId null) → newest.
+  let oldestId = '';
+  let noReportId = '';
+  let newestId = '';
+  const bIds: string[] = [];
+
+  const requireDb = (): NonNullable<typeof db> => {
+    if (db === undefined) {
+      throw new Error('test db not initialised');
+    }
+    return db;
+  };
+
+  beforeAll(async () => {
+    const admin = postgres(baseUrl, { max: 1 });
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS "${QUERY_SCRATCH_DB_NAME}"`);
+      await admin.unsafe(`CREATE DATABASE "${QUERY_SCRATCH_DB_NAME}"`);
+    } finally {
+      await admin.end();
+    }
+    const handle = getDb(url);
+    db = handle.db;
+    close = handle.close;
+    await runMigrations(url);
+    const d = requireDb();
+
+    const userRows = await d
+      .insert(users)
+      .values([
+        { username: `p65b-ra-${randomUUID().slice(0, 8)}`, role: 'REPORTER' },
+        { username: `p65b-rb-${randomUUID().slice(0, 8)}`, role: 'REPORTER' },
+      ])
+      .returning({ id: users.id });
+    reporterAId = userRows[0]!.id;
+    reporterBId = userRows[1]!.id;
+
+    const locRows = await d
+      .insert(locations)
+      .values({ type: 'CAMPUS', code: 'P65B-CAMPUS', name: 'Kampus' })
+      .returning({ id: locations.id });
+    const catRows = await d
+      .insert(facilityCategories)
+      .values({ code: 'P65B-ELEC', name: 'Elektronik' })
+      .returning({ id: facilityCategories.id });
+    const reportRows = await d
+      .insert(maintenanceReports)
+      .values({
+        ticketNumber: 'MNT-2026-000210',
+        idempotencyKey: randomUUID(),
+        reporterId: reporterAId,
+        locationId: locRows[0]!.id,
+        submittedCategoryId: catRows[0]!.id,
+        description: 'AC ruang kelas tidak dingin sejak dua hari lalu.',
+        status: 'REPORTED',
+      })
+      .returning({ id: maintenanceReports.id });
+    reportId = reportRows[0]!.id;
+
+    // Reporter A: newest read + middle unread with no report + oldest unread.
+    const aRows = await d
+      .insert(notifications)
+      .values([
+        {
+          userId: reporterAId,
+          type: 'STATUS_CHANGED',
+          title: 'Status laporan diperbarui',
+          message: 'Status penanganan Tiket MNT-2026-000210 telah diperbarui.',
+          reportId,
+          sourceEventId: randomUUID(),
+          readAt: new Date('2026-01-03T11:00:00Z'),
+          createdAt: new Date('2026-01-03T10:00:00Z'),
+        },
+        {
+          userId: reporterAId,
+          type: 'REPORT_ASSIGNED',
+          title: 'Teknisi ditugaskan',
+          message: 'Tiket MNT-2026-000210 telah ditugaskan ke teknisi.',
+          reportId: null,
+          sourceEventId: randomUUID(),
+          createdAt: new Date('2026-01-02T10:00:00Z'),
+        },
+        {
+          userId: reporterAId,
+          type: 'REPORT_VERIFIED',
+          title: 'Laporan diverifikasi',
+          message: 'Tiket MNT-2026-000210 telah diverifikasi admin.',
+          reportId,
+          sourceEventId: randomUUID(),
+          createdAt: new Date('2026-01-01T10:00:00Z'),
+        },
+      ])
+      .returning({ id: notifications.id, type: notifications.type });
+    newestId = aRows.find((row) => row.type === 'STATUS_CHANGED')!.id;
+    noReportId = aRows.find((row) => row.type === 'REPORT_ASSIGNED')!.id;
+    oldestId = aRows.find((row) => row.type === 'REPORT_VERIFIED')!.id;
+
+    // Reporter B: two foreign unread rows.
+    const bRows = await d
+      .insert(notifications)
+      .values([
+        {
+          userId: reporterBId,
+          type: 'REPORT_VERIFIED',
+          title: 'Laporan diverifikasi',
+          message: 'Tiket MNT-2026-000211 telah diverifikasi admin.',
+          reportId: null,
+          sourceEventId: randomUUID(),
+        },
+        {
+          userId: reporterBId,
+          type: 'STATUS_CHANGED',
+          title: 'Status laporan diperbarui',
+          message: 'Status penanganan Tiket MNT-2026-000211 telah diperbarui.',
+          reportId: null,
+          sourceEventId: randomUUID(),
+        },
+      ])
+      .returning({ id: notifications.id });
+    bIds.push(...bRows.map((row) => row.id));
+  });
+
+  afterAll(async () => {
+    await close();
+    const admin = postgres(baseUrl, { max: 1 });
+    await admin`DROP DATABASE IF EXISTS ${admin(QUERY_SCRATCH_DB_NAME)}`;
+    await admin.end();
+  });
+
+  it("lists only the user's own rows newest first with total and unreadCount", async () => {
+    const result = await listNotificationsForUser(requireDb(), reporterAId);
+    expect(result.items.map((item) => item.id)).toEqual([newestId, noReportId, oldestId]);
+    expect(result.total).toBe(3);
+    expect(result.unreadCount).toBe(2);
+  });
+
+  it('carries the joined ticket number and stays null-safe without a report', async () => {
+    const result = await listNotificationsForUser(requireDb(), reporterAId);
+    const newest = result.items.find((item) => item.id === newestId)!;
+    expect(newest.reportId).toBe(reportId);
+    expect(newest.ticketNumber).toBe('MNT-2026-000210');
+    const noReport = result.items.find((item) => item.id === noReportId)!;
+    expect(noReport.reportId).toBeNull();
+    expect(noReport.ticketNumber).toBeNull();
+  });
+
+  it("never leaks another reporter's rows", async () => {
+    const result = await listNotificationsForUser(requireDb(), reporterBId);
+    expect(result.total).toBe(2);
+    expect(result.items.map((item) => item.id).sort()).toEqual([...bIds].sort());
+    expect(result.unreadCount).toBe(2);
+    expect(result.items.every((item) => item.reportId === null)).toBe(true);
+  });
+
+  it('marks a single notification read idempotently and 404s foreign and unknown ids', async () => {
+    // Foreign id (reporter A's row, marked by reporter B) is indistinguishable
+    // from a nonexistent one.
+    await expect(markNotificationRead(requireDb(), reporterBId, oldestId)).rejects.toThrow(
+      'Notification not found',
+    );
+    await expect(markNotificationRead(requireDb(), reporterBId, oldestId)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      markNotificationRead(requireDb(), reporterAId, 'not-a-valid-uuid'),
+    ).rejects.toMatchObject({ status: 400 });
+
+    await markNotificationRead(requireDb(), reporterAId, noReportId);
+    const afterFirst = await listNotificationsForUser(requireDb(), reporterAId);
+    expect(afterFirst.unreadCount).toBe(1);
+    const noReport = afterFirst.items.find((item) => item.id === noReportId)!;
+    expect(noReport.readAt).not.toBeNull();
+
+    await markNotificationRead(requireDb(), reporterAId, noReportId);
+    const afterSecond = await listNotificationsForUser(requireDb(), reporterAId);
+    expect(afterSecond.unreadCount).toBe(1);
+    expect(afterSecond.total).toBe(3);
+  });
+
+  it('marks all unread read once, then transitions nothing on a second pass', async () => {
+    const first = await markAllNotificationsRead(requireDb(), reporterBId);
+    expect(first).toBe(2);
+    const after = await listNotificationsForUser(requireDb(), reporterBId);
+    expect(after.unreadCount).toBe(0);
+    expect(after.items.every((item) => item.readAt !== null)).toBe(true);
+
+    const second = await markAllNotificationsRead(requireDb(), reporterBId);
+    expect(second).toBe(0);
+
+    const stillA = await listNotificationsForUser(requireDb(), reporterAId);
+    expect(stillA.unreadCount).toBe(1);
+
+    await expect(markAllNotificationsRead(requireDb(), 'not-a-valid-uuid')).rejects.toMatchObject({
+      status: 400,
+    });
   });
 });

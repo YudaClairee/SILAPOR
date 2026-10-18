@@ -400,7 +400,12 @@ export async function transitionReport(
       await queueExtraNotification(tx, {
         reportId: report.id,
         ticketNumber: report.ticketNumber,
-        kind: 'STATUS_CHANGED',
+        kind:
+          target === 'RESOLVED'
+            ? 'REPORT_RESOLVED'
+            : target === 'CLOSED'
+              ? 'REPORT_CLOSED'
+              : 'STATUS_CHANGED',
         actorId: actor.actorId,
       });
       return next;

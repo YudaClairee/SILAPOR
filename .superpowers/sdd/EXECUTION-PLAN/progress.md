@@ -27,3 +27,39 @@ Historical Phase 1-5 ledger lives in the main checkout (this file was reset for 
 - P6-4 ruling update: claim uses negation (type <> AI_REVIEW_REQUESTED) instead of an allowlist so unknown future job types are claimed, retried, and visibly dead-lettered rather than silently rotting in PENDING. — Why: operational observability; AI rows still protected. — Cost if wrong: stray types burn retries — acceptable, visible in FAILED.
 - Ruling: notifications GET shape = contract §6 verbatim ({ items, total, unreadCount }); addition, POST /api/notifications/read-all (bulk mark-as-read) alongside single read — plan step 10 wants the reporter to clear the queue; one extra guarded UPDATE is cheap. Contract gains the row in P6-6. — Cost if wrong: unused endpoint; trivial to drop.
 - Ruling: REPORT_VERIFIED producer exists (repoApplyVerification queues the outbox row for both AI-PASS submit and held-verify) — P6-5a touches transitionReport only.
+
+## P6-5 resume (2026-10-17, post-merge)
+Branch phase-6-p6-5 from main aa8b9d8 (P6-1..P6-4 already merged to main; migration renumbered 0005→0008_bent_prowler during merge, SQL identical, journal/snapshot regenerated via drizzle-kit).
+- Ruling: P6-4 logged as complete without its own review gate — the branch was merged and full suites ran green on the merge (database 200 live, worker 3/3); P6-6 whole-branch review covers P6-4's diff. — Why: review seat would duplicate the final review scope. — Cost if wrong: a P6-4 defect reaches P6-5b/c consumers; caught by final review.
+- Ruling: report_events already emits REPORT_RESOLVED/REPORT_CLOSED but outbox rows enqueue kind STATUS_CHANGED for all transitions; notification mapper's RESOLVED/CLOSED cases are dead. P6-5a aligns producer kinds with the mapper (RESOLVED→REPORT_RESOLVED, CLOSED→REPORT_CLOSED, else STATUS_CHANGED). — Why: plan step 9 names resolved+closed notifications; ledger ruling 13 maps those kinds. — Cost if wrong: duplicate/missing rows; unique constraint guards.
+
+### Pre-flight conflict scan (P6-5 tasks)
+| Pair | Produces vs consumes | Finding |
+|---|---|---|
+| P6-5a vs notification mapper | enqueues kinds vs maps kinds | Mapper already has REPORT_RESOLVED + REPORT_CLOSED cases — no conflict, consuming side exists. |
+| P6-5a vs P6-5b | producer adds kinds vs queries notifications table | Different files (workflow-extra.ts vs notifications.ts); 5b's list shows stored rows regardless of kind. Clean. |
+| P6-5b vs P6-5c | /api/notifications routes vs /api/facilities + /api/admin/assets routes | Disjoint route files and pages; routeTree.gen.ts regenerated sequentially by single-file dispatch ordering. Clean. |
+| P6-5b/c vs UI team | functional minimal UI now vs UI-Team designs later | Ruled: Phase 5 practice — ship minimal functional pages (release gate must be verifiable); UI team restyles. — Cost: rework by restyle, bounded. |
+| P6-6 contract update vs 5b/5c endpoints | documents built endpoints | Runs after both; /api/notifications/:id/read and facilities shapes come verbatim from contract §6 plus mark-all ruling below. Clean. |
+- P6-5a: complete (commit 12743ca, review Approved, 2 minors deferred below; database 201 pass). TDD RED→GREEN evidence in p6-5a-report.md.
+- P6-5a: minor (deferred): test helper kindsFor count-delta style slightly verbose — reviewer ok, no rework.
+- P6-5a ⚠️ resolved: reviewer's "line 417 still STATUS_CHANGED" was a grep of the MAIN checkout, not the worktree — verified kind conditional exists at HEAD 12743ca.
+- P6-5b: complete (commit aac0f01, review Approved; 6 minors deferred below; database 206 + web 205 pass; RED/GREEN evidence in p6-5b-report.md).
+- P6-5b deviation ruled: markAllNotificationsRead returns Promise<number> (brief said void) — required for the 200 { updated } read-all response; sole caller is the read-all transport. Record shape in contract at P6-6.
+- P6-5b: minor (deferred): route files untested at handler level (matches codebase pattern); row-click vs ticketNumber-link-only interpretation; nav badge out (UI team); 403 N/A-by-construction (auth only 401 here); formatter rewrap of pre-existing AppShell line.
+- P6-5b flake note (deferred): reports.test.ts transient green-on-rerun under parallel scratch-DB load — watch at P6-6.
+- P6-5c: complete (commit b9396f8, review Approved; 5 minors deferred below; web 221 pass, 16 new service tests TDD).
+- P6-5c interpretation ruled: include_inactive silently stripped for non-admin sessions (least-leaky reading of "admin extra" — no 400 leaking the flag's spelling); tested.
+- P6-5c: minor (deferred): unbounded digit offset→Infinity path (repo returns empty page, mirrors admin reports); parser-level UUID-400 not explicitly asserted (mock throws both paths); double requireAdmin (route+service defense-in-depth); <time> missing dateTime attr (cosmetic).
+- P6-5c ⚠️ resolved: facilities/status response passes DB projection through wholesale — sanitization rests on the DB layer per brief; DB-layer fields checked (no report content columns in FacilityStatusItem).
+
+## P6-6b realignment ruling (EXECUTION-PLAN.md 2026-10-17 revision, single source of truth)
+- Ruling: REPORTED_ISSUE DIHAPUS from domain FACILITY_STATUSES/deriveFacilityStatus (plan §4.6 "Tanpa REPORTED_ISSUE; 3 status aset admin-only"). Active REPORTED/VERIFIED reports map to UNDER_INSPECTION (the only "known issue, not yet in repair" bucket; mapping them OPERATIONAL would hide held-but-real defects). — Why: plan supersedes ledger ruling 14 (REPORTED/VERIFIED→REPORTED_ISSUE). — Cost if wrong: held (REPORTED) assets show UNDER_INSPECTION while unverified; acceptable proxy for "dilaporkan, ditangani".
+- Ruling: /api/facilities/status restricted to ADMIN (plan §8 matrix: reporter = Tidak, UI No. 6; "tanpa endpoint status publik" test-minimum). Transport path unchanged (path is not a permission boundary); contract rows fix to admin-only. — Why: any-role session let reporters read facility status via API. — Cost if wrong: none (reporter never needed it).
+- Ruled deferred (NOT Phase 6 scope): UI No. 10 progress-note rework (single note without PUBLIC/INTERNAL choice, LAPORAN_PALSU neutral projection, notifications for catatan progres incl. neutral projection) — Phase 5 frontend/backend follow-up, logged as successor work after Phase 6; mapper's INTERNAL_NOTE_ADDED skip stays correct until that rework lands.
+- P6-6a: complete (commit 3ff4146, review Approved).
+- P6-6b: complete (commit 2c0cf6b, review Approved; domain REPORTED_ISSUE eliminated, facilities/status admin-only, contract coherent after both tasks; domain 60 / database 206 live / web 221 pass).
+- P6-6a/6b: minor (deferred): contract preamble line "[Phase 6] belum dibangun" now contradicts §6 heading (doc polish at P6-6-final); guard tests mock requireAdmin (house pattern, real role path unexercised in transport package).
+- P6-6-final: dispatch final whole-branch review (aa8b9d8..2c0cf6b, all Phase 6 + realignment work) with deferred-minors triage.
+- P6-6-final: review READY (no Critical/Important; test-minimum checklist fully mapped; deferred minors all SHIP except 1-line contract preamble → fixed in 631a7c8; scoped re-review clean).
+- Phase 6: COMPLETE on branch phase-6-p6-5. Merge to main follows; ledger workspace retained until merge verified.

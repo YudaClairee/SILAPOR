@@ -19,7 +19,7 @@
 // between the two is impossible; a post-commit redelivery is absorbed by the
 // unique constraint.
 
-import { eq } from 'drizzle-orm';
+import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { badRequest, notFound } from '@silapor/shared';
 import * as schema from './schema.js';
@@ -184,4 +184,124 @@ export async function processNotificationOutboxEvent(
     return { created: 0, skippedReason: 'duplicate' };
   }
   return { created: 1, skippedReason: null };
+}
+
+// ---------------------------------------------------------------------------
+// P6-5b read-side queries + mark-as-read.
+// ---------------------------------------------------------------------------
+
+export interface NotificationListItem {
+  readonly id: string;
+  readonly type: string;
+  readonly title: string;
+  readonly message: string;
+  readonly reportId: string | null;
+  /** The report's ticket when the notification's report row still exists. */
+  readonly ticketNumber: string | null;
+  readonly readAt: Date | null;
+  readonly createdAt: Date;
+}
+
+export interface NotificationListResult {
+  /** Newest first (createdAt DESC, id DESC tiebreak). */
+  readonly items: readonly NotificationListItem[];
+  readonly total: number;
+  readonly unreadCount: number;
+}
+
+function requireUserUuid(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !UUID_RE.test(value)) {
+    throw badRequest(`${field} must be a valid UUID`);
+  }
+  return value;
+}
+
+export async function listNotificationsForUser(
+  db: NotificationDb,
+  userId: string,
+): Promise<NotificationListResult> {
+  requireUserUuid(userId, 'userId');
+  // LEFT JOIN keeps rows whose report was deleted null-safe (reportId stays,
+  // ticketNumber turns null) — never filter by the join.
+  const rows = await db
+    .select({
+      id: schema.notifications.id,
+      type: schema.notifications.type,
+      title: schema.notifications.title,
+      message: schema.notifications.message,
+      reportId: schema.notifications.reportId,
+      ticketNumber: schema.maintenanceReports.ticketNumber,
+      readAt: schema.notifications.readAt,
+      createdAt: schema.notifications.createdAt,
+    })
+    .from(schema.notifications)
+    .leftJoin(
+      schema.maintenanceReports,
+      eq(schema.notifications.reportId, schema.maintenanceReports.id),
+    )
+    .where(eq(schema.notifications.userId, userId))
+    .orderBy(desc(schema.notifications.createdAt), desc(schema.notifications.id));
+  const totalRows = await db
+    .select({ value: count() })
+    .from(schema.notifications)
+    .where(eq(schema.notifications.userId, userId));
+  const unreadRows = await db
+    .select({ value: count() })
+    .from(schema.notifications)
+    .where(and(eq(schema.notifications.userId, userId), isNull(schema.notifications.readAt)));
+  return {
+    items: rows,
+    total: totalRows[0]?.value ?? 0,
+    unreadCount: unreadRows[0]?.value ?? 0,
+  };
+}
+
+export async function markNotificationRead(
+  db: NotificationDb,
+  userId: string,
+  notificationId: string,
+): Promise<void> {
+  requireUserUuid(userId, 'userId');
+  requireUserUuid(notificationId, 'notificationId');
+  const updated = await db
+    .update(schema.notifications)
+    .set({ readAt: new Date() })
+    .where(
+      and(
+        eq(schema.notifications.id, notificationId),
+        eq(schema.notifications.userId, userId),
+        isNull(schema.notifications.readAt),
+      ),
+    )
+    .returning({ id: schema.notifications.id });
+  if (updated.length > 0) {
+    return;
+  }
+  // No transition: either already read (idempotent success) or foreign/
+  // unknown (IDOR-guarded 404, byte-identical body to other 404s).
+  const owned = await db
+    .select({ id: schema.notifications.id })
+    .from(schema.notifications)
+    .where(
+      and(eq(schema.notifications.id, notificationId), eq(schema.notifications.userId, userId)),
+    );
+  if (owned.length === 0) {
+    throw notFound('Notification not found');
+  }
+}
+
+/** Marks every unread notification of the user read; returns the count of
+ *  rows transitioned unread→read (0 when none were unread) — the web layer's
+ *  `updated` field on read-all. */
+export async function markAllNotificationsRead(
+  db: NotificationDb,
+  userId: string,
+): Promise<number> {
+  requireUserUuid(userId, 'userId');
+  const updated = await db
+    .update(schema.notifications)
+    .set({ readAt: new Date() })
+    .where(and(eq(schema.notifications.userId, userId), isNull(schema.notifications.readAt)))
+    .returning({ id: schema.notifications.id });
+  return updated.length;
 }

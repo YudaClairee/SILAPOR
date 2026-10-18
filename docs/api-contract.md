@@ -11,9 +11,9 @@
 >   `PUBLIC`/`INTERNAL`, status fasilitas publik 4-state, duplikat manual,
 >   `REPORTED_ISSUE`, reopen) adalah **superseded**.
 >
-> Endpoint bertanda **[Phase 6]** belum dibangun — bentuk di bawah adalah
-> kontrak yang akan diimplementasikan; beri tahu backend sebelum mendesain alur
-> yang bergantung padanya supaya field-nya dikunci lebih dulu.
+> Endpoint bertanda **[Phase 6]** sudah dibangun (lihat §6) — bentuk di bawah
+> adalah kontrak aktualnya; beri tahu backend sebelum mendesain alur yang
+> bergantung padanya supaya field-nya dikunci lebih dulu.
 >
 > Semua endpoint mengembalikan JSON. Autentikasi memakai **session cookie**
 > (setelah login) — tidak ada `Authorization` header / token manual.
@@ -212,21 +212,25 @@ sebagai panel/kolom **berbeda**.
 
 | Endpoint | Method | Sukses |
 |---|---|---|
+| `/api/facilities/status` | GET | **admin-only** — query: `location_id`, `category_id`, `status`, `limit`, `offset` + `include_inactive` → `{ "items": [{ "assetId", "assetCode", "assetName", "locationLabel", "categoryName", "derivedStatus", "isActive", "activeReportCount", "lastUpdated" }], "total", "limit", "offset" }` (tanggal ISO); proyeksi tersanitasi **tanpa identitas reporter, deskripsi, attachment, internal note**; `401` anonim, `403` non-admin |
 | `/api/admin/assets/:id/history` | GET | `200 { "asset": { "assetId", "assetCode", "assetName", "isActive", "locationLabel", "categoryName", "derivedStatus" }, "items": [{ "reportId", "ticketNumber", "status", "reportedAt", "resolvedAt"?, "closedAt"?, "finalPriority"? }] }` — admin-only; semua tiket per asset + status + tanggal, terbaru dulu; `404` unknown asset. |
 | `/api/notifications` | GET | `200 { "items": [{ "id", "type", "title", "message", "reportId"?, "ticketNumber"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja. |
 | `/api/notifications/:id/read` | POST | `200` — idempoten; id milik user lain/tidak ada → `404`. |
 | `/api/notifications/read-all` | POST | `200 { "updated" }` — tandai semua belum-dibaca milik sesi sebagai dibaca; idempoten, `updated: 0` valid. |
 
 **Status aset (admin-only, 3-state):** `OPERATIONAL | UNDER_INSPECTION | IN_REPAIR`.
-Precedence: `IN_REPAIR > UNDER_INSPECTION > OPERATIONAL`.
-Tidak ada `REPORTED_ISSUE` dan **tidak ada endpoint publik `/api/facilities/status`**
-(UI No. 6). Status 3-state hanya ditampilkan di halaman admin Kelola Aset;
-endpoint daftar status admin menyusul. Kandidat kontrak: `GET /api/admin/assets`
-menyertakan `derivedStatus` 3-state + `activeReportCount` (admin-only).
+Precedence: `IN_REPAIR > UNDER_INSPECTION > OPERATIONAL`. Laporan aktif
+`REPORTED`/`VERIFIED` turun ke `UNDER_INSPECTION` (realignment 2026-10-17).
+Tidak ada `REPORTED_ISSUE` dan **tidak ada endpoint status publik** (UI No. 6):
+status 3-state hanya tampil di halaman admin Kelola Aset (`/admin/facilities`)
+yang mengonsumsi `/api/facilities/status` di atas — bukan endpoint publik.
 
 **Notification types:** `REPORT_VERIFIED`, `REPORT_ASSIGNED`, `STATUS_CHANGED`,
 `PROGRESS_NOTE_ADDED`, `REPORT_RESOLVED`, `REPORT_CLOSED` (tanpa tipe
 `PUBLIC_UPDATE_ADDED`; `LAPORAN_PALSU` diproyeksikan netral di sisi pelapor).
+Legacy rows bertipe `PUBLIC_UPDATE_ADDED` (prarework visibilitas) masih
+ditampilkan bila ada. Worker outbox memproses idempoten dengan retry/backoff
+dan dead-letter.
 
 **UI-only (No. 11):** Dashboard Admin (kartu ringkasan, antrean prioritas, panel
 tugas per teknisi), Pengaturan Scoring, dan Laporan Maintenance (3 grafik +
