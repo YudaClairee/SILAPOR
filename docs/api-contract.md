@@ -1,10 +1,10 @@
 # API Contract — UI/UX Handoff
 
 > Sumber kebenaran: implementasi aktual di `apps/web/src/routes/api/**` dan
-> `apps/web/src/server/**` (Phase 2–5). Endpoint bertanda **[Phase 6]** belum
-> dibangun — bentuk di bawah adalah kontrak yang akan diimplementasikan;
-> beri tahu backend sebelum mendesain alur yang bergantung padanya supaya
-> field-nya dikunci lebih dulu.
+> `apps/web/src/server/**` (Phase 2–5). Endpoint bertanda **[Phase 6]** sudah
+> dibangun (lihat §6) — bentuk di bawah adalah kontrak aktualnya; beri tahu
+> backend sebelum mendesain alur yang bergantung padanya supaya field-nya
+> dikunci lebih dulu.
 >
 > Semua endpoint mengembalikan JSON. Autentikasi memakai **session cookie**
 > (setelah login) — tidak ada `Authorization` header / token manual.
