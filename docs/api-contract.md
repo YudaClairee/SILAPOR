@@ -85,9 +85,17 @@ verifikasi AI kedua.
 |---|---|---|---|
 | `201` | AI **PASS** | `{ "ticketNumber", "report", "verification": { "status": "VERIFIED", "category", "issueType", "priority", "confidence" }, "relation"? , "duplicateCandidates" }` | status langsung `VERIFIED`, nomor tiket dikonsumsi, `finalCategory`/`finalIssueType`/`finalPriority` diisi AI — mengalir ke assignment/timeline seperti VERIFIED biasa |
 | `200` | replay idempotent | `{ "ticketNumber", "report", "idempotentReplay": true, "verification": { "status": <status tersimpan> } }` | tanpa efek baru |
-| `202` | layanan AI **down** (transien: timeout/5xx/429 setelah retry) | `{ "ticketNumber", "report", "analysisId", "message": "<notice menunggu>", "verification": { "status": "HELD" } }` | laporan **tetap tersimpan** status `REPORTED` tanpa klasifikasi final; nomor tiket tetap dikonsumsi; hanya admin yang melihat antrian penuh — reporter melihat laporannya sendiri sebagai menunggu verifikasi |
+| `202` | layanan AI **down** (transien: timeout/5xx/429) | `{ "ticketNumber", "report", "analysisId", "message": "<notice menunggu>", "verification": { "status": "HELD" } }` | laporan **tetap tersimpan** status `REPORTED` tanpa klasifikasi final; nomor tiket tetap dikonsumsi; hanya admin yang melihat antrian penuh — reporter melihat laporannya sendiri sebagai menunggu verifikasi |
 | `422` | AI **FAIL** deterministik (foto/deskripsi tidak jelas, deskripsi tidak cocok dengan asset, kode master data tidak dikenal, model menolak/4xx) | `{ "reason": "<teks plain-language yang bisa ditindak reporter>" , "machineCode"? }` | **tidak ada row, tidak ada tiket** — perbaiki = ajukan laporan baru |
 | `409` | duplikat same-reporter aktif | error envelope standar + `ticketNumber` tiket aktif di root body — UI tawarkan membuka tiket itu | tidak ada submit baru; merge different-reporter (SUPPORTING) tetap jalan selama AI down |
+
+AI menerima **konten foto**: kunci `photo_keys` di-resolve server-side dari storage,
+di-downscale ke maks 1280px (JPEG kualitas 80, metadata EXIF dihapus), lalu dikirim
+sebagai image part multimodal bersama deskripsi, label lokasi tersanitasi
+(gedung/lantai/ruangan), snapshot taxonomy, dan rubric prioritas; kunci storage
+tidak dikirim ke model. Metadata respons gateway (request id, upstream provider,
+token usage, estimasi cost) dan `reasoningSummary` disimpan pada `ai_analyses`;
+raw prompt/response dan API key tidak pernah disimpan pada database atau log.
 
 Salah input juga gagal sebelum AI berjalan (0 foto, description <10 char, field
 klasifikasi reporter dikirim, asset/location bukan UUID) → `400`.

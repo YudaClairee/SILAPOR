@@ -1349,7 +1349,7 @@ Output adalah verdict `PASS` (kategori + issue type + priority final dari master
 Kirim data minimum yang diperlukan:
 
 - deskripsi laporan yang telah dibatasi panjangnya;
-- foto yang sudah diunggah (kunci storage; AI wajib menilai kejelasan dan relevansi foto);
+- foto yang sudah diunggah (kunci storage di-resolve server-side menjadi konten gambar ter-downscale, maks 1280px JPEG kualitas 80; AI wajib menilai kejelasan dan relevansi foto);
 - label lokasi + konteks aset yang telah disanitasi;
 - snapshot taxonomy (kategori + issue type aktif) agar AI memilih hanya dari daftar yang ada;
 - rubric priority.
