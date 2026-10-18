@@ -80,16 +80,17 @@ it('sends photo bytes as image parts after the text and never sends storage keys
   const messages = body?.['messages'] as Array<{ role: string; content: unknown }>;
   const userContent = messages[1]?.content;
   expect(Array.isArray(userContent)).toBe(true);
-  expect(userContent[0]).toEqual({ type: 'text', text: expect.stringContaining('Description:') });
-  expect(userContent[1]).toEqual({
+  const parts = userContent as unknown[];
+  expect(parts[0]).toEqual({ type: 'text', text: expect.stringContaining('Description:') });
+  expect(parts[1]).toEqual({
     type: 'image_url',
     image_url: { url: 'data:image/jpeg;base64,AAAA' },
   });
-  expect(userContent[2]).toEqual({
+  expect(parts[2]).toEqual({
     type: 'image_url',
     image_url: { url: 'data:image/jpeg;base64,BBBB' },
   });
-  expect(JSON.stringify(userContent)).not.toContain('staging_photo_a');
+  expect(JSON.stringify(parts)).not.toContain('staging_photo_a');
 });
 
 it('keeps a text-only user message with photo references when photos carry no bytes', async () => {
@@ -125,7 +126,7 @@ it('pins the rubric and the injection guard in the system prompt', async () => {
   expect(system).toContain('MEDIUM');
   expect(system).toContain('LOW');
   expect(system).not.toContain(malicious);
-  expect(JSON.stringify(messages[1])).toContain(malicious);
+  expect(String(messages[1]?.content)).toContain(malicious);
 });
 ```
 
@@ -571,6 +572,7 @@ it('resolves staged photos and passes labels, bytes, and metadata through', asyn
   );
   expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
     expect.anything(),
+    SUBMIT_ANALYSIS_ID,
     expect.objectContaining({
       status: 'SUCCEEDED',
       verdict: 'PASS',
@@ -603,7 +605,7 @@ it('persists a FAIL verdict and metadata when the model rejects', async () => {
 
 it('stores no verdict for gateway-side failures', async () => {
   // verify mock: { kind: 'FAIL', reason: 'UPSTREAM_REJECTED' }
-  // const outcome = dbMocks.markAiAnalysis.mock.calls.at(-1)?.[1];
+  // const outcome = dbMocks.markAiAnalysis.mock.calls.at(-1)?.[2];
   // expect(outcome).toMatchObject({ status: 'FAILED', errorCode: 'UPSTREAM_REJECTED' });
   // expect(outcome).not.toHaveProperty('verdict');
 });
