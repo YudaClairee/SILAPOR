@@ -15,7 +15,14 @@ export default defineConfig({
     // relative to tanstackStart() is not significant; React's plugin must
     // stay after Start's plugin.
     tailwindcss(),
-    tanstackStart(),
+    tanstackStart({
+      // Ignore colocated Vitest files so the route generator skips them.
+      // Without this, every `src/routes/*.test.tsx` triggers a
+      // "does not export a Route" warning on dev/build.
+      router: {
+        routeFileIgnorePattern: '\.(test|spec)\.(ts|tsx)$',
+      },
+    }),
     // React's Vite plugin must come after Start's plugin.
     viteReact(),
   ],
