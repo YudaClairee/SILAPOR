@@ -32,6 +32,14 @@ export interface VerifyOpts {
   readonly schemaVersion?: string;
 }
 
+export interface VerifyMeta {
+  readonly gatewayRequestId?: string;
+  readonly upstreamProvider?: string;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly estimatedCost?: number;
+}
+
 export type VerifyOutcome =
   | {
       kind: 'PASS';
@@ -43,8 +51,16 @@ export type VerifyOutcome =
       model: string;
       promptVersion: string;
       schemaVersion: string;
+      readonly meta?: VerifyMeta;
+      readonly reasoningSummary?: string;
     }
-  | { kind: 'FAIL'; reason: string; model?: string }
+  | {
+      kind: 'FAIL';
+      reason: string;
+      model?: string;
+      readonly meta?: VerifyMeta;
+      readonly reasoningSummary?: string;
+    }
   | { kind: 'DOWN' };
 
 export const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
@@ -110,6 +126,33 @@ function extractContent(envelope: unknown): string | undefined {
   return undefined;
 }
 
+function extractMeta(envelope: unknown): VerifyMeta | undefined {
+  if (typeof envelope !== 'object' || envelope === null) return undefined;
+  const record = envelope as Record<string, unknown>;
+  const meta: {
+    gatewayRequestId?: string;
+    upstreamProvider?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    estimatedCost?: number;
+  } = {};
+  const id = record['id'];
+  if (typeof id === 'string' && id.trim() !== '') meta.gatewayRequestId = id.trim();
+  const provider = record['provider'];
+  if (typeof provider === 'string' && provider.trim() !== '') meta.upstreamProvider = provider.trim();
+  const usage = record['usage'];
+  if (typeof usage === 'object' && usage !== null) {
+    const u = usage as Record<string, unknown>;
+    const promptTokens = u['prompt_tokens'];
+    if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) meta.inputTokens = promptTokens;
+    const completionTokens = u['completion_tokens'];
+    if (typeof completionTokens === 'number' && Number.isFinite(completionTokens)) meta.outputTokens = completionTokens;
+    const cost = u['cost'];
+    if (typeof cost === 'number' && Number.isFinite(cost)) meta.estimatedCost = cost;
+  }
+  return Object.keys(meta).length === 0 ? undefined : meta;
+}
+
 export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promise<VerifyOutcome> {
   const timeoutMs = opts.timeoutMs;
   if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -163,6 +206,7 @@ export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promis
       },
     ],
     response_format: { type: 'json_object' },
+    usage: { include: true },
     // Zero-retention routing required on every request.
     provider: {
       data_collection: 'deny',
@@ -206,28 +250,37 @@ export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promis
   } catch {
     return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model };
   }
+  const meta = extractMeta(envelope);
   const content = extractContent(envelope);
   if (content === undefined) {
-    return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model };
+    return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model, ...(meta === undefined ? {} : { meta }) };
   }
   let raw: unknown;
   try {
     raw = JSON.parse(content) as unknown;
   } catch {
-    return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model };
+    return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model, ...(meta === undefined ? {} : { meta }) };
   }
   const parsed = parseVerdict(raw);
   if (!parsed.success) {
-    return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model };
+    return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model, ...(meta === undefined ? {} : { meta }) };
   }
   if (parsed.data.verdict === 'FAIL') {
-    return { kind: 'FAIL', reason: parsed.data.reason ?? 'UNCLEAR_EVIDENCE', model };
+    return {
+      kind: 'FAIL',
+      reason: parsed.data.reason ?? 'UNCLEAR_EVIDENCE',
+      model,
+      ...(meta === undefined ? {} : { meta }),
+      ...(parsed.data.reasoningSummary === undefined
+        ? {}
+        : { reasoningSummary: parsed.data.reasoningSummary }),
+    };
   }
   const category = parsed.data.category?.trim() ?? '';
   const issueType = parsed.data.issueType?.trim() ?? '';
   const priority = parsed.data.priority?.trim() ?? '';
   if (category === '' || issueType === '' || priority === '') {
-    return { kind: 'FAIL', reason: 'UNCLEAR_EVIDENCE', model };
+    return { kind: 'FAIL', reason: 'UNCLEAR_EVIDENCE', model, ...(meta === undefined ? {} : { meta }) };
   }
   return {
     kind: 'PASS',
@@ -239,6 +292,10 @@ export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promis
     model,
     promptVersion: opts.promptVersion ?? PROMPT_VERSION,
     schemaVersion: opts.schemaVersion ?? SCHEMA_VERSION,
+    ...(meta === undefined ? {} : { meta }),
+    ...(parsed.data.reasoningSummary === undefined
+      ? {}
+      : { reasoningSummary: parsed.data.reasoningSummary }),
   };
 }
 

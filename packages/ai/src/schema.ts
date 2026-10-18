@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const PROMPT_VERSION = 'v2' as const;
-export const SCHEMA_VERSION = 'v1' as const;
+export const SCHEMA_VERSION = 'v2' as const;
 
 export const verifyVerdictSchema = z.object({
   verdict: z.enum(['PASS', 'FAIL']),
@@ -11,6 +11,7 @@ export const verifyVerdictSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   reasons: z.array(z.string()).optional(),
   reason: z.string().min(1).optional(),
+  reasoningSummary: z.string().min(1).optional(),
 });
 
 export type VerifyVerdict = z.infer<typeof verifyVerdictSchema>;
