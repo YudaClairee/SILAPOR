@@ -27,7 +27,7 @@ async function loginContext(browser: Browser, username: string): Promise<Browser
 }
 
 // Minimal 1x1 PNG shared by every report submission (the current form
-// requires 1–3 photos). Test 9 replaces it with its named fixture.
+// requires 1–3 photos). Test 9 reuses the same bytes under its named fixture.
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
@@ -44,10 +44,47 @@ interface E2eFormOptions {
   readonly assets: ReadonlyArray<{ readonly id: string; readonly locationId: string | null }>;
 }
 
+interface E2eFillOptions {
+  /** Explicit asset index; defaults to the first asset without an active ticket. */
+  readonly assetIndex?: number;
+  /** Uploaded file override; defaults to the shared `bukti.png`. */
+  readonly photo?: { readonly name: string; readonly buffer: Buffer };
+}
+
+// Reporter-active statuses mirroring ACTIVE_REPORT_STATUSES (packages/domain);
+// RESOLVED is not active, so only these block a same-reporter resubmit.
+const ACTIVE_STATUSES: readonly string[] = ['REPORTED', 'VERIFIED', 'ASSIGNED', 'INSPECTION', 'IN_REPAIR'];
+
+// First seeded asset with no reporter-active ticket, so reruns against the
+// persistent dev DB submit instead of hitting the duplicate block.
+async function firstFreeAssetIndex(
+  page: Page,
+  assets: ReadonlyArray<{ readonly id: string }>,
+): Promise<number> {
+  const response = await page.request.get(`${BASE_URL}/api/reports?mine=true&limit=100`);
+  expect(response.ok()).toBe(true);
+  const body = (await response.json()) as {
+    items: ReadonlyArray<{ readonly assetId: string | null; readonly status: string }>;
+  };
+  const occupied = new Set(
+    body.items.filter((item) => ACTIVE_STATUSES.includes(item.status)).map((item) => item.assetId),
+  );
+  const index = assets.findIndex((asset) => !occupied.has(asset.id));
+  if (index < 0) {
+    throw new Error('E2E: every seeded asset has a reporter-active ticket; reseed the dev DB');
+  }
+  return index;
+}
+
 // Fill the current cascade using a real asset from the seeded form options
 // (building → optional floor → room → asset), then description + one photo.
-// Picking the asset first keeps the test independent of rooms without assets.
-async function fillReportForm(page: Page, description: string, assetIndex = 0): Promise<void> {
+// Without an explicit index the first free asset is used (see above); the
+// chosen index is returned so a blocked-flow test can target the same asset.
+async function fillReportForm(
+  page: Page,
+  description: string,
+  fillOptions: E2eFillOptions = {},
+): Promise<number> {
   await page.goto('/reporter/reports/new');
   await expect(page.getByRole('heading', { name: 'Buat Laporan Baru' })).toBeVisible();
 
@@ -58,9 +95,10 @@ async function fillReportForm(page: Page, description: string, assetIndex = 0): 
     (asset): asset is { readonly id: string; readonly locationId: string } =>
       asset.locationId !== null,
   );
-  const asset = assets[assetIndex];
+  const chosenIndex = fillOptions.assetIndex ?? (await firstFreeAssetIndex(page, assets));
+  const asset = assets[chosenIndex];
   if (asset === undefined) {
-    throw new Error(`E2E: no seeded asset at index ${assetIndex}`);
+    throw new Error(`E2E: no seeded asset at index ${chosenIndex}`);
   }
   const room = options.locations.find((location) => location.id === asset.locationId);
   if (room === undefined) {
@@ -92,9 +130,11 @@ async function fillReportForm(page: Page, description: string, assetIndex = 0): 
   await assetSelect.selectOption(asset.id);
 
   await page.getByLabel('Deskripsi', { exact: true }).fill(description);
+  const photo = fillOptions.photo ?? { name: 'bukti.png', buffer: PNG };
   await page
     .getByLabel('Foto', { exact: true })
-    .setInputFiles([{ name: 'bukti.png', mimeType: 'image/png', buffer: PNG }]);
+    .setInputFiles([{ name: photo.name, mimeType: 'image/png', buffer: photo.buffer }]);
+  return chosenIndex;
 }
 
 // Advance form → review → submit and return the ticket from the success status.
@@ -118,18 +158,19 @@ async function submitFromReview(page: Page): Promise<string> {
   return match[0];
 }
 
-// Shared gate state: ticketA/descriptionA created by scenario 1, ticketB by
-// scenario 6. Tests in one file run serially in declaration order.
+// Shared gate state: ticketA/descriptionA + assetIndexA created by scenario 1,
+// ticketB by scenario 6. Tests in one file run serially in declaration order.
 let ticketA = '';
 let descriptionA = '';
 let ticketB = '';
+let assetIndexA = 0;
 
 test('1 gate: reporter submits a report and receives a ticket', async ({ browser }) => {
   const context = await loginContext(browser, '230001');
   const page = await context.newPage();
   try {
     descriptionA = uniqueDescription('gate');
-    await fillReportForm(page, descriptionA);
+    assetIndexA = await fillReportForm(page, descriptionA);
     ticketA = await submitFromReview(page);
     expect(ticketA).toMatch(TICKET_PATTERN);
 
@@ -243,9 +284,9 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
   const page = await context.newPage();
   try {
     const description = uniqueDescription('double-submit');
-    // Use the second asset so the active first-asset ticket from scenario 1
-    // cannot block this idempotency test.
-    await fillReportForm(page, description, 1);
+    // Auto-selected free asset: the scenario-1 ticket is active, so it cannot
+    // block this idempotency test.
+    await fillReportForm(page, description);
     await page.getByRole('button', { name: 'Lanjut ke review' }).click();
     await expect(page.getByRole('heading', { name: 'Tinjau Laporan' })).toBeVisible();
     const submit = page.getByRole('button', { name: 'Kirim laporan', exact: true });
@@ -313,14 +354,19 @@ test('7 duplicate block: same reporter + active asset is blocked with the existi
   const context = await loginContext(browser, '230001');
   const page = await context.newPage();
   try {
-    // Same first asset as scenario 1; the server must block before AI.
-    await fillReportForm(page, uniqueDescription('duplicate-block'));
+    // Same asset as scenario 1; the server must block before AI.
+    await fillReportForm(page, uniqueDescription('duplicate-block'), {
+      assetIndex: assetIndexA,
+    });
     await page.getByRole('button', { name: 'Lanjut ke review' }).click();
     await expect(page.getByRole('heading', { name: 'Tinjau Laporan' })).toBeVisible();
     await page.getByRole('button', { name: 'Kirim laporan', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'Laporan serupa sudah tercatat' })).toBeVisible();
-    await expect(page.getByRole('link', { name: ticketA })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Buka tiket yang sudah ada' })).toHaveAttribute(
+      'href',
+      `/reporter/reports/${ticketA}`,
+    );
     await expect(
       page.getByRole('heading', { name: /Laporan berhasil dikirim|Laporan menunggu pemeriksaan/ }),
     ).toHaveCount(0);
@@ -354,21 +400,15 @@ test('8 worker offline: release gate holds with no worker process', async ({ req
 test('9 attachments: reporter uploads a photo, sees the thumbnail, broken image shows placeholder', async ({
   browser,
 }) => {
-  // Minimal 1x1 PNG (decodable by the server sharp pipeline, verified
-  // offline): avoids shipping a binary fixture for the upload input.
-  const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-    'base64',
-  );
   const context = await loginContext(browser, '230001');
   const page = await context.newPage();
   try {
-    // Use a third asset so the active tickets from earlier scenarios do not
-    // trigger the same-reporter duplicate block.
-    await fillReportForm(page, uniqueDescription('upload-gate'), 2);
-    await page
-      .getByLabel('Foto', { exact: true })
-      .setInputFiles([{ name: 'lampu-rusak.png', mimeType: 'image/png', buffer: png }]);
+    // Auto-selected free asset so active tickets from earlier scenarios do
+    // not trigger the same-reporter duplicate block; the shared PNG goes in
+    // under this scenario's fixture name.
+    await fillReportForm(page, uniqueDescription('upload-gate'), {
+      photo: { name: 'lampu-rusak.png', buffer: PNG },
+    });
     await expect(page.getByText('lampu-rusak.png')).toBeVisible();
 
     const ticket = await submitFromReview(page);
