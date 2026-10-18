@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const PROMPT_VERSION = 'v1' as const;
+export const PROMPT_VERSION = 'v2' as const;
 export const SCHEMA_VERSION = 'v1' as const;
 
 export const verifyVerdictSchema = z.object({
