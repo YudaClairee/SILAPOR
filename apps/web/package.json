@@ -16,6 +16,7 @@
     "@fontsource/ibm-plex-sans": "5.3.0",
     "@silapor/auth": "workspace:*",
     "@silapor/ai": "workspace:*",
+    "@silapor/analytics": "workspace:*",
     "@silapor/database": "workspace:*",
     "@silapor/domain": "workspace:*",
     "@silapor/jobs": "workspace:*",

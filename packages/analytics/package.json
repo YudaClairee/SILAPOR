@@ -7,11 +7,17 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"test: @silapor/analytics (stub, no tests yet)\"",
+    "test": "vitest run",
     "build": "echo \"build: @silapor/analytics (stub, no emit yet)\""
   },
   "dependencies": {
+    "@silapor/database": "workspace:*",
     "@silapor/domain": "workspace:*",
-    "@silapor/shared": "workspace:*"
+    "@silapor/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "vitest": "5.0.3"
   }
 }

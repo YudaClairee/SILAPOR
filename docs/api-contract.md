@@ -236,11 +236,19 @@ dan dead-letter.
 tugas per teknisi), Pengaturan Scoring, dan Laporan Maintenance (3 grafik +
 tabel) + Ekspor PDF digambar penuh di UI; endpoint menyusul.
 
-## 7. Health
+## 7. [Phase 7 — analytics]
+
+| Endpoint | Method | Sukses |
+|---|---|---|
+| `/api/admin/analytics/overview` | GET | **admin-only** — query: `from`, `to` (`YYYY-MM-DD`, hari Jakarta inklusif; absen = tanpa batas) → `{ "range": { "from", "to" }, "cards": { "totalReports", "activeReports", "inRepair", "highPriorityActive", "resolvedThisMonth" }, "byStatus": [{ "status", "count" }], "byCategory": [{ "categoryId", "categoryName", "count" }], "byLocation": [{ "locationId", "locationName", "count" }], "resolutionTime": { "sampleSize", "averageSeconds", "medianSeconds" }, "technicianWorkload": [{ "technicianId", "technicianName", "activeCount" }], "priorityQueue": [{ "reportId", "ticketNumber", "status", "finalPriority", "reportedAt" }] }` |
+
+**Definisi metric** (kanonik, Phase 7): `totalReports` = laporan dengan `reported_at` dalam rentang; `activeReports` = status ≠ `CLOSED` (hanya 7 status; `REJECTED`/`DUPLICATE` legacy dikecualikan dari semua metric); `inRepair` = `IN_REPAIR`; `highPriorityActive` = aktif dengan `final_priority = HIGH`; `resolvedThisMonth` = `resolved_at` pada bulan berjalan Asia/Jakarta; `resolutionTime` = `resolved_at − reported_at` untuk laporan yang `resolved_at`-nya dalam rentang (detik, dibulatkan); `byCategory` memakai `final_category_id` (`categoryId: null` = belum terklasifikasi); `byLocation` memakai lokasi laporan saat dibuat; `technicianWorkload` = tiket aktif (`ASSIGNED`/`INSPECTION`/`IN_REPAIR`) per teknisi aktif (assignment aktif); `priorityQueue` = status `REPORTED..IN_REPAIR` urut HIGH→MEDIUM→LOW→null lalu `reported_at` asc, maks 10.
+
+## 8. Health
 
 `GET /api/health` → status web + dependensi (db/storage/queue/worker).
 
-## 8. UX states wajib semua halaman (EXECUTION-PLAN §10.3)
+## 9. UX states wajib semua halaman (EXECUTION-PLAN §10.3)
 
 loading · empty · validation error · forbidden (403) · retryable server error
 (5xx) · success feedback · responsive · keyboard focus terlihat · label form +
