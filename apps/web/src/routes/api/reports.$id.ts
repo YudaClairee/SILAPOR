@@ -1,7 +1,8 @@
 // Reporter report detail (Phase 3 P3-4 + UI No. 5): GET a sanitized campus
 // ticket. Any authenticated reporter may open any ticket; the repo hides
-// reporter identity, technician identity, other reporters' attachments, and
-// internal notes. Missing/unresolvable references → 404. Returns
+// reporter identity, technician identity, and other reporters' attachments.
+// All progress notes are visible; a LAPORAN_PALSU note is neutralized.
+// Missing/unresolvable references → 404. Returns
 // `{ report, isOwn, attachments, events, relations, duplicateCandidates }`.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';

@@ -28,9 +28,7 @@ import {
 import { getAdminReportDetail, getMyReportDetail, linkSupportingReport } from './reports.js';
 import { verifyReport, type VerifyReportInput } from './workflow.js';
 import {
-  addInternalNote,
-  addPublicUpdate,
-  addReportUpdate,
+  addProgressNote,
   assignTechnician,
   getAdminTimeline,
   getReporterTimeline,
@@ -53,12 +51,12 @@ const ACTOR = { actorId: UUID_A };
 
 describe('workflow-extra input validation (pure, offline)', () => {
   it('assignTechnician rejects malformed ids with 400', async () => {
-    await expect(
-      assignTechnician(UNTOUCHED_DB, 'bogus', UUID_B, 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      assignTechnician(UNTOUCHED_DB, UUID_A, 'bogus', 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
+    await expect(assignTechnician(UNTOUCHED_DB, 'bogus', UUID_B, 1, ACTOR)).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(assignTechnician(UNTOUCHED_DB, UUID_A, 'bogus', 1, ACTOR)).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
   it('transitionReport rejects an unknown status with 400', async () => {
@@ -73,22 +71,22 @@ describe('workflow-extra input validation (pure, offline)', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('addReportUpdate rejects short/oversize messages and bad visibility with 400', async () => {
+  it('addProgressNote rejects short/oversize messages and bad conditions with 400', async () => {
+    await expect(addProgressNote(UNTOUCHED_DB, UUID_A, null, 'no', 1, ACTOR)).rejects.toMatchObject(
+      { status: 400 },
+    );
     await expect(
-      addReportUpdate(UNTOUCHED_DB, UUID_A, 'PUBLIC', 'no', 1, ACTOR),
+      addProgressNote(UNTOUCHED_DB, UUID_A, null, '   ', 1, ACTOR),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
-      addReportUpdate(UNTOUCHED_DB, UUID_A, 'PUBLIC', '   ', 1, ACTOR),
+      addProgressNote(UNTOUCHED_DB, UUID_A, 'BOGUS' as never, 'pesan yang cukup panjang', 1, ACTOR),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
-      addReportUpdate(UNTOUCHED_DB, UUID_A, 'BOGUS' as never, 'pesan yang cukup panjang', 1, ACTOR),
+      addProgressNote(UNTOUCHED_DB, UUID_A, 'LAPORAN_PALSU', 'ab', 1, ACTOR),
     ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      addPublicUpdate(UNTOUCHED_DB, UUID_A, 'ab', 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      addInternalNote(UNTOUCHED_DB, UUID_A, '', 1, ACTOR),
-    ).rejects.toMatchObject({ status: 400 });
+    await expect(addProgressNote(UNTOUCHED_DB, UUID_A, null, '', 1, ACTOR)).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
   it('timelines reject malformed ids with 400', async () => {
@@ -237,10 +235,7 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
   }
 
   async function eventsFor(reportId: string) {
-    return await requireDb()
-      .select()
-      .from(reportEvents)
-      .where(eq(reportEvents.reportId, reportId));
+    return await requireDb().select().from(reportEvents).where(eq(reportEvents.reportId, reportId));
   }
 
   async function updatesFor(reportId: string) {
@@ -271,93 +266,87 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     );
   }
 
-  beforeAll(
-    async () => {
-      const admin = postgres(baseUrl, { max: 1 });
-      try {
-        await admin.unsafe(`DROP DATABASE IF EXISTS "${SCRATCH_DB_NAME}"`);
-        await admin.unsafe(`CREATE DATABASE "${SCRATCH_DB_NAME}"`);
-      } finally {
-        await admin.end();
+  beforeAll(async () => {
+    const admin = postgres(baseUrl, { max: 1 });
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS "${SCRATCH_DB_NAME}"`);
+      await admin.unsafe(`CREATE DATABASE "${SCRATCH_DB_NAME}"`);
+    } finally {
+      await admin.end();
+    }
+    await runMigrations(url);
+
+    const conn = getDb(url);
+    close = conn.close;
+    db = conn.db;
+
+    const insertUser = async (username: string, role: 'REPORTER' | 'ADMIN'): Promise<string> => {
+      const rows = await db!.insert(users).values({ username, role }).returning({ id: users.id });
+      const id = rows[0]?.id;
+      if (id === undefined) {
+        throw new Error('fixture: user insert failed');
       }
-      await runMigrations(url);
+      return id;
+    };
+    adminId = await insertUser('p54-admin', 'ADMIN');
+    reporterId = await insertUser('p54-reporter', 'REPORTER');
+    otherReporterId = await insertUser('p54-other', 'REPORTER');
 
-      const conn = getDb(url);
-      close = conn.close;
-      db = conn.db;
-
-      const insertUser = async (username: string, role: 'REPORTER' | 'ADMIN'): Promise<string> => {
-        const rows = await db!
-          .insert(users)
-          .values({ username, role })
-          .returning({ id: users.id });
-        const id = rows[0]?.id;
-        if (id === undefined) {
-          throw new Error('fixture: user insert failed');
-        }
-        return id;
-      };
-      adminId = await insertUser('p54-admin', 'ADMIN');
-      reporterId = await insertUser('p54-reporter', 'REPORTER');
-      otherReporterId = await insertUser('p54-other', 'REPORTER');
-
-      const locRows = await db!
-        .insert(locations)
-        .values({ type: 'ROOM', code: 'P54-ROOM', name: 'P5-4 room', tierScore: 10 })
-        .returning({ id: locations.id });
-      locId = locRows[0]?.id ?? '';
-      const catRows = await db!
-        .insert(facilityCategories)
-        .values({ code: 'P54-CAT', name: 'P5-4 category', weight: 10 })
-        .returning({ id: facilityCategories.id });
-      catId = catRows[0]?.id ?? '';
-      const itRows = await db!
-        .insert(issueTypes)
-        .values({ code: 'P54-IT', name: 'P5-4 issue', categoryId: catId })
-        .returning({ id: issueTypes.id });
-      itId = itRows[0]?.id ?? '';
-      const assetRows = await db!
-        .insert(facilityAssets)
-        .values({
-          assetCode: 'P54-ASSET',
-          name: 'P5-4 asset',
-          categoryId: catId,
-          locationId: locId,
-          weight: 10,
-        })
-        .returning({ id: facilityAssets.id });
-      assetId = assetRows[0]?.id ?? '';
-      const techRows = await db!
-        .insert(technicians)
-        .values([
-          { technicianCode: 'P54-TECH-A', displayName: 'Teknisi A' },
-          { technicianCode: 'P54-TECH-B', displayName: 'Teknisi B' },
-          { technicianCode: 'P54-TECH-OFF', displayName: 'Teknisi Off' },
-        ])
-        .returning({ id: technicians.id });
-      techAId = techRows[0]?.id ?? '';
-      techBId = techRows[1]?.id ?? '';
-      techInactiveId = techRows[2]?.id ?? '';
-      await db!
-        .update(technicians)
-        .set({ isActive: false })
-        .where(eq(technicians.id, techInactiveId));
-      if (
-        adminId === '' ||
-        reporterId === '' ||
-        locId === '' ||
-        catId === '' ||
-        itId === '' ||
-        assetId === '' ||
-        techAId === '' ||
-        techBId === '' ||
-        techInactiveId === ''
-      ) {
-        throw new Error('fixture: setup failed');
-      }
-    },
-    120_000,
-  );
+    const locRows = await db!
+      .insert(locations)
+      .values({ type: 'ROOM', code: 'P54-ROOM', name: 'P5-4 room', tierScore: 10 })
+      .returning({ id: locations.id });
+    locId = locRows[0]?.id ?? '';
+    const catRows = await db!
+      .insert(facilityCategories)
+      .values({ code: 'P54-CAT', name: 'P5-4 category', weight: 10 })
+      .returning({ id: facilityCategories.id });
+    catId = catRows[0]?.id ?? '';
+    const itRows = await db!
+      .insert(issueTypes)
+      .values({ code: 'P54-IT', name: 'P5-4 issue', categoryId: catId })
+      .returning({ id: issueTypes.id });
+    itId = itRows[0]?.id ?? '';
+    const assetRows = await db!
+      .insert(facilityAssets)
+      .values({
+        assetCode: 'P54-ASSET',
+        name: 'P5-4 asset',
+        categoryId: catId,
+        locationId: locId,
+        weight: 10,
+      })
+      .returning({ id: facilityAssets.id });
+    assetId = assetRows[0]?.id ?? '';
+    const techRows = await db!
+      .insert(technicians)
+      .values([
+        { technicianCode: 'P54-TECH-A', displayName: 'Teknisi A' },
+        { technicianCode: 'P54-TECH-B', displayName: 'Teknisi B' },
+        { technicianCode: 'P54-TECH-OFF', displayName: 'Teknisi Off' },
+      ])
+      .returning({ id: technicians.id });
+    techAId = techRows[0]?.id ?? '';
+    techBId = techRows[1]?.id ?? '';
+    techInactiveId = techRows[2]?.id ?? '';
+    await db!
+      .update(technicians)
+      .set({ isActive: false })
+      .where(eq(technicians.id, techInactiveId));
+    if (
+      adminId === '' ||
+      reporterId === '' ||
+      locId === '' ||
+      catId === '' ||
+      itId === '' ||
+      assetId === '' ||
+      techAId === '' ||
+      techBId === '' ||
+      techInactiveId === ''
+    ) {
+      throw new Error('fixture: setup failed');
+    }
+  }, 120_000);
 
   afterAll(async () => {
     await close();
@@ -390,17 +379,15 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
 
     const events = await eventsFor(verified.id);
     expect(events.some((e) => e.eventType === 'ASSIGNMENT_CHANGED')).toBe(true);
-    expect(
-      events.some((e) => e.eventType === 'STATUS_CHANGED' && e.toValue === 'ASSIGNED'),
-    ).toBe(true);
+    expect(events.some((e) => e.eventType === 'STATUS_CHANGED' && e.toValue === 'ASSIGNED')).toBe(
+      true,
+    );
     expect((await auditsFor(verified.id)).some((a) => a.action === 'ASSIGNMENT_CHANGED')).toBe(
       true,
     );
     const outbox = await outboxFor(verified.id);
     expect(
-      outbox.some(
-        (o) => (o.payload as Record<string, unknown>)['kind'] === 'REPORT_ASSIGNED',
-      ),
+      outbox.some((o) => (o.payload as Record<string, unknown>)['kind'] === 'REPORT_ASSIGNED'),
     ).toBe(true);
   });
 
@@ -442,7 +429,7 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     expect(closed?.unassignedAt).not.toBeNull();
   });
 
-  it('transition INSPECTION→IN_REPAIR requires a note; with note stores INTERNAL', async () => {
+  it('transition INSPECTION→IN_REPAIR requires a note; with note stores a visible progress note', async () => {
     const inspection = await makeInspection();
     await expect(
       transitionReport(requireDb(), inspection.id, 'IN_REPAIR', inspection.version, actor()),
@@ -461,13 +448,13 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     );
     expect(next.status).toBe('IN_REPAIR');
     const updates = await updatesFor(inspection.id);
-    // One INTERNAL note from ASSIGNED→INSPECTION setup + one new.
-    expect(updates.filter((u) => u.visibility === 'INTERNAL')).toHaveLength(2);
+    // One note from ASSIGNED→INSPECTION setup + one new, both unconditional.
+    expect(updates.filter((u) => u.condition === null)).toHaveLength(2);
     const latest = updates.find((u) => u.message.includes('mulai perbaikan'));
-    expect(latest?.visibility).toBe('INTERNAL');
+    expect(latest?.condition).toBeNull();
   });
 
-  it('transition IN_REPAIR→RESOLVED stores a PUBLIC note + resolvedAt', async () => {
+  it('transition IN_REPAIR→RESOLVED stores a visible note + resolvedAt', async () => {
     const inRepair = await makeInRepair();
     const next = await transitionReport(
       requireDb(),
@@ -480,9 +467,8 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     expect(next.status).toBe('RESOLVED');
     expect(next.resolvedAt).not.toBeNull();
     const updates = await updatesFor(inRepair.id);
-    const pub = updates.filter((u) => u.visibility === 'PUBLIC');
-    expect(pub.length).toBeGreaterThanOrEqual(1);
-    expect(pub.some((u) => u.message.includes('menyala kembali'))).toBe(true);
+    const resolvedNote = updates.find((u) => u.message.includes('menyala kembali'));
+    expect(resolvedNote?.condition).toBeNull();
     const events = await eventsFor(inRepair.id);
     expect(events.some((e) => e.eventType === 'REPORT_RESOLVED')).toBe(true);
   });
@@ -560,32 +546,36 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     expect(current.status).toBe('ASSIGNED');
     expect(current.version).toBe(assigned.version);
     // No transition events beyond the assignment pair.
-    expect((await eventsFor(assigned.id)).filter((e) => e.eventType === 'STATUS_CHANGED')).toHaveLength(
-      1,
-    );
+    expect(
+      (await eventsFor(assigned.id)).filter((e) => e.eventType === 'STATUS_CHANGED'),
+    ).toHaveLength(1);
     await expect(
-      addPublicUpdate(requireDb(), assigned.id, 'Pembaruan publik yang valid', 999, actor()),
+      addProgressNote(requireDb(), assigned.id, null, 'Pembaruan publik yang valid', 999, actor()),
     ).rejects.toMatchObject({ status: 409 });
   });
 
-  it('PUBLIC update is reporter-visible, INTERNAL note is hidden; foreign reporter 404s', async () => {
+  it('all progress notes are reporter-visible; LAPORAN_PALSU is neutralized', async () => {
     const assigned = await makeAssigned();
-    const pub = await addPublicUpdate(
+    const normal = await addProgressNote(
       requireDb(),
       assigned.id,
+      null,
       'Teknisi dijadwalkan datang besok pagi hari',
       assigned.version,
       actor(),
     );
-    expect(pub.visibility).toBe('PUBLIC');
-    const internal = await addInternalNote(
+    expect(normal.condition).toBeNull();
+    const afterNormal = await refresh(assigned.id);
+    const falseReportMessage = `Laporan palsu ${randomUUID()} jangan tampil mentah`;
+    const falseReport = await addProgressNote(
       requireDb(),
       assigned.id,
-      'Catatan internal vendor belum terverifikasi harga',
-      pub ? (await refresh(assigned.id)).version : assigned.version,
+      'LAPORAN_PALSU',
+      falseReportMessage,
+      afterNormal.version,
       actor(),
     );
-    expect(internal.visibility).toBe('INTERNAL');
+    expect(falseReport.condition).toBe('LAPORAN_PALSU');
 
     const reporterView = await getReporterTimeline(requireDb(), assigned.id, reporterId);
     expect(reporterView.every((e) => e.actorId === null)).toBe(true);
@@ -597,79 +587,59 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
             'Teknisi dijadwalkan datang besok pagi hari',
       ),
     ).toBe(true);
+    expect(JSON.stringify(reporterView)).not.toContain(falseReportMessage);
+    expect(JSON.stringify(reporterView)).not.toContain('visibility');
     expect(
       reporterView.some(
         (e) =>
           e.kind === 'update' &&
           (e.detail as Record<string, unknown>)?.['message'] ===
-            'Catatan internal vendor belum terverifikasi harga',
-      ),
-    ).toBe(false);
-    expect(reporterView.some((e) => e.label === 'INTERNAL_NOTE_ADDED')).toBe(false);
-
-    const adminView = await getAdminTimeline(requireDb(), assigned.id);
-    expect(
-      adminView.some(
-        (e) =>
-          (e.detail as Record<string, unknown>)?.['message'] ===
-          'Catatan internal vendor belum terverifikasi harga',
+            'Kerusakan tidak ditemukan saat pemeriksaan',
       ),
     ).toBe(true);
+
+    const adminView = await getAdminTimeline(requireDb(), assigned.id);
+    expect(JSON.stringify(adminView)).toContain(falseReportMessage);
+    expect(adminView.some((e) => e.kind === 'update' && e.condition === 'LAPORAN_PALSU')).toBe(
+      true,
+    );
 
     await expect(
       getReporterTimeline(requireDb(), assigned.id, otherReporterId),
     ).rejects.toMatchObject({ status: 404 });
-    await expect(
-      getReporterTimeline(requireDb(), randomUUID(), reporterId),
-    ).rejects.toMatchObject({ status: 404 });
+    await expect(getReporterTimeline(requireDb(), randomUUID(), reporterId)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
-  it('reporter timeline strips internal transition note metadata but keeps RESOLVED public note', async () => {
+  it('reporter timeline shows transition notes with actor ids stripped', async () => {
     const inspection = await makeInspection();
-    const internalNote = `Rahasia internal ${randomUUID()} jangan bocor`;
+    const transitionNote = `Catatan transisi ${randomUUID()} terlihat pelapor`;
     const inRepair = await transitionReport(
       requireDb(),
       inspection.id,
       'IN_REPAIR',
       inspection.version,
       actor(),
-      internalNote,
+      transitionNote,
     );
     expect(inRepair.status).toBe('IN_REPAIR');
 
     const reporterView = await getReporterTimeline(requireDb(), inspection.id, reporterId);
-    expect(JSON.stringify(reporterView)).not.toContain(internalNote);
+    expect(JSON.stringify(reporterView)).toContain(transitionNote);
     for (const entry of reporterView) {
       expect(entry.actorId).toBeNull();
-      if (entry.kind === 'event') {
-        const detail = entry.detail as Record<string, unknown> | null;
-        const metadata = detail?.['metadata'] as Record<string, unknown> | null | undefined;
-        if (metadata !== null && metadata !== undefined && typeof metadata === 'object') {
-          expect(JSON.stringify(metadata)).not.toContain(internalNote);
-          const eventType = detail?.['eventType'];
-          const toValue = detail?.['toValue'];
-          const keepsNote =
-            eventType === 'REPORT_RESOLVED' ||
-            eventType === 'PUBLIC_UPDATE_ADDED' ||
-            (eventType === 'STATUS_CHANGED' && toValue === 'RESOLVED');
-          if (!keepsNote) {
-            expect('note' in metadata).toBe(false);
-          }
-        }
-      }
       if (entry.kind === 'update') {
         expect((entry.detail as Record<string, unknown>)?.['authorId']).toBeNull();
       }
       if (entry.kind === 'assignment') {
         expect((entry.detail as Record<string, unknown>)?.['assignedBy']).toBeNull();
-        expect(typeof (entry.detail as Record<string, unknown>)?.['technicianId']).toBe(
-          'string',
-        );
+        expect(typeof (entry.detail as Record<string, unknown>)?.['technicianId']).toBe('string');
       }
     }
 
     const adminView = await getAdminTimeline(requireDb(), inspection.id);
-    expect(JSON.stringify(adminView)).toContain(internalNote);
+    expect(JSON.stringify(adminView)).toContain(transitionNote);
 
     const publicNote = `Perbaikan selesai publik ${randomUUID()} lampu menyala`;
     const resolved = await transitionReport(
@@ -694,9 +664,10 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
       relationType: 'RELATED',
       createdBy: adminId,
     });
-    await addPublicUpdate(
+    await addProgressNote(
       requireDb(),
       assigned.id,
+      null,
       'Pembaruan kronologi untuk pengujian urutan waktu',
       (await refresh(assigned.id)).version,
       actor(),
@@ -708,9 +679,7 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     expect(timeline.some((e) => e.kind === 'event')).toBe(true);
     expect(timeline.some((e) => e.kind === 'update')).toBe(true);
     for (let i = 1; i < timeline.length; i++) {
-      expect(timeline[i]?.at.getTime()).toBeGreaterThanOrEqual(
-        timeline[i - 1]?.at.getTime() ?? 0,
-      );
+      expect(timeline[i]?.at.getTime()).toBeGreaterThanOrEqual(timeline[i - 1]?.at.getTime() ?? 0);
     }
   });
 
@@ -732,23 +701,47 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
       actor(),
     );
     await expect(
-      addPublicUpdate(requireDb(), closed.id, 'Upaya pembaruan setelah tutup laporan', closed.version, actor()),
+      addProgressNote(
+        requireDb(),
+        closed.id,
+        null,
+        'Upaya pembaruan setelah tutup laporan',
+        closed.version,
+        actor(),
+      ),
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('getMyReportDetail sanitizes INTERNAL notes/actor PII; admin detail stays full', async () => {
+  it('reporter detail shows all notes and neutralizes LAPORAN_PALSU; admin detail stays raw', async () => {
     const UUID_RE_LOCAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const assigned = await makeAssigned();
-    const internalSecret = `Rahasia internal ${randomUUID()} jangan bocor`;
+    const visibleNote = `Catatan progres ${randomUUID()} terlihat pelapor`;
     const afterAssign = await refresh(assigned.id);
-    await addInternalNote(requireDb(), assigned.id, internalSecret, afterAssign.version, actor());
-    const transitionSecret = `Catatan transisi rahasia ${randomUUID()} jangan bocor`;
+    await addProgressNote(
+      requireDb(),
+      assigned.id,
+      null,
+      visibleNote,
+      afterAssign.version,
+      actor(),
+    );
+    const falseReportSecret = `Laporan palsu ${randomUUID()} jangan bocor`;
     const afterNote = await refresh(assigned.id);
+    await addProgressNote(
+      requireDb(),
+      assigned.id,
+      'LAPORAN_PALSU',
+      falseReportSecret,
+      afterNote.version,
+      actor(),
+    );
+    const transitionSecret = `Catatan transisi ${randomUUID()} terlihat pelapor`;
+    const afterFalse = await refresh(assigned.id);
     await transitionReport(
       requireDb(),
       assigned.id,
       'INSPECTION',
-      afterNote.version,
+      afterFalse.version,
       actor(),
       transitionSecret,
     );
@@ -756,42 +749,29 @@ describe.skipIf(!enabled)('workflow-extra mutations (requires reachable PostgreS
     const reporterDetail = await getMyReportDetail(requireDb(), reporterId, assigned.id);
     const adminDetail = await getAdminReportDetail(requireDb(), assigned.id);
 
-    // Reporter: zero INTERNAL_NOTE_ADDED, actorId null, no internal note leak.
-    expect(reporterDetail.events.some((e) => e.eventType === 'INTERNAL_NOTE_ADDED')).toBe(false);
+    expect(JSON.stringify(reporterDetail)).toContain(visibleNote);
+    expect(JSON.stringify(reporterDetail)).toContain(transitionSecret);
+    expect(JSON.stringify(reporterDetail)).not.toContain(falseReportSecret);
+    expect(JSON.stringify(reporterDetail)).toContain('Kerusakan tidak ditemukan saat pemeriksaan');
     for (const event of reporterDetail.events) {
       expect(event.actorId).toBeNull();
-      const metadata = event.metadata as Record<string, unknown> | null | undefined;
-      if (metadata !== null && metadata !== undefined && typeof metadata === 'object') {
-        const keepsNote =
-          event.eventType === 'REPORT_RESOLVED' ||
-          (event.eventType === 'STATUS_CHANGED' && event.toValue === 'RESOLVED');
-        if (!keepsNote) {
-          expect('note' in metadata).toBe(false);
-        }
-      }
       for (const value of [event.fromValue, event.toValue]) {
         if (typeof value === 'string') {
           expect(UUID_RE_LOCAL.test(value)).toBe(false);
         }
       }
     }
-    expect(JSON.stringify(reporterDetail)).not.toContain(internalSecret);
-    expect(JSON.stringify(reporterDetail)).not.toContain(transitionSecret);
 
-    // Admin stays full: internal rows + actor PII + notes intact.
-    // NOTE: pure internal update text lives in report_updates (surfaced via
-    // admin timeline), not in report_events; the transition note lives in
-    // STATUS_CHANGED metadata and must stay in admin detail events.
-    expect(adminDetail.events.some((e) => e.eventType === 'INTERNAL_NOTE_ADDED')).toBe(true);
+    expect(adminDetail.events.some((e) => e.eventType === 'PROGRESS_NOTE_ADDED')).toBe(true);
     expect(adminDetail.events.some((e) => e.actorId === adminId)).toBe(true);
+    expect(JSON.stringify(adminDetail)).toContain(falseReportSecret);
     expect(JSON.stringify(adminDetail)).toContain(transitionSecret);
     const adminTimeline = await getAdminTimeline(requireDb(), assigned.id);
-    expect(JSON.stringify(adminTimeline)).toContain(internalSecret);
-    expect(JSON.stringify(adminTimeline)).toContain(transitionSecret);
+    expect(JSON.stringify(adminTimeline)).toContain(falseReportSecret);
+    expect(JSON.stringify(adminTimeline)).toContain(visibleNote);
     const assignmentEvent = adminDetail.events.find((e) => e.eventType === 'ASSIGNMENT_CHANGED');
     expect(assignmentEvent?.toValue).toBe(techAId);
 
-    // RESOLVED public note stays reporter-visible.
     const inRepair = await transitionReport(
       requireDb(),
       assigned.id,

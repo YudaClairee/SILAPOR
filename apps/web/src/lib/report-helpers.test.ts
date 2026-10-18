@@ -47,9 +47,7 @@ describe('filterAssetsByCategoryLocation', () => {
   ];
 
   it('keeps only assets matching both the category and the location id', () => {
-    expect(filterAssetsByCategoryLocation(assets, UUID_C, UUID_B).map((a) => a.id)).toEqual([
-      'a1',
-    ]);
+    expect(filterAssetsByCategoryLocation(assets, UUID_C, UUID_B).map((a) => a.id)).toEqual(['a1']);
   });
 
   it('returns an empty list when nothing matches', () => {
@@ -192,9 +190,9 @@ describe('validateReportForm', () => {
   });
 
   it('rejects a future occurredAt and accepts the past', () => {
-    expect(
-      validateReportForm(validValues({ occurredAt: '2999-01-01T00:00' }))['occurredAt'],
-    ).toBe('Waktu kejadian tidak boleh di masa depan.');
+    expect(validateReportForm(validValues({ occurredAt: '2999-01-01T00:00' }))['occurredAt']).toBe(
+      'Waktu kejadian tidak boleh di masa depan.',
+    );
     expect(validateReportForm(validValues({ occurredAt: '2020-05-05T08:30' }))['occurredAt']).toBe(
       undefined,
     );
@@ -237,9 +235,7 @@ describe('buildMyReportsQuery', () => {
   });
 
   it('adds mine=1 for the Laporan Saya filter', () => {
-    expect(buildMyReportsQuery({ mine: true })).toBe(
-      'sort=reported_desc&limit=50&mine=1&offset=0',
-    );
+    expect(buildMyReportsQuery({ mine: true })).toBe('sort=reported_desc&limit=50&mine=1&offset=0');
   });
 
   it('passes an exact status through', () => {
@@ -302,8 +298,9 @@ describe('eventLabel (timeline safe subset)', () => {
     expect(eventLabel('STATUS_CHANGED')).toBe('Status berubah');
     expect(eventLabel('PRIORITY_CHANGED')).toBe('Prioritas berubah');
     expect(eventLabel('ASSIGNMENT_CHANGED')).toBe('Penugasan berubah');
-    expect(eventLabel('PUBLIC_UPDATE_ADDED')).toBe('Pembaruan ditambahkan');
-    expect(eventLabel('INTERNAL_NOTE_ADDED')).toBe('Catatan internal ditambahkan');
+    expect(eventLabel('PROGRESS_NOTE_ADDED')).toBe('Catatan progres ditambahkan');
+    expect(eventLabel('PUBLIC_UPDATE_ADDED')).toBe('Catatan progres ditambahkan');
+    expect(eventLabel('INTERNAL_NOTE_ADDED')).toBe('Catatan progres ditambahkan');
     expect(eventLabel('REPORT_RESOLVED')).toBe('Laporan diselesaikan');
     expect(eventLabel('REPORT_CLOSED')).toBe('Laporan ditutup');
   });

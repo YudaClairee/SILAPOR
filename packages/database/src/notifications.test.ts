@@ -40,6 +40,9 @@ describe('buildNotificationContent (pure, offline)', () => {
     expect(buildNotificationContent('STATUS_CHANGED', 'T')).toMatchObject({
       title: 'Status laporan diperbarui',
     });
+    expect(buildNotificationContent('PROGRESS_NOTE_ADDED', 'T')).toMatchObject({
+      title: 'Progres baru',
+    });
     expect(buildNotificationContent('PUBLIC_UPDATE_ADDED', 'T')).toMatchObject({
       title: 'Progres baru',
     });
@@ -125,14 +128,12 @@ describe.skipIf(!enabled)('notification processing (requires reachable PostgreSQ
       .insert(outboxEvents)
       .values({
         type: 'WORKFLOW_NOTIFICATION',
-        payload:
-          opts?.payload ??
-          {
-            reportId: opts?.reportId ?? reportId,
-            ticketNumber: 'MNT-2026-000099',
-            kind,
-            actorId: adminId,
-          },
+        payload: opts?.payload ?? {
+          reportId: opts?.reportId ?? reportId,
+          ticketNumber: 'MNT-2026-000099',
+          kind,
+          actorId: adminId,
+        },
         status: 'PENDING',
       })
       .returning({ id: outboxEvents.id });

@@ -1,11 +1,11 @@
-// Admin report timeline (Phase 5 P5-5): GET the full merged timeline
-// (events + updates + assignments + relations, chronological).
+// Admin report timeline (Phase 5): GET the full merged timeline
+// (events + progress notes + assignments + relations, chronological).
 //
 // Admin-only: `requireAdmin` inside the try (401 anonymous / 403 reporter);
 // the service layer re-guards on the same request. `:id` accepts a row UUID
 // or a ticket number (`MNT-…`, unscoped resolution); missing or
 // unresolvable references → 404 with the identical report message. Returns
-// `{ entries }` (every entry, including INTERNAL notes — admin-only
+// `{ entries }` with the raw LAPORAN_PALSU condition and message (admin-only
 // surface). See reports.ts for the guard/log contract.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';

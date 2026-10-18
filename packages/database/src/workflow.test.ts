@@ -332,7 +332,7 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
     expect(next.finalIssueTypeId).toBe(itNormalId);
     expect(next.priorityScore).toBe(30);
     expect(next.finalPriority).toBe('LOW');
-    expect(next.priorityDecidedBy).toBe(adminId);
+    expect(next.priorityDecidedBy).toBe('ADMIN');
     expect(next.priorityDecidedAt).not.toBeNull();
     expect(next.verifiedAt).not.toBeNull();
     expect(next.scoringConfigVersion).toBe(1);

@@ -106,17 +106,45 @@ describe('normalizeTransitionBody', () => {
 });
 
 describe('normalizeUpdateBody', () => {
-  it('reads visibility + message plus version', () => {
+  it('reads condition + message plus version', () => {
     expect(
       normalizeUpdateBody({
-        visibility: 'PUBLIC',
+        condition: 'LAPORAN_PALSU',
+        message: 'Kerusakan tidak ditemukan saat pemeriksaan',
+        expectedVersion: 6,
+      }),
+    ).toEqual({
+      condition: 'LAPORAN_PALSU',
+      message: 'Kerusakan tidak ditemukan saat pemeriksaan',
+      expectedVersion: 6,
+    });
+  });
+
+  it('accepts an absent condition', () => {
+    expect(
+      normalizeUpdateBody({
         message: 'Perbaikan dimulai hari ini',
         expectedVersion: 6,
       }),
     ).toEqual({
-      visibility: 'PUBLIC',
+      condition: undefined,
       message: 'Perbaikan dimulai hari ini',
       expectedVersion: 6,
+    });
+  });
+
+  it('rejects the retired visibility field', () => {
+    expect(
+      httpOf(() =>
+        normalizeUpdateBody({
+          visibility: 'PUBLIC',
+          message: 'Pesan cukup panjang',
+          expectedVersion: 6,
+        }),
+      ),
+    ).toEqual({
+      status: 400,
+      message: 'visibility is no longer supported; use condition',
     });
   });
 
@@ -124,7 +152,7 @@ describe('normalizeUpdateBody', () => {
     const bodies: Array<() => unknown> = [
       () => normalizeAssignBody({ technicianId: '11111111-1111-1111-1111-111111111111' }),
       () => normalizeTransitionBody({ nextStatus: 'INSPECTION' }),
-      () => normalizeUpdateBody({ visibility: 'PUBLIC', message: 'Pesan cukup panjang' }),
+      () => normalizeUpdateBody({ condition: null, message: 'Pesan cukup panjang' }),
     ];
     for (const run of bodies) {
       expect(httpOf(run)).toEqual({ status: 400, message: 'expectedVersion is required' });

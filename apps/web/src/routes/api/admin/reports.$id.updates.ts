@@ -1,14 +1,15 @@
-// Admin report updates (Phase 5 P5-5): POST a public update (visible to
-// the reporter) or an internal note (admin-only).
+// Admin progress note (Phase 5): POST one reporter-visible note, optionally
+// marked LAPORAN_PALSU.
 //
 // Admin-only: `requireAdmin` inside the try (401 anonymous / 403 reporter);
 // the service layer re-guards on the same request. `:id` accepts a row UUID
 // or a ticket number (`MNT-…`, unscoped resolution); missing or
 // unresolvable references → 404 with the identical report message. Body is
-// JSON (camelCase or snake_case) with `visibility` (PUBLIC|INTERNAL) +
-// `message` (5–2000 chars) + `expectedVersion` (400 when missing, 409 on a
-// stale version for UI conflict handling). Returns the created update row.
-// Logs carry the opaque report ref + visibility only — never the message.
+// JSON (camelCase or snake_case) with optional `condition`
+// (`LAPORAN_PALSU`) + `message` (5–2000 chars) + `expectedVersion` (400 when
+// missing, 409 on a stale version for UI conflict handling). Returns the
+// created update row. Logs carry the opaque report ref + condition only —
+// never the message.
 // See reports.ts for the guard/log contract.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
@@ -39,7 +40,7 @@ export const Route = createFileRoute('/api/admin/reports/$id/updates')({
               result: 'ok',
               userId: user.id,
               durationMs: Date.now() - started,
-              details: redact({ reportRef: params.id, visibility: result.visibility }),
+              details: redact({ reportRef: params.id, condition: result.condition }),
             });
             return Response.json(result);
           } catch (error) {

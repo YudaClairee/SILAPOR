@@ -781,6 +781,7 @@ describe('submitVerifiedReport held fallback', () => {
         finalPriority: 'MEDIUM',
       },
       SUBMIT_REPORTER_ID,
+      'AI',
     );
     expect(calls.updated).toHaveLength(1);
     const snapshot = calls.updated[0] as Record<string, unknown>;
@@ -874,6 +875,7 @@ describe('submitVerifiedReport held fallback', () => {
       SUBMIT_REPORT_ID,
       expect.objectContaining({ finalPriority: 'HIGH' }),
       SUBMIT_REPORTER_ID,
+      'AI',
     );
   });
 

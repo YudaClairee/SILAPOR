@@ -55,6 +55,7 @@ import {
   type FacilityAsset,
   type FacilityCategory,
   type IssueType,
+  type AdminReportDetail,
   type CampusReportDetail,
   type CampusReportListResult,
   type ListAllReportsOptions,
@@ -465,10 +466,7 @@ export async function getMyReportRoute(req: Request, ref: string): Promise<Repor
 // Campus-wide reporter detail (UI No. 5). Ticket refs resolve unscoped;
 // the repo returns 404 only when the ticket is genuinely missing and
 // sanitizes another reporter's view (no identity/technician/attachments).
-export async function getCampusReportRoute(
-  req: Request,
-  ref: string,
-): Promise<CampusReportDetail> {
+export async function getCampusReportRoute(req: Request, ref: string): Promise<CampusReportDetail> {
   const user = await requireUser(req);
   const conn = getDb();
   try {
@@ -479,8 +477,9 @@ export async function getCampusReportRoute(
   }
 }
 
-// SANITIZED reporter timeline (Phase 5 P5-5): INTERNAL updates/notes and
-// actor/author PII are stripped by the repo — safe to ship verbatim.
+// SANITIZED reporter timeline (Phase 5): all progress notes are visible;
+// actor/author PII is stripped and LAPORAN_PALSU is projected to neutral
+// text — safe to ship verbatim.
 export async function getMyTimelineRoute(
   req: Request,
   ref: string,
@@ -496,7 +495,7 @@ export async function getMyTimelineRoute(
   }
 }
 
-export async function getAdminReportRoute(req: Request, ref: string): Promise<ReportDetail> {
+export async function getAdminReportRoute(req: Request, ref: string): Promise<AdminReportDetail> {
   await requireAdmin(req);
   const conn = getDb();
   try {
@@ -599,7 +598,10 @@ type ReportDb = Parameters<typeof repoListLocations>[0];
 
 async function listAllPages<T>(
   db: ReportDb,
-  page: (db: ReportDb, opts: { includeInactive: boolean; limit: number; offset: number }) => Promise<T[]>,
+  page: (
+    db: ReportDb,
+    opts: { includeInactive: boolean; limit: number; offset: number },
+  ) => Promise<T[]>,
 ): Promise<T[]> {
   const out: T[] = [];
   let offset = 0;
@@ -998,11 +1000,7 @@ export async function submitVerifiedReport(
     // backstops a removal failure). The 422 stands either way.
     async function discardStagedPhotos(): Promise<void> {
       try {
-        const deleted = await repoDeleteStagedUploads(
-          conn.db,
-          user.id,
-          [...normalized.photoKeys],
-        );
+        const deleted = await repoDeleteStagedUploads(conn.db, user.id, [...normalized.photoKeys]);
         const storage = deps?.storage ?? createAttachmentStorage();
         await removeStagedObjects(storage, [...deleted]);
       } catch {
@@ -1051,7 +1049,11 @@ export async function submitVerifiedReport(
         categories: categories.map((entry) => entry.code),
         issueTypes: issueTypes.map((entry) => entry.code),
       },
-      { timeoutMs, ...(model === undefined ? {} : { model }), ...(apiKey === undefined ? {} : { apiKey }) },
+      {
+        timeoutMs,
+        ...(model === undefined ? {} : { model }),
+        ...(apiKey === undefined ? {} : { apiKey }),
+      },
     );
     // DOWN is transient (timeout/5xx/429): hold the REPORTED row with its
     // PENDING analysis for manual verification instead of rejecting it.
@@ -1142,6 +1144,7 @@ export async function submitVerifiedReport(
         finalPriority,
       },
       user.id,
+      'AI',
     );
     const snapped = await conn.db
       .update(maintenanceReports)
@@ -1152,7 +1155,12 @@ export async function submitVerifiedReport(
         version: verified.version + 1,
         updatedAt: new Date(),
       })
-      .where(and(eq(maintenanceReports.id, verified.id), eq(maintenanceReports.version, verified.version)))
+      .where(
+        and(
+          eq(maintenanceReports.id, verified.id),
+          eq(maintenanceReports.version, verified.version),
+        ),
+      )
       .returning();
     const finalRow = snapped[0];
     if (finalRow === undefined) {

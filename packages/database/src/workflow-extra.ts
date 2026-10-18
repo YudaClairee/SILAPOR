@@ -1,5 +1,5 @@
-// Admin workflow extras (Phase 5 P5-4): assignment history, generic status
-// transitions, public updates / internal notes, admin + reporter timelines.
+// Admin workflow extras (Phase 5): assignment history, status transitions,
+// progress notes, and admin/reporter timelines.
 //
 // Every mutation reuses `withReportLock` from './workflow.js' — no forked
 // locking logic. Each mutation runs atomically inside one `db.transaction`:
@@ -10,23 +10,19 @@
 // fails fast before any write. This module logs nothing and carries no PII
 // in messages.
 //
-// Outbox choice: `addReportUpdate` ALWAYS queues a WORKFLOW_NOTIFICATION row
-// (kind PUBLIC_UPDATE_ADDED or INTERNAL_NOTE_ADDED). Consumers (P5-5/6)
-// filter INTERNAL kinds so reporters are never notified of internal notes —
-// queueing uniformly keeps the producer simple and the outbox append-only.
-// Timeline tiebreak: merged entries sort by `at` asc; ties resolve in the
-// stable order events → updates → assignments → relations, then id asc.
-// Reporter timeline: INTERNAL updates and INTERNAL_NOTE_ADDED events are
-// excluded, event `metadata.note` is stripped except for public-note events
-// (STATUS_CHANGED→RESOLVED, REPORT_RESOLVED, PUBLIC_UPDATE_ADDED), and every
-// entry's `actorId` plus `detail.authorId` / `detail.assignedBy` is nulled
-// (technicianId stays as an opaque id; UI resolves display name) so no
-// internal text or admin/technician PII leaks to reporters.
+// Progress notes are always visible to the reporter. The only special
+// condition is LAPORAN_PALSU, which the reporter projection replaces with
+// neutral text; admins keep the original condition and message. Timeline
+// tiebreak: merged entries sort by `at` asc; ties resolve in the stable order
+// events → updates → assignments → relations, then id asc. Reporter entries
+// null actor/author ids and the assignedBy field; technicianId stays as an
+// opaque id (the UI resolves a display name only on admin surfaces).
 
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { badRequest, conflict, notFound } from '@silapor/shared';
 import {
+  LAPORAN_PALSU_NEUTRAL_MESSAGE,
   REPORT_STATUS,
   canTransition,
   requiresNote,
@@ -43,8 +39,7 @@ type WorkflowExtraTx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export type { WorkflowActor };
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const REPORT_STATUS_SET: ReadonlySet<string> = new Set(REPORT_STATUS);
 
@@ -54,20 +49,12 @@ const REPORT_STATUS_SET: ReadonlySet<string> = new Set(REPORT_STATUS);
 const DELEGATED_TARGETS: ReadonlySet<string> = new Set(['VERIFIED']);
 
 // Reassignment keeps the current status (no promotion).
-const REASSIGNABLE_STATUSES: ReadonlySet<string> = new Set([
-  'ASSIGNED',
-  'INSPECTION',
-  'IN_REPAIR',
-]);
+const REASSIGNABLE_STATUSES: ReadonlySet<string> = new Set(['ASSIGNED', 'INSPECTION', 'IN_REPAIR']);
 
 // Updates are closed-world denials: terminal reports accept no new notes.
-const UPDATE_BLOCKED_STATUSES: ReadonlySet<string> = new Set([
-  'CLOSED',
-  'REJECTED',
-  'DUPLICATE',
-]);
+const UPDATE_BLOCKED_STATUSES: ReadonlySet<string> = new Set(['CLOSED', 'REJECTED', 'DUPLICATE']);
 
-const VISIBILITY_SET: ReadonlySet<string> = new Set(['PUBLIC', 'INTERNAL']);
+const UPDATE_CONDITION_SET: ReadonlySet<string> = new Set(schema.REPORT_UPDATE_CONDITIONS);
 
 function requireUuid(value: unknown, field: string): string {
   if (typeof value !== 'string' || !UUID_RE.test(value)) {
@@ -83,11 +70,14 @@ function requireReportStatus(value: unknown): ReportStatus {
   return value as ReportStatus;
 }
 
-function requireVisibility(value: unknown): 'PUBLIC' | 'INTERNAL' {
-  if (typeof value !== 'string' || !VISIBILITY_SET.has(value)) {
-    throw badRequest('Invalid update visibility');
+function normalizeCondition(value: unknown): schema.ReportUpdateCondition | null {
+  if (value === undefined || value === null) {
+    return null;
   }
-  return value as 'PUBLIC' | 'INTERNAL';
+  if (typeof value !== 'string' || !UPDATE_CONDITION_SET.has(value)) {
+    throw badRequest('Invalid progress note condition');
+  }
+  return value as schema.ReportUpdateCondition;
 }
 
 // Trimmed 5–2000 char message; empty/whitespace is rejected (callers needing
@@ -183,10 +173,7 @@ export async function assignTechnician(
     expectedVersion,
     async (tx, report) => {
       const technician = (
-        await tx
-          .select()
-          .from(schema.technicians)
-          .where(eq(schema.technicians.id, technicianId))
+        await tx.select().from(schema.technicians).where(eq(schema.technicians.id, technicianId))
       )[0];
       if (technician === undefined) {
         throw notFound('Technician not found');
@@ -366,13 +353,12 @@ export async function transitionReport(
         throw conflict('Report was modified by another admin; refresh and retry');
       }
 
-      // Notes persist as timeline updates: PUBLIC on RESOLVED (reporter
-      // visible), INTERNAL otherwise.
+      // Every transition note is a normal progress note: the reporter sees it.
       if (cleanNote !== null) {
         await tx.insert(schema.reportUpdates).values({
           reportId: report.id,
           authorId: actor.actorId,
-          visibility: target === 'RESOLVED' ? 'PUBLIC' : 'INTERNAL',
+          condition: null,
           message: cleanNote,
         });
       }
@@ -424,19 +410,19 @@ export async function transitionReport(
 }
 
 // ---------------------------------------------------------------------------
-// addReportUpdate (+ wrappers).
+// addProgressNote.
 // ---------------------------------------------------------------------------
 
-export async function addReportUpdate(
+export async function addProgressNote(
   db: Database,
   reportId: string,
-  visibility: 'PUBLIC' | 'INTERNAL',
+  condition: schema.ReportUpdateCondition | null | undefined,
   message: string,
   expectedVersion: number,
   actor: WorkflowActor,
 ): Promise<schema.ReportUpdate> {
   // Pure shape checks first: no DB touched on malformed input.
-  const cleanVisibility = requireVisibility(visibility);
+  const cleanCondition = normalizeCondition(condition);
   const cleanMessage = requireUpdateMessage(message);
   return await withReportLock(
     db,
@@ -467,7 +453,7 @@ export async function addReportUpdate(
         .values({
           reportId: report.id,
           authorId: actor.actorId,
-          visibility: cleanVisibility,
+          condition: cleanCondition,
           message: cleanMessage,
         })
         .returning();
@@ -476,13 +462,15 @@ export async function addReportUpdate(
         throw conflict('Report was modified by another admin; refresh and retry');
       }
 
-      const eventType =
-        cleanVisibility === 'PUBLIC' ? 'PUBLIC_UPDATE_ADDED' : 'INTERNAL_NOTE_ADDED';
+      const eventType = 'PROGRESS_NOTE_ADDED';
       await tx.insert(schema.reportEvents).values({
         reportId: report.id,
         eventType,
         actorId: actor.actorId,
-        metadata: { updateId: row.id, visibility: cleanVisibility },
+        // The message travels with the event so the detail projection can show
+        // it without a second timeline query. Reporter sanitization replaces
+        // the note when condition is LAPORAN_PALSU.
+        metadata: { updateId: row.id, condition: cleanCondition, note: cleanMessage },
       });
       await buildExtraAudit(tx, {
         actorId: actor.actorId,
@@ -504,26 +492,6 @@ export async function addReportUpdate(
   );
 }
 
-export async function addPublicUpdate(
-  db: Database,
-  reportId: string,
-  message: string,
-  expectedVersion: number,
-  actor: WorkflowActor,
-): Promise<schema.ReportUpdate> {
-  return await addReportUpdate(db, reportId, 'PUBLIC', message, expectedVersion, actor);
-}
-
-export async function addInternalNote(
-  db: Database,
-  reportId: string,
-  message: string,
-  expectedVersion: number,
-  actor: WorkflowActor,
-): Promise<schema.ReportUpdate> {
-  return await addReportUpdate(db, reportId, 'INTERNAL', message, expectedVersion, actor);
-}
-
 // ---------------------------------------------------------------------------
 // Timeline projection.
 // ---------------------------------------------------------------------------
@@ -535,7 +503,7 @@ export interface TimelineEntry {
   readonly actorId: string | null;
   readonly label: string;
   readonly detail: Record<string, unknown> | null;
-  readonly visibility?: 'PUBLIC' | 'INTERNAL' | null | undefined;
+  readonly condition?: schema.ReportUpdateCondition | null;
 }
 
 const TIMELINE_KIND_ORDER: Record<TimelineEntry['kind'], number> = {
@@ -596,6 +564,14 @@ async function loadTimelineParts(
   return { events, updates, assignments, relations };
 }
 
+function conditionFromMetadata(metadata: unknown): schema.ReportUpdateCondition | null {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+    return null;
+  }
+  const condition = (metadata as Record<string, unknown>)['condition'];
+  return condition === 'LAPORAN_PALSU' ? 'LAPORAN_PALSU' : null;
+}
+
 function toAdminEntries(parts: {
   readonly events: schema.ReportEvent[];
   readonly updates: schema.ReportUpdate[];
@@ -604,6 +580,11 @@ function toAdminEntries(parts: {
 }): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   for (const event of parts.events) {
+    // The update row is the canonical progress-note entry; the paired event
+    // would repeat the same message in the merged timeline.
+    if (event.eventType === 'PROGRESS_NOTE_ADDED') {
+      continue;
+    }
     entries.push({
       id: event.id,
       kind: 'event',
@@ -616,19 +597,24 @@ function toAdminEntries(parts: {
         toValue: event.toValue,
         metadata: event.metadata,
       },
-      visibility: event.eventType === 'INTERNAL_NOTE_ADDED' ? 'INTERNAL' : null,
+      condition: conditionFromMetadata(event.metadata),
     });
   }
   for (const update of parts.updates) {
-    const visibility = update.visibility === 'PUBLIC' ? 'PUBLIC' : 'INTERNAL';
+    const updateCondition =
+      update.condition === 'LAPORAN_PALSU' ? ('LAPORAN_PALSU' as const) : null;
     entries.push({
       id: update.id,
       kind: 'update',
       at: update.createdAt,
       actorId: update.authorId,
-      label: visibility === 'PUBLIC' ? 'PUBLIC_UPDATE' : 'INTERNAL_NOTE',
-      detail: { visibility, message: update.message, authorId: update.authorId },
-      visibility,
+      label: 'PROGRESS_NOTE_ADDED',
+      detail: {
+        condition: updateCondition,
+        message: update.message,
+        authorId: update.authorId,
+      },
+      condition: updateCondition,
     });
   }
   for (const assignment of parts.assignments) {
@@ -645,7 +631,7 @@ function toAdminEntries(parts: {
         unassignedAt: assignment.unassignedAt,
         reason: assignment.reason,
       },
-      visibility: null,
+      condition: null,
     });
   }
   for (const relation of parts.relations) {
@@ -660,16 +646,13 @@ function toAdminEntries(parts: {
         targetReportId: relation.targetReportId,
         relationType: relation.relationType,
       },
-      visibility: null,
+      condition: null,
     });
   }
   return sortTimeline(entries);
 }
 
-export async function getAdminTimeline(
-  db: Database,
-  reportId: string,
-): Promise<TimelineEntry[]> {
+export async function getAdminTimeline(db: Database, reportId: string): Promise<TimelineEntry[]> {
   const id = requireUuid(reportId, 'reportId');
   const rows = await db
     .select({ id: schema.maintenanceReports.id })
@@ -703,55 +686,47 @@ export async function getReporterTimeline(
     throw notFound('Report not found');
   }
   const parts = await loadTimelineParts(db, id);
-  const visibleEvents = parts.events.filter(
-    (event) => event.eventType !== 'INTERNAL_NOTE_ADDED',
-  );
-  const visibleUpdates = parts.updates.filter((update) => update.visibility === 'PUBLIC');
-  const entries = toAdminEntries({
-    events: visibleEvents,
-    updates: visibleUpdates,
-    assignments: parts.assignments,
-    relations: parts.relations,
-  });
-  // Strip reporter-invisible internals: event metadata.note (except
-  // public-note events), detail.authorId, detail.assignedBy, and actorId.
-  return entries.map(sanitizeReporterEntry);
+  // Every note is reporter-visible now; the only redaction is the neutral
+  // projection for a LAPORAN_PALSU condition.
+  return toAdminEntries(parts).map(sanitizeReporterEntry);
 }
 
 function sanitizeReporterEntry(entry: TimelineEntry): TimelineEntry {
-  const base = { ...entry, actorId: null as string | null };
+  const base = { ...entry, actorId: null as string | null, condition: null };
   const detail = entry.detail;
   if (detail === null) {
     return base;
   }
+  const condition =
+    entry.condition === 'LAPORAN_PALSU' || detail['condition'] === 'LAPORAN_PALSU'
+      ? 'LAPORAN_PALSU'
+      : null;
   if (entry.kind === 'event') {
-    const eventType = detail['eventType'];
-    const toValue = detail['toValue'];
-    const keepsNote =
-      eventType === 'REPORT_RESOLVED' ||
-      eventType === 'PUBLIC_UPDATE_ADDED' ||
-      (eventType === 'STATUS_CHANGED' && toValue === 'RESOLVED');
-    if (!keepsNote) {
-      const metadata = detail['metadata'];
-      if (metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)) {
-        const rest = { ...(metadata as Record<string, unknown>) };
-        delete rest['note'];
-        return { ...base, detail: { ...detail, metadata: rest } };
-      }
+    const metadata = detail['metadata'];
+    if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+      return base;
     }
-    return base;
+    const nextMetadata = { ...(metadata as Record<string, unknown>) };
+    if (condition === 'LAPORAN_PALSU' && 'note' in nextMetadata) {
+      nextMetadata['note'] = LAPORAN_PALSU_NEUTRAL_MESSAGE;
+    }
+    delete nextMetadata['condition'];
+    delete nextMetadata['visibility'];
+    return { ...base, detail: { ...detail, metadata: nextMetadata } };
   }
   if (entry.kind === 'update') {
-    if ('authorId' in detail) {
-      return { ...base, detail: { ...detail, authorId: null } };
-    }
-    return base;
+    return {
+      ...base,
+      detail: {
+        ...detail,
+        authorId: null,
+        condition: null,
+        message: condition === 'LAPORAN_PALSU' ? LAPORAN_PALSU_NEUTRAL_MESSAGE : detail['message'],
+      },
+    };
   }
   if (entry.kind === 'assignment') {
-    if ('assignedBy' in detail) {
-      return { ...base, detail: { ...detail, assignedBy: null } };
-    }
-    return base;
+    return { ...base, detail: { ...detail, assignedBy: null } };
   }
   return base;
 }

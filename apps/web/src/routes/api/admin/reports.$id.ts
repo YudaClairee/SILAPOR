@@ -3,11 +3,10 @@
 // Admin-only: `requireAdmin` inside the try (401 anonymous / 403 reporter);
 // the service layer re-guards on the same request. `:id` accepts a row UUID
 // or a ticket number (`MNT-…`, unscoped resolution); missing or
-// unresolvable references → 404. Returns the full detail shape (same as the
-// reporter detail: `{ report, attachments, events, relations,
-// duplicateCandidates }`). No supporting-link transport here — Phase 5
-// owns duplicate/supporting admin actions. See reports.ts for the
-// guard/log contract.
+// unresolvable references → 404. Returns the full detail shape
+// (`{ report, attachments, events, relations, duplicateCandidates,
+// aiAnalysis }`); `aiAnalysis` is the latest verifier row for the admin
+// panel. See reports.ts for the guard/log contract.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
 import { createLogger, redact, toHttpResponse, withRequestId } from '@silapor/shared';

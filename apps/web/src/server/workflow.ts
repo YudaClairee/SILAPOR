@@ -1,5 +1,5 @@
-// Middleware frame: workflow transport (was Phase 5, trimmed 2026-10-15).
-// Assign/transition/updates remain; the manual verify/reject/duplicate/
+// Middleware frame: workflow transport (Phase 5, current progress-note rules).
+// Assign/transition/progress notes remain; the manual verify/reject/duplicate/
 // priority mutations are gone — verification is the AI pass (submit) or the
 // held-verify route (`./held.ts`), per the approved AI-verification design.
 //
@@ -9,13 +9,11 @@
 //   through so repo validators — not this layer — produce the 400.
 // - `expectedVersion` MUST be a present integer in every mutation body
 //   (400 `expectedVersion is required` otherwise) — optimistic locking.
-// - The manual verify/reject/duplicate/priority mutations were removed per
-//   the 2026-10-14 AI verification design: submit verifies via AI (held on
-//   outage) and holds resolve through the held-verify transport in
-//   `./held.ts`. Only assign/transition/updates/timeline remain here.
+// - Progress notes carry an optional `condition` (`LAPORAN_PALSU`) and never
+//   a PUBLIC/INTERNAL visibility field.
 // - This module logs nothing — routes log with opaque refs.
 import {
-  addReportUpdate as repoAddReportUpdate,
+  addProgressNote as repoAddProgressNote,
   assignTechnician as repoAssignTechnician,
   getAdminTimeline as repoGetAdminTimeline,
   getDb,
@@ -119,7 +117,7 @@ export function normalizeTransitionBody(body: unknown): NormalizedTransition {
 }
 
 export interface NormalizedUpdate {
-  readonly visibility: unknown;
+  readonly condition: unknown;
   readonly message: unknown;
   readonly expectedVersion: number;
 }
@@ -129,10 +127,13 @@ export function normalizeUpdateBody(body: unknown): NormalizedUpdate {
   if (!isRecord(body)) {
     throw badRequest('Invalid update input');
   }
+  if ('visibility' in body) {
+    throw badRequest('visibility is no longer supported; use condition');
+  }
   const out: Record<string, unknown> = {};
-  copyField(body, out, 'visibility', []);
+  copyField(body, out, 'condition', []);
   copyField(body, out, 'message', ['note', 'text', 'content']);
-  return { visibility: out['visibility'], message: out['message'], expectedVersion };
+  return { condition: out['condition'], message: out['message'], expectedVersion };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,14 +188,14 @@ export async function addUpdateAdminReport(
   body: unknown,
 ): Promise<ReportUpdate> {
   const user = await requireAdmin(req);
-  const { visibility, message, expectedVersion } = normalizeUpdateBody(body);
+  const { condition, message, expectedVersion } = normalizeUpdateBody(body);
   const conn = getDb();
   try {
     const id = await resolveReportId(conn.db, null, ref);
-    return await repoAddReportUpdate(
+    return await repoAddProgressNote(
       conn.db,
       id,
-      visibility as 'PUBLIC' | 'INTERNAL',
+      condition as 'LAPORAN_PALSU' | null | undefined,
       message as string,
       expectedVersion,
       actorOf(user.id),

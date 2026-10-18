@@ -340,7 +340,7 @@ export async function verifyReport(
           finalPriority: shaped.finalPriority,
           priorityOverrideReason:
             typeof input.overrideReason === 'string' ? input.overrideReason.trim() : null,
-          priorityDecidedBy: actor.actorId,
+          priorityDecidedBy: 'ADMIN',
           priorityDecidedAt: now,
           scoringConfigVersion: SCORING_CONFIG_VERSION,
           verifiedAt: now,

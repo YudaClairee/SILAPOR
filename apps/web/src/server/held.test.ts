@@ -188,6 +188,7 @@ describe('verifyHeldReport', () => {
       heldId,
       { finalCategoryId: CAT_PLUMBING, finalIssueTypeId: ISSUE_LEAKING, finalPriority: 'HIGH' },
       admin,
+      'ADMIN',
     );
   });
 
@@ -212,6 +213,7 @@ describe('verifyHeldReport', () => {
         finalPriority: 'MEDIUM',
       },
       admin,
+      'ADMIN',
     );
   });
 

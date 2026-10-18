@@ -23,19 +23,27 @@
 // `details`, 409 mapped to idempotent replay on a key race). This module logs
 // nothing and carries no PII in messages.
 
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, lte, ne, or, sql } from 'drizzle-orm';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
-  AppError,
-  badRequest,
-  conflict,
-  internal,
-  isAppError,
-  notFound,
-} from '@silapor/shared';
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  lte,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { AppError, badRequest, conflict, internal, isAppError, notFound } from '@silapor/shared';
 import {
   ACTIVE_REPORT_STATUSES,
   DUPLICATE_LOOKBACK_DAYS,
+  LAPORAN_PALSU_NEUTRAL_MESSAGE,
   RELATION_TYPE,
   REPORT_STATUS,
   formatTicketNumber,
@@ -86,18 +94,13 @@ export interface CreateReportInput {
   readonly description: string;
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function checkRequiredUuid(
-  record: Record<string, unknown>,
-  field: string,
-  errors: string[],
-): void {
+function checkRequiredUuid(record: Record<string, unknown>, field: string, errors: string[]): void {
   const value = record[field];
   if (typeof value !== 'string' || !UUID_RE.test(value)) {
     errors.push(`${field} must be a valid UUID`);
@@ -346,9 +349,7 @@ async function findSupportingRelation(
     )
     .limit(1);
   const row = rows[0];
-  return row === undefined
-    ? null
-    : { type: 'SUPPORTING', targetTicket: row.ticketNumber };
+  return row === undefined ? null : { type: 'SUPPORTING', targetTicket: row.ticketNumber };
 }
 
 // Drizzle wraps storage errors in `DrizzleQueryError` with the postgres
@@ -389,8 +390,7 @@ export function isForeignKeyViolation(error: unknown): boolean {
     }
     if (
       current instanceof Error &&
-      (current.message.includes('foreign key') ||
-        current.message.includes('violates foreign key'))
+      (current.message.includes('foreign key') || current.message.includes('violates foreign key'))
     ) {
       return true;
     }
@@ -475,10 +475,7 @@ export async function createReport(
         throw badRequest('Reporter is inactive');
       }
       const location = (
-        await tx
-          .select()
-          .from(schema.locations)
-          .where(eq(schema.locations.id, input.locationId))
+        await tx.select().from(schema.locations).where(eq(schema.locations.id, input.locationId))
       )[0];
       if (location === undefined) {
         throw notFound('Location not found');
@@ -655,6 +652,8 @@ export async function createReport(
 // applyVerification: held REPORTED → VERIFIED with verifier finals.
 // ---------------------------------------------------------------------------
 
+export type PriorityDecider = 'AI' | 'ADMIN';
+
 export interface ApplyVerificationInput {
   readonly finalCategoryId: string;
   readonly finalIssueTypeId: string;
@@ -666,14 +665,14 @@ export interface ApplyVerificationInput {
 // status guard (`WHERE status = REPORTED`) makes a concurrent second verify
 // fail with 400 instead of double-writing. SUPPORTING links are never
 // touched — verification must not disturb the submit-time auto-merge.
-// Priority scoring snapshots stay with the caller; this writes the decided
-// `finalPriority`, floored to HIGH when the final issue type is DANGEROUS
-// (spec: DANGEROUS keeps minimum HIGH, for the AI path and hand verify alike).
+// `decidedBy` records whether the AI or a held-verify admin made the call;
+// the final priority is floored to HIGH for DANGEROUS issue types.
 export async function applyVerification(
   db: Database,
   reportId: string,
   finals: ApplyVerificationInput,
   actorId?: string | null | undefined,
+  decidedBy: PriorityDecider = 'ADMIN',
 ): Promise<schema.Report> {
   if (typeof reportId !== 'string' || !UUID_RE.test(reportId)) {
     throw badRequest('reportId must be a valid UUID');
@@ -742,10 +741,7 @@ export async function applyVerification(
       }
       // A category-bound issue type must belong to the final category;
       // generic (unbound) issue types stay valid for any category.
-      if (
-        issueType.categoryId !== null &&
-        issueType.categoryId !== finals.finalCategoryId
-      ) {
+      if (issueType.categoryId !== null && issueType.categoryId !== finals.finalCategoryId) {
         throw badRequest('Issue type does not belong to the final category');
       }
       // No silent recode: the final category must equal the report asset's
@@ -786,6 +782,8 @@ export async function applyVerification(
           finalCategoryId: finals.finalCategoryId,
           finalIssueTypeId: finals.finalIssueTypeId,
           finalPriority,
+          priorityDecidedBy: decidedBy,
+          priorityDecidedAt: now,
           verifiedAt: now,
           version: report.version + 1,
           updatedAt: now,
@@ -851,12 +849,7 @@ const REPORT_STATUS_SET: ReadonlySet<string> = new Set(REPORT_STATUS);
 const RELATION_TYPE_SET: ReadonlySet<string> = new Set(RELATION_TYPE);
 const PRIORITY_SET: ReadonlySet<string> = new Set(['LOW', 'MEDIUM', 'HIGH']);
 
-export const REPORT_SORTS = [
-  'reported_desc',
-  'reported_asc',
-  'ticket_asc',
-  'ticket_desc',
-] as const;
+export const REPORT_SORTS = ['reported_desc', 'reported_asc', 'ticket_asc', 'ticket_desc'] as const;
 
 export type ReportSort = (typeof REPORT_SORTS)[number];
 
@@ -937,10 +930,7 @@ export function buildSearchPattern(search: unknown): string | null {
   if (query.length < 2 || query.length > 100) {
     throw badRequest('Search must be 2-100 characters');
   }
-  const escaped = query
-    .replace(/\\/g, '\\\\')
-    .replace(/%/g, '\\%')
-    .replace(/_/g, '\\_');
+  const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
   return `%${escaped}%`;
 }
 
@@ -1105,10 +1095,7 @@ async function queryReportList(
     .orderBy(...drizzleOrderBy(sort))
     .limit(page.limit)
     .offset(page.offset);
-  const counted = await db
-    .select({ value: count() })
-    .from(schema.maintenanceReports)
-    .where(where);
+  const counted = await db.select({ value: count() }).from(schema.maintenanceReports).where(where);
   return { items, total: counted[0]?.value ?? 0, limit: page.limit, offset: page.offset };
 }
 
@@ -1281,10 +1268,12 @@ export interface ReportDetail {
   readonly duplicateCandidates: DuplicateCandidate[];
 }
 
-async function loadReportDetail(
-  db: ReportQueryDb,
-  row: schema.Report,
-): Promise<ReportDetail> {
+export interface AdminReportDetail extends ReportDetail {
+  /** Latest verifier row; null for rows created before AI analysis existed. */
+  readonly aiAnalysis: schema.AiAnalysis | null;
+}
+
+async function loadReportDetail(db: ReportQueryDb, row: schema.Report): Promise<ReportDetail> {
   const attachments = await db
     .select({
       id: schema.reportAttachments.id,
@@ -1328,12 +1317,10 @@ async function loadReportDetail(
 
 // Reporter detail: identical 404 when the row is missing OR belongs to
 // another reporter (never reveal another reporter's ticket). Events are
-// sanitized for reporter consumption (P5-5 fix): INTERNAL_NOTE_ADDED rows
-// are excluded entirely; remaining rows ship with actorId=null,
-// metadata.note stripped except for public resolution notes
-// (REPORT_RESOLVED, or STATUS_CHANGED→RESOLVED which carries the public
-// RESOLVED note), and UUID-looking fromValue/toValue nulled (status
-// strings kept). Admin detail stays full — see getAdminReportDetail.
+// sanitized for reporter consumption: actorId is nulled, UUID-looking
+// fromValue/toValue are nulled (status strings kept), all note text stays
+// visible, and a LAPORAN_PALSU note is replaced with neutral text. Admin
+// detail stays raw — see getAdminReportDetail.
 function sanitizeDetailValue(value: unknown): unknown {
   if (typeof value === 'string') {
     return UUID_RE.test(value) ? null : value;
@@ -1352,25 +1339,32 @@ function sanitizeDetailValue(value: unknown): unknown {
 }
 
 function sanitizeReporterDetailEvent(event: schema.ReportEvent): schema.ReportEvent {
-  const keepsNote =
-    event.eventType === 'REPORT_RESOLVED' || (event.eventType === 'STATUS_CHANGED' && event.toValue === 'RESOLVED');
-  let metadata = event.metadata;
-  if (
-    !keepsNote &&
-    metadata !== null &&
-    typeof metadata === 'object' &&
-    !Array.isArray(metadata)
-  ) {
+  const metadata = event.metadata;
+  let nextMetadata = metadata;
+  let eventType = event.eventType;
+  if (metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)) {
     const rest = { ...(metadata as Record<string, unknown>) };
-    delete rest['note'];
-    metadata = rest;
+    if (rest['condition'] === 'LAPORAN_PALSU') {
+      if ('note' in rest) {
+        rest['note'] = LAPORAN_PALSU_NEUTRAL_MESSAGE;
+      }
+      delete rest['condition'];
+    }
+    // Drop the retired visibility marker from legacy event metadata.
+    delete rest['visibility'];
+    nextMetadata = rest;
+  }
+  // Legacy internal-note events are progress notes under the current rule.
+  if (eventType === 'INTERNAL_NOTE_ADDED') {
+    eventType = 'PROGRESS_NOTE_ADDED';
   }
   return {
     ...event,
+    eventType,
     actorId: null,
     fromValue: sanitizeDetailValue(event.fromValue),
     toValue: sanitizeDetailValue(event.toValue),
-    metadata,
+    metadata: nextMetadata,
   };
 }
 
@@ -1390,9 +1384,7 @@ export async function getMyReportDetail(
     throw notFound('Report not found');
   }
   const detail = await loadReportDetail(db, row);
-  const events = detail.events
-    .filter((event) => event.eventType !== 'INTERNAL_NOTE_ADDED')
-    .map(sanitizeReporterDetailEvent);
+  const events = detail.events.map(sanitizeReporterDetailEvent);
   return { ...detail, events };
 }
 
@@ -1417,9 +1409,7 @@ export async function getCampusReportDetail(
   }
   const isOwn = row.reporterId === viewer;
   const detail = await loadReportDetail(db, row);
-  const events = detail.events
-    .filter((event) => event.eventType !== 'INTERNAL_NOTE_ADDED')
-    .map(sanitizeReporterDetailEvent);
+  const events = detail.events.map(sanitizeReporterDetailEvent);
   return {
     report: toCampusReport(row),
     isOwn,
@@ -1436,11 +1426,12 @@ export async function getCampusReportDetail(
   };
 }
 
-// Admin detail: same shape, no ownership check (404 only when truly missing).
+// Admin detail: same shape plus the latest AI verifier row, no ownership check
+// (404 only when truly missing).
 export async function getAdminReportDetail(
   db: ReportQueryDb,
   reportId: string,
-): Promise<ReportDetail> {
+): Promise<AdminReportDetail> {
   const id = requireUuid(reportId, 'reportId');
   const rows = await db
     .select()
@@ -1450,7 +1441,14 @@ export async function getAdminReportDetail(
   if (row === undefined) {
     throw notFound('Report not found');
   }
-  return await loadReportDetail(db, row);
+  const detail = await loadReportDetail(db, row);
+  const analyses = await db
+    .select()
+    .from(schema.aiAnalyses)
+    .where(eq(schema.aiAnalyses.reportId, id))
+    .orderBy(desc(schema.aiAnalyses.createdAt))
+    .limit(1);
+  return { ...detail, aiAnalysis: analyses[0] ?? null };
 }
 
 export interface ReportTimelineEntry {
@@ -1462,9 +1460,9 @@ export interface ReportTimelineEntry {
   readonly createdAt: Date;
 }
 
-// Reporter timeline: ownership check first (same 404 rule as detail), then
-// the raw `report_events` rows chronologically. Public/internal note
-// separation lands in Phase 5 — sanitization happens at the service layer.
+// Reporter event timeline: ownership check first (same 404 rule as detail),
+// then event rows sanitized like the detail projection (all notes visible,
+// actor ids null, LAPORAN_PALSU neutralized).
 export async function getMyReportTimeline(
   db: ReportQueryDb,
   reporterId: string,
@@ -1485,7 +1483,7 @@ export async function getMyReportTimeline(
     .from(schema.reportEvents)
     .where(eq(schema.reportEvents.reportId, id))
     .orderBy(asc(schema.reportEvents.createdAt), asc(schema.reportEvents.id));
-  return events.map((event) => ({
+  return events.map(sanitizeReporterDetailEvent).map((event) => ({
     type: event.eventType,
     actorId: event.actorId,
     fromValue: event.fromValue,

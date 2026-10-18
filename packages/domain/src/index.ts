@@ -41,6 +41,9 @@ export const REPORT_EVENT_TYPE = [
   'STATUS_CHANGED',
   'PRIORITY_CHANGED',
   'ASSIGNMENT_CHANGED',
+  'PROGRESS_NOTE_ADDED',
+  // Legacy event names remain readable for rows written before the
+  // 2026-10-17 progress-note rule.
   'PUBLIC_UPDATE_ADDED',
   'INTERNAL_NOTE_ADDED',
   'REPORT_RESOLVED',
@@ -48,6 +51,10 @@ export const REPORT_EVENT_TYPE = [
 ] as const;
 
 export type ReportEventType = (typeof REPORT_EVENT_TYPE)[number];
+
+// Reporter-facing projection for a note whose admin condition is
+// LAPORAN_PALSU. The admin still sees the original condition and message.
+export const LAPORAN_PALSU_NEUTRAL_MESSAGE = 'Kerusakan tidak ditemukan saat pemeriksaan' as const;
 
 export const DUPLICATE_LOOKBACK_DAYS = 14 as const;
 
@@ -59,9 +66,7 @@ export function formatTicketNumber(year: number, seq: number): string {
 
 // Phase 5 P5-1: report lifecycle state machine (pure — no I/O, no imports).
 // Canonical transition matrix (binding); CLOSED is terminal.
-export const REPORT_TRANSITIONS: Readonly<
-  Record<ReportStatus, readonly ReportStatus[]>
-> = {
+export const REPORT_TRANSITIONS: Readonly<Record<ReportStatus, readonly ReportStatus[]>> = {
   REPORTED: ['VERIFIED'],
   VERIFIED: ['ASSIGNED'],
   ASSIGNED: ['INSPECTION'],
@@ -220,9 +225,7 @@ export function scorePriority(input: PriorityScoreInput): PriorityScoreResult {
     suggestedPriority = 'HIGH';
   }
   const scoringComplete =
-    input.categoryWeight != null &&
-    input.assetWeight != null &&
-    input.locationScore != null;
+    input.categoryWeight != null && input.assetWeight != null && input.locationScore != null;
   return {
     score,
     suggestedPriority,

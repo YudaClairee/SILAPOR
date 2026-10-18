@@ -7,7 +7,6 @@ import {
   AttachmentGallery,
   Button,
   ErrorPanel,
-  Input,
   LoadingState,
   Select,
   StatusBadge,
@@ -30,6 +29,11 @@ interface AdminReportRow {
   readonly finalCategoryId: string | null;
   readonly finalIssueTypeId: string | null;
   readonly finalPriority: string | null;
+  readonly priorityScore: number | null;
+  readonly priorityFactors: unknown;
+  readonly priorityDecidedBy: string | null;
+  readonly priorityDecidedAt: string | null;
+  readonly scoringConfigVersion: number;
   readonly description: string;
   readonly occurredAt: string | null;
   readonly version: number;
@@ -37,6 +41,21 @@ interface AdminReportRow {
   readonly verifiedAt: string | null;
   readonly resolvedAt: string | null;
   readonly closedAt: string | null;
+}
+
+interface AdminAiAnalysisRow {
+  readonly id: string;
+  readonly status: string;
+  readonly verdict: string | null;
+  readonly category: string | null;
+  readonly issueType: string | null;
+  readonly priority: string | null;
+  readonly confidence: number | null;
+  readonly reasoningSummary: string | null;
+  readonly model: string;
+  readonly promptVersion: string;
+  readonly createdAt: string;
+  readonly completedAt: string | null;
 }
 
 interface AdminAttachmentRow {
@@ -50,6 +69,8 @@ interface AdminEventRow {
   readonly eventType?: unknown;
   readonly type?: unknown;
   readonly createdAt: string;
+  readonly metadata?: unknown;
+  readonly detail?: unknown;
 }
 
 interface AdminRelationRow {
@@ -70,6 +91,7 @@ interface AdminDetailData {
   readonly events: AdminEventRow[];
   readonly relations: AdminRelationRow[];
   readonly duplicateCandidates: AdminDuplicateRow[];
+  readonly aiAnalysis?: AdminAiAnalysisRow | null;
 }
 
 interface AdminDetailLoaderData {
@@ -210,7 +232,7 @@ interface WorkflowTimelineEntry {
   readonly actorId: string | null;
   readonly label: string;
   readonly detail: Record<string, unknown> | null;
-  readonly visibility?: string | null;
+  readonly condition?: string | null;
 }
 
 // Technician options carry display fields only (id + displayName + code) —
@@ -288,12 +310,16 @@ function currentTechnicianOf(timeline: readonly WorkflowTimelineEntry[] | null):
 
 function workflowEntryLabel(entry: WorkflowTimelineEntry): string {
   if (entry.kind === 'event') {
+    if (entry.condition === 'LAPORAN_PALSU') {
+      return 'Catatan progres (Laporan Palsu)';
+    }
     const eventType = entry.detail !== null ? entry.detail['eventType'] : undefined;
     return eventLabel(typeof eventType === 'string' ? eventType : entry.label);
   }
   if (entry.kind === 'update') {
-    const visibility = entry.visibility ?? entry.detail?.['visibility'];
-    return visibility === 'PUBLIC' ? 'Pembaruan publik' : 'Catatan internal';
+    return entry.condition === 'LAPORAN_PALSU'
+      ? 'Catatan progres (Laporan Palsu)'
+      : 'Catatan progres';
   }
   if (entry.kind === 'assignment') {
     return 'Penugasan teknisi';
@@ -302,6 +328,32 @@ function workflowEntryLabel(entry: WorkflowTimelineEntry): string {
     return 'Relasi laporan';
   }
   return entry.label;
+}
+
+function noteTextFrom(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const note = (value as Record<string, unknown>)['note'];
+  return typeof note === 'string' && note !== '' ? note : null;
+}
+
+function workflowEntryDescription(entry: WorkflowTimelineEntry): string | undefined {
+  if (entry.detail === null) {
+    return undefined;
+  }
+  if (entry.kind === 'update') {
+    const message = entry.detail['message'];
+    return typeof message === 'string' && message !== '' ? message : undefined;
+  }
+  if (entry.kind === 'event') {
+    return noteTextFrom(entry.detail['metadata']) ?? undefined;
+  }
+  return undefined;
+}
+
+function fallbackEventDescription(entry: AdminEventRow): string | undefined {
+  return noteTextFrom(entry.metadata) ?? undefined;
 }
 
 const fieldLabelClasses = 'block text-sm font-medium text-text';
@@ -332,16 +384,12 @@ function AdminWorkflow({
   const [vIssueType, setVIssueType] = useState(
     report.finalIssueTypeId ?? report.submittedIssueTypeId ?? '',
   );
-  const [vAsset, setVAsset] = useState(report.assetId ?? '');
-  const [vLocation, setVLocation] = useState(report.locationId);
   const [vPriority, setVPriority] = useState(report.finalPriority ?? 'MEDIUM');
-  const [vOverride, setVOverride] = useState('');
-  const [vAffected, setVAffected] = useState('');
   const [assignTech, setAssignTech] = useState('');
   const [assignReason, setAssignReason] = useState('');
   const [transitionNote, setTransitionNote] = useState('');
-  const [publicMessage, setPublicMessage] = useState('');
-  const [internalMessage, setInternalMessage] = useState('');
+  const [progressMessage, setProgressMessage] = useState('');
+  const [progressIsFalseReport, setProgressIsFalseReport] = useState(false);
 
   const ref = encodeURIComponent(ticket);
   const actionBase = `/api/admin/reports/${ref}`;
@@ -488,14 +536,18 @@ function AdminWorkflow({
         </div>
       ) : null}
 
-      {report.status === 'REPORTED' ? (
+      {report.status === 'REPORTED' && report.finalCategoryId === null ? (
         <section
           aria-labelledby="admin-verify-title"
           className="mt-4 rounded-md border border-border bg-surface p-4"
         >
           <h2 id="admin-verify-title" className="text-base font-semibold text-text">
-            Verifikasi laporan
+            Verifikasi manual laporan tertahan
           </h2>
+          <p className="mt-1 text-sm text-muted">
+            Hanya untuk laporan yang ditahan karena layanan AI tidak tersedia. Hasil AI normal tidak
+            dapat diubah di sini.
+          </p>
           <div className="mt-3 flex flex-col gap-3">
             <label className={fieldLabelClasses}>
               Kategori final
@@ -526,35 +578,6 @@ function AdminWorkflow({
                 ))}
               </Select>
             </label>
-            <label className={fieldLabelClasses}>
-              Asset
-              <Select
-                className="mt-1"
-                value={vAsset}
-                onChange={(event) => setVAsset(event.target.value)}
-              >
-                <option value="">Tanpa asset</option>
-                {(options?.assets ?? []).map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {asset.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className={fieldLabelClasses}>
-              Lokasi
-              <Select
-                className="mt-1"
-                value={vLocation}
-                onChange={(event) => setVLocation(event.target.value)}
-              >
-                {(options?.locations ?? []).map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
             <fieldset>
               <legend className={fieldLabelClasses}>Prioritas final</legend>
               <div className="mt-1 flex gap-4">
@@ -572,42 +595,15 @@ function AdminWorkflow({
                 ))}
               </div>
             </fieldset>
-            <label className={fieldLabelClasses}>
-              Alasan override (opsional)
-              <Textarea
-                className="mt-1"
-                rows={2}
-                value={vOverride}
-                onChange={(event) => setVOverride(event.target.value)}
-                placeholder="Wajib diisi bila prioritas final berbeda dari saran sistem"
-              />
-              <span className={fieldHintClasses}>
-                Wajib diisi bila prioritas final berbeda dari saran sistem (divalidasi server).
-              </span>
-            </label>
-            <label className={fieldLabelClasses}>
-              Jumlah pelapor terdampak (opsional)
-              <Input
-                className="mt-1"
-                type="number"
-                min={0}
-                value={vAffected}
-                onChange={(event) => setVAffected(event.target.value)}
-              />
-            </label>
             <div>
               <Button
                 type="button"
-                disabled={busy !== null}
+                disabled={busy !== null || vIssueType === ''}
                 onClick={() =>
                   void runAction(`${actionBase}/verify`, `${actionBase}/verify`, {
                     finalCategoryId: vCategory,
-                    finalIssueTypeId: vIssueType === '' ? null : vIssueType,
-                    assetId: vAsset === '' ? null : vAsset,
-                    locationId: vLocation,
+                    finalIssueTypeId: vIssueType,
                     finalPriority: vPriority,
-                    overrideReason: vOverride === '' ? null : vOverride,
-                    affectedReporters: vAffected === '' ? null : Number(vAffected),
                   })
                 }
               >
@@ -738,67 +734,52 @@ function AdminWorkflow({
         className="mt-4 rounded-md border border-border bg-surface p-4"
       >
         <h2 id="admin-updates-title" className="text-base font-semibold text-text">
-          Update &amp; catatan
+          Catatan progres
         </h2>
+        <p className="mt-1 text-sm text-muted">
+          Catatan ini terlihat oleh pelapor. Kondisi Laporan Palsu ditampilkan netral untuk pelapor.
+        </p>
         <div className="mt-3 flex flex-col gap-3">
           <label className={fieldLabelClasses}>
-            Update publik (terlihat reporter)
+            Catatan
             <Textarea
               className="mt-1"
-              rows={2}
-              value={publicMessage}
-              onChange={(event) => setPublicMessage(event.target.value)}
+              rows={3}
+              value={progressMessage}
+              onChange={(event) => setProgressMessage(event.target.value)}
             />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={progressIsFalseReport}
+              onChange={(event) => setProgressIsFalseReport(event.target.checked)}
+            />
+            Tandai sebagai Laporan Palsu
           </label>
           <div>
             <Button
               type="button"
               variant="secondary"
-              disabled={busy !== null || publicMessage.trim() === ''}
+              disabled={busy !== null || progressMessage.trim() === ''}
               onClick={() => {
                 void (async () => {
                   const ok = await runAction(
-                    `${actionBase}/updates:public`,
+                    `${actionBase}/updates:progress`,
                     `${actionBase}/updates`,
-                    { visibility: 'PUBLIC', message: publicMessage.trim() },
+                    {
+                      message: progressMessage.trim(),
+                      condition: progressIsFalseReport ? 'LAPORAN_PALSU' : null,
+                    },
                   );
                   if (ok) {
-                    setPublicMessage('');
+                    setProgressMessage('');
+                    setProgressIsFalseReport(false);
                   }
                 })();
               }}
             >
-              {busy === `${actionBase}/updates:public` ? 'Mengirim…' : 'Kirim update publik'}
-            </Button>
-          </div>
-          <label className={fieldLabelClasses}>
-            Catatan internal (hanya admin)
-            <Textarea
-              className="mt-1"
-              rows={2}
-              value={internalMessage}
-              onChange={(event) => setInternalMessage(event.target.value)}
-            />
-          </label>
-          <div>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy !== null || internalMessage.trim() === ''}
-              onClick={() => {
-                void (async () => {
-                  const ok = await runAction(
-                    `${actionBase}/updates:internal`,
-                    `${actionBase}/updates`,
-                    { visibility: 'INTERNAL', message: internalMessage.trim() },
-                  );
-                  if (ok) {
-                    setInternalMessage('');
-                  }
-                })();
-              }}
-            >
-              {busy === `${actionBase}/updates:internal` ? 'Menyimpan…' : 'Simpan catatan internal'}
+              {busy === `${actionBase}/updates:progress` ? 'Menyimpan…' : 'Simpan catatan progres'}
             </Button>
           </div>
         </div>
@@ -820,6 +801,7 @@ function AdminWorkflow({
                 items={timeline.map((entry) => ({
                   id: entry.id,
                   label: workflowEntryLabel(entry),
+                  description: workflowEntryDescription(entry),
                   timestamp: formatDateTime(entry.at),
                 }))}
               />
@@ -831,6 +813,7 @@ function AdminWorkflow({
               items={fallbackEvents.map((entry, index) => ({
                 id: `${entry.createdAt}-${index}`,
                 label: eventLabel(entryType(entry)),
+                description: fallbackEventDescription(entry),
                 timestamp: formatDateTime(entry.createdAt),
               }))}
             />
@@ -838,6 +821,139 @@ function AdminWorkflow({
         ) : null}
       </section>
     </>
+  );
+}
+
+function factorNumber(value: unknown, key: string): number | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const factor = (value as Record<string, unknown>)[key];
+  return typeof factor === 'number' && Number.isFinite(factor) ? factor : null;
+}
+
+function scoringComplete(value: unknown): boolean | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const flag = (value as Record<string, unknown>)['scoringComplete'];
+  return typeof flag === 'boolean' ? flag : null;
+}
+
+export function AdminAiPanel({
+  report,
+  analysis,
+  categoryNames,
+  issueTypeNames,
+}: {
+  readonly report: AdminReportRow;
+  readonly analysis: AdminAiAnalysisRow | null | undefined;
+  readonly categoryNames: ReadonlyMap<string, string>;
+  readonly issueTypeNames: ReadonlyMap<string, string>;
+}) {
+  const hasFinal = report.finalCategoryId !== null && report.finalPriority !== null;
+  if (!hasFinal) {
+    return (
+      <section
+        aria-labelledby="admin-detail-ai-title"
+        className="mt-4 rounded-md border border-info bg-tint-info p-4"
+      >
+        <h2 id="admin-detail-ai-title" className="text-base font-semibold text-text">
+          Tinjauan AI
+        </h2>
+        <p className="mt-1 text-sm text-text">
+          Menunggu verifikasi. Laporan ini ditahan karena layanan AI tidak tersedia.
+        </p>
+      </section>
+    );
+  }
+
+  const factors = report.priorityFactors;
+  const complete = scoringComplete(factors);
+  const confidence =
+    typeof analysis?.confidence === 'number' ? `${Math.round(analysis.confidence * 100)}%` : '—';
+
+  return (
+    <section
+      aria-labelledby="admin-detail-ai-title"
+      className="mt-4 rounded-md border border-info bg-tint-info p-4"
+    >
+      <h2 id="admin-detail-ai-title" className="text-base font-semibold text-text">
+        Tinjauan AI
+      </h2>
+      <dl className="mt-3 divide-y divide-border">
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Kategori final</dt>
+          <dd className="text-sm text-text">
+            {categoryNames.get(report.finalCategoryId ?? '') ?? report.finalCategoryId}
+          </dd>
+        </div>
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Jenis masalah</dt>
+          <dd className="text-sm text-text">
+            {report.finalIssueTypeId === null
+              ? '—'
+              : (issueTypeNames.get(report.finalIssueTypeId) ?? report.finalIssueTypeId)}
+          </dd>
+        </div>
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Prioritas final</dt>
+          <dd className="text-sm text-text">
+            <StatusBadge priority={report.finalPriority} />
+          </dd>
+        </div>
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Skor prioritas</dt>
+          <dd className="text-sm text-text">
+            {report.priorityScore === null ? '—' : `${report.priorityScore} / 100`}
+          </dd>
+        </div>
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Faktor skor</dt>
+          <dd className="text-sm text-text">
+            <span className="block">
+              Kategori {factorNumber(factors, 'category') ?? '—'} · Aset{' '}
+              {factorNumber(factors, 'asset') ?? '—'} · Lokasi{' '}
+              {factorNumber(factors, 'location') ?? '—'} · Frekuensi{' '}
+              {factorNumber(factors, 'frequency') ?? '—'}
+            </span>
+            <span className="block text-muted">
+              Pelapor terdampak: {factorNumber(factors, 'affectedReporters') ?? '—'}
+              {complete === false ? ' · Bobot belum lengkap' : ''}
+            </span>
+          </dd>
+        </div>
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Keyakinan AI</dt>
+          <dd className="text-sm text-text">{confidence}</dd>
+        </div>
+        {analysis?.reasoningSummary !== null && analysis?.reasoningSummary !== undefined ? (
+          <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+            <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Alasan singkat</dt>
+            <dd className="text-pretty text-sm break-words text-text">
+              {analysis.reasoningSummary}
+            </dd>
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Sumber keputusan</dt>
+          <dd className="text-sm text-text">
+            {report.priorityDecidedBy === 'AI' ||
+            (report.priorityDecidedBy === null && analysis !== null && analysis !== undefined)
+              ? 'AI'
+              : 'Admin (verifikasi manual)'}
+          </dd>
+        </div>
+        <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+          <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Metadata model</dt>
+          <dd className="text-sm text-text">
+            {analysis === null || analysis === undefined
+              ? 'Tidak ada metadata analisis AI tersimpan (kemungkinan verifikasi manual).'
+              : `${analysis.model} · prompt ${analysis.promptVersion} · ${analysis.status}`}
+          </dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
@@ -1092,15 +1208,12 @@ function AdminReportDetailPage() {
             </dl>
           </div>
 
-          <section
-            aria-labelledby="admin-detail-ai-title"
-            className="mt-4 rounded-md border border-info bg-tint-info p-4"
-          >
-            <h2 id="admin-detail-ai-title" className="text-base font-semibold text-text">
-              Tinjauan AI
-            </h2>
-            <p className="mt-1 text-sm text-text">Tinjauan AI: menunggu</p>
-          </section>
+          <AdminAiPanel
+            report={detail.report}
+            analysis={detail.aiAnalysis}
+            categoryNames={categoryNames}
+            issueTypeNames={issueTypeNames}
+          />
 
           <AdminWorkflow
             ticket={detail.report.ticketNumber}

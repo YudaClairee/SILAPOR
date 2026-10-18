@@ -1,11 +1,11 @@
-// Reporter report timeline (Phase 5 P5-5): GET sanitized entries for one of mine.
+// Reporter report timeline (Phase 5): GET sanitized entries for one of mine.
 //
 // Reporter-only: `requireUser` inside the try (401 anonymous); the service
 // layer re-guards on the same request. `:id` accepts a row UUID or a ticket
 // number (`MNT-…`); ownership and 404 semantics match the detail route.
-// Returns `{ events }` SANITIZED (no INTERNAL entries, no actor/author PII)
-// — safe to render verbatim. See reports.ts for the guard/log
-// contract.
+// Returns `{ events }` SANITIZED (all progress notes, no actor/author PII,
+// LAPORAN_PALSU projected to neutral text) — safe to render verbatim.
+// See reports.ts for the guard/log contract.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
 import { createLogger, redact, toHttpResponse, withRequestId } from '@silapor/shared';

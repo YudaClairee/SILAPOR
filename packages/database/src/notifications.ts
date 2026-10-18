@@ -6,8 +6,10 @@
 //
 // - Idempotent by construction: the (source_event_id, user_id) unique pair
 //   plus `onConflictDoNothing` makes worker redelivery a no-op (plan step 11).
-// - INTERNAL_NOTE_ADDED and PRIORITY_CHANGED never notify (decision §7
-//   visibility rules; plan step 9 event list).
+// - PROGRESS_NOTE_ADDED notifies the reporter; LAPORAN_PALSU still uses the
+//   neutral message text on reporter surfaces.
+// - INTERNAL_NOTE_ADDED is a legacy kind and stays unnotified; new writes use
+//   PROGRESS_NOTE_ADDED with no visibility.
 // - Recipient is the report's reporter_id loaded fresh from the report row —
 //   never trusted from the payload. Messages carry the ticket number only;
 //   no PII, no report description, no actor identity.
@@ -74,6 +76,12 @@ export function buildNotificationContent(
         title: 'Status laporan diperbarui',
         message: `Status penanganan ${ticket} telah diperbarui.`,
       };
+    case 'PROGRESS_NOTE_ADDED':
+      return {
+        type: kind,
+        title: 'Progres baru',
+        message: `Ada catatan progres baru pada ${ticket}.`,
+      };
     case 'PUBLIC_UPDATE_ADDED':
       return {
         type: kind,
@@ -107,8 +115,7 @@ export interface NotificationProcessResult {
   readonly skippedReason: 'not-notifiable' | 'duplicate' | null;
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function processNotificationOutboxEvent(
   db: NotificationDb,

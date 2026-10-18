@@ -109,10 +109,7 @@ export const facilityCategories = pgTable(
     isActive: boolean('is_active').notNull().default(true),
   },
   (table) => [
-    check(
-      'facility_categories_weight_check',
-      sql`${table.weight} >= 0 AND ${table.weight} <= 40`,
-    ),
+    check('facility_categories_weight_check', sql`${table.weight} >= 0 AND ${table.weight} <= 40`),
   ],
 );
 
@@ -157,10 +154,7 @@ export const facilityAssets = pgTable(
     index('facility_assets_location_category_idx').on(table.locationId, table.categoryId),
     index('facility_assets_category_id_idx').on(table.categoryId),
     index('facility_assets_is_active_idx').on(table.isActive),
-    check(
-      'facility_assets_weight_check',
-      sql`${table.weight} >= 0 AND ${table.weight} <= 30`,
-    ),
+    check('facility_assets_weight_check', sql`${table.weight} >= 0 AND ${table.weight} <= 30`),
   ],
 );
 
@@ -288,9 +282,8 @@ export const maintenanceReports = pgTable(
     finalPriority: text('final_priority'),
     // P5-2: priority audit — admin override reason + decider + config version.
     priorityOverrideReason: text('priority_override_reason'),
-    priorityDecidedBy: uuid('priority_decided_by').references(() => users.id, {
-      onDelete: 'set null',
-    }),
+    // P5-2: priority audit — AI or the admin who verified a held report.
+    priorityDecidedBy: text('priority_decided_by'),
     priorityDecidedAt: timestamp('priority_decided_at', { withTimezone: true }),
     scoringConfigVersion: integer('scoring_config_version').notNull().default(1),
     // Optimistic locking; P3-2+ increments on every mutation.
@@ -319,6 +312,10 @@ export const maintenanceReports = pgTable(
     check(
       'maintenance_reports_priority_score_check',
       sql`${table.priorityScore} IS NULL OR (${table.priorityScore} >= 0 AND ${table.priorityScore} <= 100)`,
+    ),
+    check(
+      'maintenance_reports_priority_decided_by_check',
+      sql`${table.priorityDecidedBy} IS NULL OR ${table.priorityDecidedBy} IN ('AI', 'ADMIN')`,
     ),
   ],
 );
@@ -416,7 +413,12 @@ export const reportAssignments = pgTable(
   ],
 );
 
-// P5-2: PUBLIC vs INTERNAL append-only timeline entries.
+// Progress notes are append-only and always visible to the reporter. The only
+// special condition is LAPORAN_PALSU, which the reporter surface projects to
+// neutral text (UI No. 10).
+export const REPORT_UPDATE_CONDITIONS = ['LAPORAN_PALSU'] as const;
+export type ReportUpdateCondition = (typeof REPORT_UPDATE_CONDITIONS)[number];
+
 export const reportUpdates = pgTable(
   'report_updates',
   {
@@ -427,15 +429,15 @@ export const reportUpdates = pgTable(
     authorId: uuid('author_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
-    visibility: text('visibility').notNull(),
+    condition: text('condition'),
     message: text('message').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('report_updates_report_created_idx').on(table.reportId, table.createdAt),
     check(
-      'report_updates_visibility_check',
-      sql`${table.visibility} IN ('PUBLIC', 'INTERNAL')`,
+      'report_updates_condition_check',
+      sql`${table.condition} IS NULL OR ${table.condition} = 'LAPORAN_PALSU'`,
     ),
   ],
 );
@@ -463,10 +465,7 @@ export const reportRelations = pgTable(
       table.relationType,
     ),
     index('report_relations_target_type_idx').on(table.targetReportId, table.relationType),
-    check(
-      'report_relations_type_check',
-      sql`${table.relationType} IN ('SUPPORTING', 'RELATED')`,
-    ),
+    check('report_relations_type_check', sql`${table.relationType} IN ('SUPPORTING', 'RELATED')`),
   ],
 );
 

@@ -226,6 +226,7 @@ export async function verifyHeldReport(
       report.id,
       { finalCategoryId, finalIssueTypeId, finalPriority },
       adminId,
+      'ADMIN',
     );
   } finally {
     await conn.close().catch(() => undefined);

@@ -57,7 +57,7 @@ describe('RELATION_TYPE', () => {
 });
 
 describe('REPORT_EVENT_TYPE', () => {
-  it('contains at least the 10 binding minimum event types', () => {
+  it('contains at least the 11 binding minimum event types', () => {
     const minimum = [
       'REPORT_CREATED',
       'AI_ANALYSIS_COMPLETED',
@@ -65,6 +65,7 @@ describe('REPORT_EVENT_TYPE', () => {
       'STATUS_CHANGED',
       'PRIORITY_CHANGED',
       'ASSIGNMENT_CHANGED',
+      'PROGRESS_NOTE_ADDED',
       'PUBLIC_UPDATE_ADDED',
       'INTERNAL_NOTE_ADDED',
       'REPORT_RESOLVED',

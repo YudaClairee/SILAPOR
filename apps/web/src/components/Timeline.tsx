@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 export interface TimelineItem {
   readonly id: string;
   readonly label: ReactNode;
+  /** Optional progress-note text; rendered as plain text. */
+  readonly description?: ReactNode;
   /** Pre-formatted timestamp text (rendered in mono per DESIGN.md). */
   readonly timestamp: string;
 }
@@ -24,6 +26,13 @@ export function Timeline({ items }: TimelineProps) {
             className="absolute top-1 -left-[7px] h-3 w-3 rounded-full border-2 border-accent bg-elevated"
           />
           <p className="text-sm text-text">{item.label}</p>
+          {item.description !== undefined &&
+          item.description !== null &&
+          item.description !== '' ? (
+            <p className="mt-1 text-sm text-pretty break-words whitespace-pre-wrap text-muted">
+              {item.description}
+            </p>
+          ) : null}
           <p className="font-mono text-xs text-muted">{item.timestamp}</p>
         </li>
       ))}

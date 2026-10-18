@@ -1757,8 +1757,8 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
     });
     const timeline = await getMyReportTimeline(db!, reporterA, a1Id);
     expect(timeline).toHaveLength(2);
-    expect(timeline[0]).toMatchObject({ type: 'REPORT_CREATED', actorId: reporterA });
-    expect(timeline[1]).toMatchObject({ type: 'INTERNAL_NOTE_ADDED', actorId: reporterA });
+    expect(timeline[0]).toMatchObject({ type: 'REPORT_CREATED', actorId: null });
+    expect(timeline[1]).toMatchObject({ type: 'PROGRESS_NOTE_ADDED', actorId: null });
     for (const entry of timeline) {
       expect(Object.keys(entry).sort()).toEqual(
         ['actorId', 'createdAt', 'fromValue', 'metadata', 'toValue', 'type'].sort(),

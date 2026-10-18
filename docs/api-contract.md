@@ -69,10 +69,10 @@
 | Endpoint | Method | Request | Sukses |
 |---|---|---|---|
 | `/api/reports/form-options` | GET | — | `200 { "locations": [], "categories": [], "issueTypes": [], "assets": [] }` — hanya data aktif. **Reporter tidak memilih kategori/issue**: kategori ditentukan dari asset (dependent select: lokasi → asset), issue type & priority ditetapkan AI. List `categories`/`issueTypes` tetap ada di response untuk pemakaian admin (filter). |
-| `/api/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `q`, `mine=1`, `limit`, `offset` | `200 { "items": ReportItem[], "total": number }` — default **seluruh tiket kampus tersanitasi** (tanpa identitas pelapor lain, deskripsi sensitif, attachment, atau internal note); `mine=1` untuk filter "Laporan Saya". Laporan sendiri yang di-hold tampil sebagai pending check di sini. |
+| `/api/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `q`, `mine=1`, `limit`, `offset` | `200 { "items": ReportItem[], "total": number }` — default **seluruh tiket kampus tersanitasi** (tanpa identitas pelapor lain, deskripsi sensitif, atau attachment); `mine=1` untuk filter "Laporan Saya". Laporan sendiri yang di-hold tampil sebagai pending check di sini. |
 | `/api/reports` | POST | header **wajib** `x-idempotency-key`; body: `{ "location_id" (UUID, wajib), "asset_id" (UUID, wajib), "description" (10–2000 char), "photo_keys" (1–3 storage key dari POST /api/uploads, wajib) }` — **tanpa** kategori/issue/occurred_at dari reporter (400 bila dikirim) | verifikasi sinkron saat submit — lihat kontrak submit AI di bawah |
 | `/api/reports/duplicate-check` | GET | query: `location_id`, `asset_id`? | `200 { "count": number, "candidates": [{ "ticketNumber", "status", "reportedAt" }] }` — **legacy/opsional, bukan gate**. Keputusan duplikat terjadi otomatis di `POST /api/reports`: pelapor sama → `409`; pelapor beda → `SUPPORTING`. |
-| `/api/reports/:id` | GET | — | `200` detail **tersanitasi** untuk semua reporter (identitas pelapor, teknisi, dan internal note dihilangkan); `isOwn` menandai pemilik, dan attachment hanya disertakan untuk pemilik; `404` jika tiket tidak ada. |
+| `/api/reports/:id` | GET | — | `200` detail **tersanitasi** untuk semua reporter (identitas pelapor dan teknisi dihilangkan; semua catatan progres tampil, `LAPORAN_PALSU` netral); `isOwn` menandai pemilik, dan attachment hanya disertakan untuk pemilik; `404` jika tiket tidak ada. |
 | `/api/reports/:id/timeline` | GET | — | `200` array `TimelineEntry` terurut kronologis — **sudah disanitasi**: semua catatan tampil, `actorId = null`, kondisi `LAPORAN_PALSU` diproyeksikan netral; tanpa visibility. |
 
 ### Kontrak submit AI (design `2026-10-14-ai-verification-design.md`)
@@ -166,7 +166,7 @@ Data terarsip tidak muncul di pilihan baru, tapi histori lama tetap valid
 | Endpoint | Method | Request | Sukses |
 |---|---|---|---|
 | `/api/admin/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `q` (ticket/deskripsi), `sort`, `limit`, `offset` | `200 { "items", "total" }` — semua laporan |
-| `/api/admin/reports/:id` | GET | — | `200` detail lengkap (priority score, factors, version, dll.) |
+| `/api/admin/reports/:id` | GET | — | `200` detail lengkap (priority score, factors, version, `aiAnalysis` terbaru, dll.) |
 | `/api/admin/reports/:id/timeline` | GET | — | `200` `TimelineEntry[]` **versi admin**: semua catatan terlihat, termasuk kondisi `LAPORAN_PALSU` asli; actor terlihat; tanpa visibility. |
 | `/api/admin/reports/:id/verify` | POST | `{ "priority": "LOW"\|"MEDIUM"\|"HIGH" }` **atau** full codes `{ "category": "<CATEGORY_CODE>", "issueType": "<ISSUE_TYPE_CODE>", "priority": ... }` **atau** full ids `{ "finalCategoryId", "finalIssueTypeId", "finalPriority" }`; + `expectedVersion` **wajib** — hanya untuk tiket **HELD** (status `REPORTED`, belum punya klasifikasi final) | `200` report — setara `VERIFIED` AI: status jadi `VERIFIED`, klasifikasi final diset, lalu timeline/assignment/notification berjalan sama persis seperti hasil AI |
 | `/api/admin/reports/:id/assign` | POST | `{ "technicianId", "expectedVersion" }` — hanya teknisi aktif | `200` |

@@ -1,19 +1,13 @@
 // Report detail (Phase 3 P3-5 + UI No. 5): a sanitized campus ticket by UUID
 // or MNT- ticket. Shows ticket, status, classification labels, location/asset,
 // description, occurredAt/reportedAt, owner-only attachments, a duplicate
-// hint for the owner, and a SAFE timeline subset (event-type labels +
-// timestamps only — raw message/metadata blobs are never rendered).
+// hint for the owner, and the reporter timeline with all progress notes
+// (LAPORAN_PALSU already neutralized by the server).
 //
 // Another reporter's ticket is a normal 200 sanitized view; only a truly
 // missing ticket renders "Laporan tidak ditemukan". Indonesian copy.
 import { useEffect, useState } from 'react';
-import {
-  Link,
-  createFileRoute,
-  redirect,
-  useNavigate,
-  useRouter,
-} from '@tanstack/react-router';
+import { Link, createFileRoute, redirect, useNavigate, useRouter } from '@tanstack/react-router';
 import { eventLabel } from '../lib/report-helpers.js';
 import type { DuplicateCandidate } from '@silapor/database';
 import type { FormOptions } from '../server/reports.js';
@@ -37,22 +31,26 @@ interface ReportRow {
   readonly assetId: string | null;
   readonly submittedCategoryId: string;
   readonly submittedIssueTypeId: string | null;
+  readonly finalCategoryId?: string | null;
+  readonly finalIssueTypeId?: string | null;
+  readonly finalPriority?: string | null;
   readonly description: string;
   readonly occurredAt: string | null;
   readonly reportedAt: string;
 }
 
 interface TimelineRow {
-  // Legacy detail shape (`eventType` + `createdAt`) and sanitized timeline
-  // shape (`kind` + `label` + `at`) — the server now ships the sanitized
-  // projection (no INTERNAL entries, no actor/author PII), and the renderer
-  // below accepts both without crashing.
+  // Detail events (`eventType` + `createdAt` + `metadata`) and sanitized
+  // timeline entries (`kind` + `label` + `at` + `detail`). The server
+  // projection strips actor ids and neutralizes LAPORAN_PALSU.
   readonly eventType?: unknown;
   readonly type?: unknown;
   readonly kind?: unknown;
   readonly label?: unknown;
   readonly createdAt?: unknown;
   readonly at?: unknown;
+  readonly metadata?: unknown;
+  readonly detail?: unknown;
 }
 
 interface DetailAttachmentRow {
@@ -82,7 +80,12 @@ interface DetailLoaderData {
 }
 
 type DetailBundle =
-  | { readonly detail: ReportDetailData | null; readonly options: FormOptions | null; readonly notFound: boolean; readonly loadError: string | null }
+  | {
+      readonly detail: ReportDetailData | null;
+      readonly options: FormOptions | null;
+      readonly notFound: boolean;
+      readonly loadError: string | null;
+    }
   | 'unauthorized'
   | 'unavailable';
 
@@ -101,9 +104,7 @@ async function fetchDetailBundle(ticket: string): Promise<DetailBundle> {
   if (detailResponse.status === 401 || optionsResponse.status === 401) {
     return 'unauthorized';
   }
-  const options = optionsResponse.ok
-    ? ((await optionsResponse.json()) as FormOptions)
-    : null;
+  const options = optionsResponse.ok ? ((await optionsResponse.json()) as FormOptions) : null;
   if (detailResponse.status === 404) {
     return { detail: null, options, notFound: true, loadError: null };
   }
@@ -169,10 +170,9 @@ function formatDateTime(value: string | null): string {
   return date.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-// RAW event rows carry message/metadata blobs — only the type label and the
-// timestamp ever reach the DOM. Server detail is sanitized (no
-// INTERNAL_NOTE_ADDED, no actor PII); the filter below drops any such row
-// defensively should a stale/legacy payload still carry it.
+// Event rows carry message/metadata blobs; the server sanitizes actor ids and
+// neutralizes LAPORAN_PALSU before this component sees them. Only the event
+// label, the note text, and the timestamp reach the DOM.
 function entryType(entry: TimelineRow): string {
   if (typeof entry.eventType === 'string') {
     return entry.eventType;
@@ -183,17 +183,24 @@ function entryType(entry: TimelineRow): string {
   return 'UNKNOWN';
 }
 
-function isInternalNoteEntry(entry: TimelineRow): boolean {
-  if (entryType(entry) === 'INTERNAL_NOTE_ADDED') {
-    return true;
+function noteTextFrom(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
   }
-  if (typeof entry.type === 'string' && entry.type === 'INTERNAL_NOTE_ADDED') {
-    return true;
+  const note = (value as Record<string, unknown>)['note'];
+  return typeof note === 'string' && note !== '' ? note : null;
+}
+
+function timelineDescription(entry: TimelineRow): string | undefined {
+  const note = noteTextFrom(entry.metadata);
+  if (note !== null) {
+    return note;
   }
-  if (typeof entry.label === 'string' && entry.label === 'INTERNAL_NOTE_ADDED') {
-    return true;
+  if (typeof entry.detail === 'object' && entry.detail !== null && !Array.isArray(entry.detail)) {
+    const message = (entry.detail as Record<string, unknown>)['message'];
+    return typeof message === 'string' && message !== '' ? message : undefined;
   }
-  return false;
+  return undefined;
 }
 
 // Sanitized timeline entries (`kind`/`label`/`at`) render through the same
@@ -203,7 +210,7 @@ function isInternalNoteEntry(entry: TimelineRow): boolean {
 function timelineItemLabel(entry: TimelineRow): string {
   if (typeof entry.kind === 'string') {
     if (entry.kind === 'update') {
-      return 'Pembaruan';
+      return 'Catatan progres';
     }
     if (entry.kind === 'assignment') {
       return 'Teknisi ditugaskan';
@@ -335,6 +342,9 @@ function ReportDetailPage() {
               {detail.report.ticketNumber}
             </TicketMono>
             <StatusBadge status={detail.report.status} />
+            {detail.report.finalPriority ? (
+              <StatusBadge priority={detail.report.finalPriority} />
+            ) : null}
           </div>
 
           <div className="mt-4 rounded-md border border-border bg-surface px-4 md:px-6">
@@ -353,22 +363,31 @@ function ReportDetailPage() {
               </div>
               <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
                 <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Kategori</dt>
-                <dd className="text-sm text-text">{categoryNames.get(detail.report.submittedCategoryId) ?? detail.report.submittedCategoryId}</dd>
+                <dd className="text-sm text-text">
+                  {categoryNames.get(
+                    detail.report.finalCategoryId ?? detail.report.submittedCategoryId,
+                  ) ??
+                    detail.report.finalCategoryId ??
+                    detail.report.submittedCategoryId}
+                </dd>
               </div>
               <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
-                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">
-                  Jenis masalah
-                </dt>
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Jenis masalah</dt>
                 <dd className="text-sm text-text">
-                  {detail.report.submittedIssueTypeId === null
+                  {(detail.report.finalIssueTypeId ?? detail.report.submittedIssueTypeId) === null
                     ? '—'
-                    : (issueTypeNames.get(detail.report.submittedIssueTypeId) ??
+                    : (issueTypeNames.get(
+                        detail.report.finalIssueTypeId ?? detail.report.submittedIssueTypeId ?? '',
+                      ) ??
+                      detail.report.finalIssueTypeId ??
                       detail.report.submittedIssueTypeId)}
                 </dd>
               </div>
               <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
                 <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Lokasi</dt>
-                <dd className="text-sm text-text">{locationNames.get(detail.report.locationId) ?? detail.report.locationId}</dd>
+                <dd className="text-sm text-text">
+                  {locationNames.get(detail.report.locationId) ?? detail.report.locationId}
+                </dd>
               </div>
               <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
                 <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Asset</dt>
@@ -385,9 +404,7 @@ function ReportDetailPage() {
                 </dd>
               </div>
               <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
-                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">
-                  Waktu kejadian
-                </dt>
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Waktu kejadian</dt>
                 <dd className="text-sm text-text">
                   <TicketMono>{formatDateTime(detail.report.occurredAt)}</TicketMono>
                 </dd>
@@ -401,7 +418,10 @@ function ReportDetailPage() {
             </dl>
           </div>
 
-          <section aria-labelledby="detail-attachments-title" className="mt-4 rounded-md border border-border bg-surface p-4">
+          <section
+            aria-labelledby="detail-attachments-title"
+            className="mt-4 rounded-md border border-border bg-surface p-4"
+          >
             <h2 id="detail-attachments-title" className="text-base font-semibold text-text">
               Lampiran
             </h2>
@@ -419,7 +439,8 @@ function ReportDetailPage() {
             )}
           </section>
 
-          {detail.duplicateCandidates.length > 0 ? (            <section
+          {detail.duplicateCandidates.length > 0 ? (
+            <section
               aria-labelledby="detail-duplicate-title"
               className="mt-4 rounded-md border border-warning bg-tint-warning p-4"
             >
@@ -449,18 +470,17 @@ function ReportDetailPage() {
             <h2 id="detail-timeline-title" className="text-lg font-semibold text-text">
               Riwayat laporan
             </h2>
-            {detail.events.filter((entry) => !isInternalNoteEntry(entry)).length === 0 ? (
+            {detail.events.length === 0 ? (
               <p className="mt-2 text-sm text-muted">Belum ada riwayat.</p>
             ) : (
               <div className="mt-3">
                 <Timeline
-                  items={detail.events
-                    .filter((entry) => !isInternalNoteEntry(entry))
-                    .map((entry, index) => ({
-                      id: `${timelineTimestamp(entry)}-${index}`,
-                      label: timelineItemLabel(entry),
-                      timestamp: formatDateTime(timelineTimestamp(entry)),
-                    }))}
+                  items={detail.events.map((entry, index) => ({
+                    id: `${timelineTimestamp(entry)}-${index}`,
+                    label: timelineItemLabel(entry),
+                    description: timelineDescription(entry),
+                    timestamp: formatDateTime(timelineTimestamp(entry)),
+                  }))}
                 />
               </div>
             )}
