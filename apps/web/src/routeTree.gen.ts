@@ -15,6 +15,7 @@ import { Route as KebijakanPrivasiRouteImport } from './routes/kebijakan-privasi
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminScoringRouteImport } from './routes/admin.scoring'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiNotificationsRouteImport } from './routes/api/notifications'
 import { Route as ApiReportsRouteImport } from './routes/api/reports'
@@ -87,6 +88,11 @@ const ReporterRoute = ReporterRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminScoringRoute = AdminScoringRouteImport.update({
+  id: '/scoring',
+  path: '/scoring',
   getParentRoute: () => AdminRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -317,6 +323,7 @@ export interface FileRoutesByFullPath {
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
+  '/admin/scoring': typeof AdminScoringRoute
   '/api/health': typeof ApiHealthRoute
   '/api/notifications': typeof ApiNotificationsRouteWithChildren
   '/api/reports': typeof ApiReportsRouteWithChildren
@@ -367,6 +374,7 @@ export interface FileRoutesByTo {
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
+  '/admin/scoring': typeof AdminScoringRoute
   '/api/health': typeof ApiHealthRoute
   '/api/notifications': typeof ApiNotificationsRouteWithChildren
   '/api/reports': typeof ApiReportsRouteWithChildren
@@ -419,6 +427,7 @@ export interface FileRoutesById {
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
+  '/admin/scoring': typeof AdminScoringRoute
   '/api/health': typeof ApiHealthRoute
   '/api/notifications': typeof ApiNotificationsRouteWithChildren
   '/api/reports': typeof ApiReportsRouteWithChildren
@@ -472,6 +481,7 @@ export interface FileRouteTypes {
     | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
+    | '/admin/scoring'
     | '/api/health'
     | '/api/notifications'
     | '/api/reports'
@@ -522,6 +532,7 @@ export interface FileRouteTypes {
     | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
+    | '/admin/scoring'
     | '/api/health'
     | '/api/notifications'
     | '/api/reports'
@@ -573,6 +584,7 @@ export interface FileRouteTypes {
     | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
+    | '/admin/scoring'
     | '/api/health'
     | '/api/notifications'
     | '/api/reports'
@@ -684,6 +696,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/scoring': {
+      id: '/admin/scoring'
+      path: '/scoring'
+      fullPath: '/admin/scoring'
+      preLoaderRoute: typeof AdminScoringRouteImport
       parentRoute: typeof AdminRoute
     }
     '/api/health': {
@@ -991,6 +1010,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminScoringRoute: typeof AdminScoringRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminFacilitiesAssetIdRoute: typeof AdminFacilitiesAssetIdRoute
   AdminReportsTicketRoute: typeof AdminReportsTicketRoute
@@ -999,6 +1019,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminScoringRoute: AdminScoringRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminFacilitiesAssetIdRoute: AdminFacilitiesAssetIdRoute,
   AdminReportsTicketRoute: AdminReportsTicketRoute,
