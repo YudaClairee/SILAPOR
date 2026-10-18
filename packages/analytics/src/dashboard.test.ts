@@ -8,18 +8,22 @@ import {
   getDb,
   locations,
   maintenanceReports,
+  reportAssignments,
   resolveDatabaseUrl,
   runMigrations,
+  technicians,
   users,
   type Report,
 } from '@silapor/database';
 import type { AnalyticsDb } from './dashboard.js';
 import {
   getOverviewCards,
+  getPriorityQueue,
   getReportsByCategory,
   getReportsByLocation,
   getReportsByStatus,
   getResolutionTimeMetrics,
+  getTechnicianWorkload,
 } from './dashboard.js';
 import { jakartaDayRange } from './time.js';
 
@@ -77,6 +81,9 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
   let roomId = '';
   let reporterAId = '';
   let reporterBId = '';
+  let budiId = '';
+  let sariId = '';
+  let andiId = '';
 
   const r1Ticket = 'P7-0001';
   const r2Ticket = 'P7-0002';
@@ -149,7 +156,11 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
     await runMigrations(url);
     const d = requireDb();
 
-    await d.insert(users).values({ username: 'p7-admin', role: 'ADMIN' });
+    const adminRows = await d
+      .insert(users)
+      .values({ username: 'p7-admin', role: 'ADMIN' })
+      .returning({ id: users.id });
+    const adminId = adminRows[0]?.id ?? '';
     const reporterARows = await d
       .insert(users)
       .values({ username: 'p7-reporter-a', role: 'REPORTER' })
@@ -189,6 +200,22 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       .returning({ id: facilityCategories.id });
     electricalId = electricalRows[0]?.id ?? '';
 
+    const budiRows = await d
+      .insert(technicians)
+      .values({ technicianCode: 'P7-TECH-1', displayName: 'Budi', specialty: 'HVAC' })
+      .returning({ id: technicians.id });
+    budiId = budiRows[0]?.id ?? '';
+    const sariRows = await d
+      .insert(technicians)
+      .values({ technicianCode: 'P7-TECH-2', displayName: 'Sari', specialty: 'ELECTRICAL' })
+      .returning({ id: technicians.id });
+    sariId = sariRows[0]?.id ?? '';
+    const andiRows = await d
+      .insert(technicians)
+      .values({ technicianCode: 'P7-TECH-3', displayName: 'Andi' })
+      .returning({ id: technicians.id });
+    andiId = andiRows[0]?.id ?? '';
+
     await d
       .insert(facilityAssets)
       .values({ assetCode: 'P7-AC-01', categoryId: hvacId, locationId: roomId, name: 'AC Ruang 01' });
@@ -207,7 +234,7 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       finalCategoryId: hvacId,
       finalPriority: 'HIGH',
     });
-    await insertFixtureReport({
+    const r3Id = await insertFixtureReport({
       ticketNumber: r3Ticket,
       status: 'IN_REPAIR',
       reporterId: reporterAId,
@@ -257,7 +284,7 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       reporterId: reporterAId,
       reportedAt: new Date('2026-10-02T03:00:00.000Z'),
     });
-    await insertFixtureReport({
+    const r10Id = await insertFixtureReport({
       ticketNumber: r10Ticket,
       status: 'ASSIGNED',
       reporterId: reporterBId,
@@ -265,6 +292,17 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       finalCategoryId: electricalId,
       finalPriority: 'LOW',
     });
+
+    await d.insert(reportAssignments).values([
+      { reportId: r3Id, technicianId: budiId, assignedBy: adminId },
+      {
+        reportId: r10Id,
+        technicianId: budiId,
+        assignedBy: adminId,
+        unassignedAt: new Date('2026-10-05T03:00:00.000Z'),
+      },
+      { reportId: r10Id, technicianId: sariId, assignedBy: adminId },
+    ]);
   });
 
   afterAll(async () => {
@@ -386,6 +424,41 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
     );
     expect(await getReportsByCategory(requireDb(), zeroRange)).toEqual([]);
     expect(await getReportsByLocation(requireDb(), zeroRange)).toEqual([]);
+  });
+
+  it('counts active ASSIGNED..IN_REPAIR reports per active technician', async () => {
+    // R10 counts once under Sari: the Budi row with unassigned_at set is stale.
+    // R2 (VERIFIED) is never assigned; Andi has no assignments at all.
+    expect(await getTechnicianWorkload(requireDb())).toEqual([
+      { technicianId: budiId, technicianName: 'Budi', activeCount: 1 },
+      { technicianId: sariId, technicianName: 'Sari', activeCount: 1 },
+      { technicianId: andiId, technicianName: 'Andi', activeCount: 0 },
+    ]);
+  });
+
+  it('orders the priority queue by priority then reported_at', async () => {
+    const queue = await getPriorityQueue(requireDb(), 10);
+    expect(queue.map((item) => item.finalPriority)).toEqual([
+      'HIGH',
+      'MEDIUM',
+      'LOW',
+      null,
+      null,
+      null,
+    ]);
+    // The queue has no range filter, so boundary-out R8 (16:59:59Z) is open too
+    // and precedes R7's 17:00:00Z among equal (null) priorities.
+    expect(queue.map((item) => item.ticketNumber)).toEqual([
+      r2Ticket,
+      r3Ticket,
+      r10Ticket,
+      r8Ticket,
+      r7Ticket,
+      r1Ticket,
+    ]);
+    const limited = await getPriorityQueue(requireDb(), 1);
+    expect(limited.length).toBe(1);
+    expect(limited[0]!.ticketNumber).toBe(r2Ticket);
   });
 
   it('counts ~200 in-range reports at volume', async () => {

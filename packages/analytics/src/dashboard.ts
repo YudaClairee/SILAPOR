@@ -7,6 +7,7 @@ import {
   gte,
   inArray,
   isNotNull,
+  isNull,
   lt,
   ne,
   sql,
@@ -17,6 +18,9 @@ import {
   facilityCategories,
   locations,
   maintenanceReports,
+  normalizeListOptions,
+  reportAssignments,
+  technicians,
 } from '@silapor/database';
 import type { DatabaseConnection } from '@silapor/database';
 import { jakartaMonthBoundsUtc } from './time.js';
@@ -59,8 +63,26 @@ export interface ResolutionTimeMetrics {
   readonly medianSeconds: number | null;
 }
 
+export interface TechnicianWorkloadItem {
+  readonly technicianId: string;
+  readonly technicianName: string;
+  readonly activeCount: number;
+}
+
+export interface PriorityQueueItem {
+  readonly reportId: string;
+  readonly ticketNumber: string;
+  readonly status: string;
+  readonly finalPriority: string | null;
+  readonly reportedAt: Date;
+}
+
 const DEFAULT_CATEGORY_LIMIT = 8;
 const DEFAULT_LOCATION_LIMIT = 8;
+const DEFAULT_QUEUE_LIMIT = 10;
+
+const WORKLOAD_STATUSES = ['ASSIGNED', 'INSPECTION', 'IN_REPAIR'] as const;
+const QUEUE_STATUSES = ['REPORTED', 'VERIFIED', 'ASSIGNED', 'INSPECTION', 'IN_REPAIR'] as const;
 
 function canonicalStatuses(): SQL {
   return inArray(maintenanceReports.status, [...REPORT_STATUS]);
@@ -213,4 +235,60 @@ export async function getResolutionTimeMetrics(
     averageSeconds: Math.round(Number(row?.averageSeconds)),
     medianSeconds: Math.round(Number(row?.medianSeconds)),
   };
+}
+
+export async function getTechnicianWorkload(
+  db: AnalyticsDb,
+): Promise<TechnicianWorkloadItem[]> {
+  return db
+    .select({
+      technicianId: technicians.id,
+      technicianName: technicians.displayName,
+      activeCount: count(maintenanceReports.id),
+    })
+    .from(technicians)
+    .leftJoin(
+      reportAssignments,
+      and(
+        eq(reportAssignments.technicianId, technicians.id),
+        isNull(reportAssignments.unassignedAt),
+      ),
+    )
+    .leftJoin(
+      maintenanceReports,
+      and(
+        eq(maintenanceReports.id, reportAssignments.reportId),
+        inArray(maintenanceReports.status, [...WORKLOAD_STATUSES]),
+      ),
+    )
+    .where(eq(technicians.isActive, true))
+    .groupBy(technicians.id, technicians.displayName)
+    .orderBy(
+      desc(count(maintenanceReports.id)),
+      asc(technicians.displayName),
+      asc(technicians.id),
+    );
+}
+
+export async function getPriorityQueue(
+  db: AnalyticsDb,
+  limit: number = DEFAULT_QUEUE_LIMIT,
+): Promise<PriorityQueueItem[]> {
+  const take = normalizeListOptions({ limit }).limit;
+  return db
+    .select({
+      reportId: maintenanceReports.id,
+      ticketNumber: maintenanceReports.ticketNumber,
+      status: maintenanceReports.status,
+      finalPriority: maintenanceReports.finalPriority,
+      reportedAt: maintenanceReports.reportedAt,
+    })
+    .from(maintenanceReports)
+    .where(inArray(maintenanceReports.status, [...QUEUE_STATUSES]))
+    .orderBy(
+      sql`case ${maintenanceReports.finalPriority} when 'HIGH' then 0 when 'MEDIUM' then 1 when 'LOW' then 2 else 3 end asc`,
+      asc(maintenanceReports.reportedAt),
+      asc(maintenanceReports.id),
+    )
+    .limit(take);
 }
