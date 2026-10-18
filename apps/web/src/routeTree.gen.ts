@@ -14,6 +14,7 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as KebijakanPrivasiRouteImport } from './routes/kebijakan-privasi'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReporterRouteImport } from './routes/reporter'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiNotificationsRouteImport } from './routes/api/notifications'
 import { Route as ApiReportsRouteImport } from './routes/api/reports'
@@ -82,6 +83,11 @@ const ReporterRoute = ReporterRouteImport.update({
   id: '/reporter',
   path: '/reporter',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -316,6 +322,7 @@ export interface FileRoutesByFullPath {
   '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/uploads': typeof ApiUploadsRoute
   '/reporter/notifikasi': typeof ReporterNotifikasiRoute
+  '/admin/': typeof AdminIndexRoute
   '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
@@ -357,7 +364,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRouteWithChildren
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/reporter': typeof ReporterRouteWithChildren
@@ -366,6 +372,7 @@ export interface FileRoutesByTo {
   '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/uploads': typeof ApiUploadsRoute
   '/reporter/notifikasi': typeof ReporterNotifikasiRoute
+  '/admin': typeof AdminIndexRoute
   '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
@@ -417,6 +424,7 @@ export interface FileRoutesById {
   '/api/reports': typeof ApiReportsRouteWithChildren
   '/api/uploads': typeof ApiUploadsRoute
   '/reporter/notifikasi': typeof ReporterNotifikasiRoute
+  '/admin/': typeof AdminIndexRoute
   '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
@@ -469,6 +477,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/api/uploads'
     | '/reporter/notifikasi'
+    | '/admin/'
     | '/admin/facilities/$assetId'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
@@ -510,7 +519,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/admin'
     | '/kebijakan-privasi'
     | '/login'
     | '/reporter'
@@ -519,6 +527,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/api/uploads'
     | '/reporter/notifikasi'
+    | '/admin'
     | '/admin/facilities/$assetId'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
@@ -569,6 +578,7 @@ export interface FileRouteTypes {
     | '/api/reports'
     | '/api/uploads'
     | '/reporter/notifikasi'
+    | '/admin/'
     | '/admin/facilities/$assetId'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
@@ -668,6 +678,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/reporter'
       preLoaderRoute: typeof ReporterRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/api/health': {
       id: '/api/health'
@@ -974,6 +991,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminIndexRoute: typeof AdminIndexRoute
   AdminFacilitiesAssetIdRoute: typeof AdminFacilitiesAssetIdRoute
   AdminReportsTicketRoute: typeof AdminReportsTicketRoute
   AdminFacilitiesIndexRoute: typeof AdminFacilitiesIndexRoute
@@ -981,6 +999,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminIndexRoute: AdminIndexRoute,
   AdminFacilitiesAssetIdRoute: AdminFacilitiesAssetIdRoute,
   AdminReportsTicketRoute: AdminReportsTicketRoute,
   AdminFacilitiesIndexRoute: AdminFacilitiesIndexRoute,
