@@ -132,7 +132,7 @@ Update `src/index.ts`: remove the placeholder export, add `export * from './time
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pnpm --filter @silapor/analytics test`
-Expected: PASS (11 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 6: Full task gates + commit**
 
