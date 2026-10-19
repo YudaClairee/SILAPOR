@@ -25,21 +25,26 @@ export interface AppShellNavItem {
   readonly label: string;
 }
 
-/** Role-aware nav: reporter (Laporkan, Tiket Kampus, Notifikasi), admin
- *  (Dashboard, Semua Laporan, Fasilitas, Scoring, Laporan Maintenance).
- *  Shared auth entry is rendered separately (Masuk/Keluar). Never more than
- *  5 items. */
+/** Role-aware nav: reporter (Ringkasan, Laporkan, Tiket Kampus, Notifikasi),
+ *  admin (Dashboard, Semua Laporan, Fasilitas, Lokasi, Kategori, Teknisi,
+ *  Analytics, Scoring, Laporan Maintenance).
+ *  Shared auth entry is rendered separately (Masuk/Keluar). */
 export function navItemsForRole(role: AppShellRole): readonly AppShellNavItem[] {
   if (role === 'ADMIN') {
     return [
       { to: '/admin', label: 'Dashboard' },
       { to: '/admin/reports', label: 'Semua Laporan' },
       { to: '/admin/facilities', label: 'Fasilitas' },
+      { to: '/admin/locations', label: 'Lokasi' },
+      { to: '/admin/categories', label: 'Kategori' },
+      { to: '/admin/technicians', label: 'Teknisi' },
+      { to: '/admin/analytics', label: 'Analytics' },
       { to: '/admin/scoring', label: 'Scoring' },
       { to: '/admin/maintenance-report', label: 'Laporan Maintenance' },
     ];
   }
   return [
+    { to: '/reporter', label: 'Ringkasan' },
     { to: '/reporter/reports/new', label: 'Laporkan' },
     { to: '/reporter/reports', label: 'Tiket Kampus' },
     { to: '/reporter/notifikasi', label: 'Notifikasi' },
