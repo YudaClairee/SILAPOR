@@ -20,7 +20,8 @@
 // - Rate limiting is intentionally NOT applied here: the login rate-limit
 //   helper is login-specific (username+IP key) and not trivially reusable;
 //   Phase 9 owns report-creation rate limits.
-// - This module logs nothing — routes log with opaque IDs.
+// - The only logging here is one opaque AI-outcome line per submit; routes
+//   log with opaque IDs.
 
 import { and, eq, sql } from 'drizzle-orm';
 import {
@@ -70,20 +71,32 @@ import {
   type TimelineEntry,
 } from '@silapor/database';
 import { mapAiVerdict, scorePriority } from '@silapor/domain';
-import { verifyReport as aiVerifyReport } from '@silapor/ai';
+import {
+  PROMPT_VERSION,
+  SCHEMA_VERSION,
+  verifyReport as aiVerifyReport,
+  type VerifyMeta,
+} from '@silapor/ai';
 import {
   badRequest,
   conflict,
+  createLogger,
   getRuntimeConfig,
   internal,
   isAppError,
   notFound,
 } from '@silapor/shared';
-import { createAttachmentStorage, type AttachmentStorage } from '@silapor/storage';
+import {
+  createAttachmentStorage,
+  prepareVisionImage,
+  type AttachmentStorage,
+} from '@silapor/storage';
 import { requireAdmin, requireUser } from './auth';
 import { removeStagedObjects, resolveStagedPhotoKeys } from './uploads.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const logger = createLogger({ service: 'web' });
 
 // Single 404 message shared by every report lookup path (ticket miss, UUID
 // miss, foreign row, invalid reference) — identical bodies by construction.
@@ -751,8 +764,16 @@ export type SubmitVerifyOutcome =
       readonly model: string;
       readonly promptVersion: string;
       readonly schemaVersion: string;
+      readonly meta?: VerifyMeta;
+      readonly reasoningSummary?: string;
     }
-  | { readonly kind: 'FAIL'; readonly reason: string; readonly model?: string }
+  | {
+      readonly kind: 'FAIL';
+      readonly reason: string;
+      readonly model?: string;
+      readonly meta?: VerifyMeta;
+      readonly reasoningSummary?: string;
+    }
   | { readonly kind: 'DOWN' };
 
 export type SubmitVerifyFn = (
@@ -761,6 +782,7 @@ export type SubmitVerifyFn = (
     readonly timeoutMs: number;
     readonly model?: string;
     readonly apiKey?: string;
+    readonly storage?: AttachmentStorage;
   },
 ) => Promise<SubmitVerifyOutcome>;
 
@@ -841,25 +863,102 @@ function resolveAiApiKey(override?: string): string | undefined {
 // Static dependency on `@silapor/ai` (no lazy-load fallback): the AI client
 // itself classifies upstream errors into FAIL (deterministic) or DOWN
 // (transient), so any unexpected throw only falls back to held, never
-// rejected.
+// rejected. Photos are resolved to bounded JPEG data URLs before the call —
+// any storage or decode failure is a held submit, never a reporter rejection.
 async function defaultSubmitVerify(
   input: SubmitVerifyInput,
-  opts: { readonly timeoutMs: number; readonly model?: string; readonly apiKey?: string },
+  opts: {
+    readonly timeoutMs: number;
+    readonly model?: string;
+    readonly apiKey?: string;
+    readonly storage?: AttachmentStorage;
+  },
 ): Promise<SubmitVerifyOutcome> {
   // An unconfigured API key is a deployment fault, not reporter evidence:
   // hold for admin (same ruling as an unconfigured model), never 422.
   if (opts.apiKey === undefined) {
     return { kind: 'DOWN' };
   }
+  const storage = opts.storage ?? createAttachmentStorage();
+  let photos: { storageKey: string; contentType: string; dataUrl: string }[];
   try {
-    return await aiVerifyReport(input, {
-      timeoutMs: opts.timeoutMs,
-      ...(opts.model === undefined ? {} : { model: opts.model }),
-      apiKey: opts.apiKey,
-    });
+    photos = [];
+    for (const key of input.photos) {
+      const loaded = await storage.get(key);
+      if (loaded === null) {
+        return { kind: 'DOWN' };
+      }
+      const prepared = await prepareVisionImage(loaded.bytes);
+      photos.push({
+        storageKey: key,
+        contentType: prepared.mimeType,
+        dataUrl: `data:${prepared.mimeType};base64,${Buffer.from(prepared.bytes).toString('base64')}`,
+      });
+    }
   } catch {
     return { kind: 'DOWN' };
   }
+  try {
+    return await aiVerifyReport(
+      { ...input, photos },
+      {
+        timeoutMs: opts.timeoutMs,
+        ...(opts.model === undefined ? {} : { model: opts.model }),
+        apiKey: opts.apiKey,
+      },
+    );
+  } catch {
+    return { kind: 'DOWN' };
+  }
+}
+
+// Walks the report's location chain into human labels for the verify prompt.
+// Bounded to 4 hops and terminal on a root; a broken chain just yields fewer
+// labels, never a failed submit.
+async function locationLabels(
+  db: Parameters<typeof repoGetLocation>[0],
+  locationId: string,
+): Promise<{ building?: string; floor?: string; room?: string }> {
+  const labels: { building?: string; floor?: string; room?: string } = {};
+  let current = await repoGetLocation(db, locationId);
+  for (let hops = 0; current !== undefined && hops < 4; hops += 1) {
+    if (current.type === 'BUILDING') labels.building = current.name;
+    else if (current.type === 'FLOOR') labels.floor = current.name;
+    else if (current.type === 'ROOM' || current.type === 'SHARED_AREA') labels.room = current.name;
+    if (current.parentId == null) break;
+    current = await repoGetLocation(db, current.parentId);
+  }
+  return labels;
+}
+
+function metaFields(meta?: VerifyMeta): {
+  upstreamProvider?: string;
+  gatewayRequestId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  estimatedCost?: number;
+} {
+  if (meta === undefined) return {};
+  return {
+    ...(meta.upstreamProvider === undefined ? {} : { upstreamProvider: meta.upstreamProvider }),
+    ...(meta.gatewayRequestId === undefined ? {} : { gatewayRequestId: meta.gatewayRequestId }),
+    ...(meta.inputTokens === undefined ? {} : { inputTokens: meta.inputTokens }),
+    ...(meta.outputTokens === undefined ? {} : { outputTokens: meta.outputTokens }),
+    ...(meta.estimatedCost === undefined ? {} : { estimatedCost: meta.estimatedCost }),
+  };
+}
+
+// Stable FAIL codes the AI client can emit; any other FAIL reason is model
+// free text and must never reach the log's machine-code field.
+const VERIFY_FAIL_CODES: ReadonlySet<string> = new Set([
+  'UPSTREAM_REJECTED',
+  'INVALID_INPUT',
+  'UNKNOWN_MODEL',
+  'UNCLEAR_EVIDENCE',
+]);
+
+function logVerifyFailCode(reason: string): string {
+  return VERIFY_FAIL_CODES.has(reason) ? reason : 'MODEL_VERDICT_FAIL';
 }
 
 type SubmitDb = Parameters<typeof repoCreateReport>[0];
@@ -1027,8 +1126,8 @@ export async function submitVerifiedReport(
     const analysis = await repoRecordAiAnalysis(conn.db, {
       reportId: report.id,
       model: model ?? 'unpinned',
-      promptVersion: 'v1',
-      schemaVersion: 'v1',
+      promptVersion: PROMPT_VERSION,
+      schemaVersion: SCHEMA_VERSION,
     });
     const assetId = report.assetId;
     if (assetId === null) {
@@ -1041,10 +1140,12 @@ export async function submitVerifiedReport(
     if (asset === undefined || assetCategory === undefined) {
       throw internal('Report asset is not usable');
     }
+    const labels = await locationLabels(conn.db, report.locationId);
+    const verifyStartedAt = Date.now();
     const outcome = await verify(
       {
         description: normalized.description,
-        asset: { name: asset.name, category: assetCategory.code },
+        asset: { name: asset.name, category: assetCategory.code, ...labels },
         photos: [...normalized.photoKeys],
         categories: categories.map((entry) => entry.code),
         issueTypes: issueTypes.map((entry) => entry.code),
@@ -1053,8 +1154,27 @@ export async function submitVerifiedReport(
         timeoutMs,
         ...(model === undefined ? {} : { model }),
         ...(apiKey === undefined ? {} : { apiKey }),
+        ...(deps?.storage === undefined ? {} : { storage: deps.storage }),
       },
     );
+    const verifyMeta = outcome.kind === 'DOWN' ? undefined : outcome.meta;
+    logger.info('ai verification outcome', {
+      route: 'POST /api/reports',
+      result: outcome.kind,
+      ...(outcome.kind === 'FAIL' ? { code: logVerifyFailCode(outcome.reason) } : {}),
+      durationMs: Date.now() - verifyStartedAt,
+      ...(verifyMeta === undefined
+        ? {}
+        : {
+            details: {
+              model,
+              requestId: verifyMeta.gatewayRequestId,
+              provider: verifyMeta.upstreamProvider,
+              usage: { input: verifyMeta.inputTokens, output: verifyMeta.outputTokens },
+              costUsd: verifyMeta.estimatedCost,
+            },
+          }),
+    });
     // DOWN is transient (timeout/5xx/429): hold the REPORTED row with its
     // PENDING analysis for manual verification instead of rejecting it.
     // Staged photos link first so the held ticket carries them.
@@ -1070,9 +1190,18 @@ export async function submitVerifiedReport(
       };
     }
     if (outcome.kind === 'FAIL') {
+      // Gateway-side failures are infrastructure outcomes, not verdicts about
+      // the evidence: no `verdict` mark for those.
+      const hasModelVerdict =
+        outcome.reason !== 'UPSTREAM_REJECTED' &&
+        outcome.reason !== 'INVALID_INPUT' &&
+        outcome.reason !== 'UNKNOWN_MODEL';
       await repoMarkAiAnalysis(conn.db, analysis.id, {
         status: 'FAILED',
         errorCode: outcome.reason,
+        ...(hasModelVerdict ? { verdict: 'FAIL' } : {}),
+        ...(outcome.reasoningSummary === undefined ? {} : { reason: outcome.reasoningSummary }),
+        ...metaFields(outcome.meta),
       });
       await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
@@ -1180,13 +1309,16 @@ export async function submitVerifiedReport(
     await linkPhotosOrCompensate(finalRow.id);
     await repoMarkAiAnalysis(conn.db, analysis.id, {
       status: 'SUCCEEDED',
+      verdict: 'PASS',
       category: mapped.categoryCode,
       issueType: mapped.issueTypeCode,
       priority: finalPriority,
       confidence: outcome.confidence,
+      ...(outcome.reasoningSummary === undefined ? {} : { reason: outcome.reasoningSummary }),
       ...(outcome.model.trim() === '' ? {} : { model: outcome.model }),
-      promptVersion: outcome.promptVersion.trim() === '' ? 'v1' : outcome.promptVersion,
-      schemaVersion: outcome.schemaVersion.trim() === '' ? 'v1' : outcome.schemaVersion,
+      promptVersion: outcome.promptVersion.trim() === '' ? PROMPT_VERSION : outcome.promptVersion,
+      schemaVersion: outcome.schemaVersion.trim() === '' ? SCHEMA_VERSION : outcome.schemaVersion,
+      ...metaFields(outcome.meta),
     });
     return {
       status: 201,

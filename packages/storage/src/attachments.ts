@@ -168,6 +168,52 @@ export async function processImage(bytes: Uint8Array): Promise<ProcessedImage> {
   }
 }
 
+// Binding value: max edge (px) of the JPEG sent to the vision model.
+export const VISION_MAX_EDGE = 1280;
+
+// Binding value: JPEG quality of the image sent to the vision model.
+export const VISION_JPEG_QUALITY = 80;
+
+export interface VisionImage {
+  readonly bytes: Uint8Array;
+  readonly mimeType: 'image/jpeg';
+  readonly width: number;
+  readonly height: number;
+}
+
+// Fail-closed bounded JPEG for AI vision: same guards as processImage, never
+// enlarges, white-flattened, EXIF-stripped by construction (no `.withMetadata()`).
+export async function prepareVisionImage(
+  bytes: Uint8Array,
+  opts?: { readonly maxEdge?: number; readonly quality?: number },
+): Promise<VisionImage> {
+  const maxEdge = opts?.maxEdge ?? VISION_MAX_EDGE;
+  const quality = opts?.quality ?? VISION_JPEG_QUALITY;
+  if (bytes.byteLength === 0) {
+    throw new AttachmentValidationError('EMPTY_FILE', 'Attachment is empty: a file must contain at least one byte.');
+  }
+  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+    throw new AttachmentValidationError(
+      'FILE_TOO_LARGE',
+      `Attachment exceeds the maximum size of ${MAX_ATTACHMENT_BYTES} bytes.`,
+    );
+  }
+  if (sniffImageKind(bytes) === null) {
+    throw new AttachmentValidationError('CORRUPT_IMAGE', 'Attachment is not a decodable image.');
+  }
+  try {
+    const { data, info } = await sharp(Buffer.from(bytes))
+      .rotate()
+      .resize({ width: maxEdge, height: maxEdge, fit: 'inside', withoutEnlargement: true })
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality, mozjpeg: false })
+      .toBuffer({ resolveWithObject: true });
+    return { bytes: data, mimeType: 'image/jpeg', width: info.width, height: info.height };
+  } catch {
+    throw new AttachmentValidationError('CORRUPT_IMAGE', 'Attachment is not a decodable image.');
+  }
+}
+
 // Filename is METADATA ONLY: strips `/` and `\` directory segments down to
 // the basename, trims, caps at 255 chars, and rejects empty-after-trim.
 export function sanitizeOriginalFilename(name: string): string {

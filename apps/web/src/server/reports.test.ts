@@ -88,6 +88,8 @@ vi.mock('./auth', async (importOriginal) => ({
 
 const UUID_A = '11111111-1111-1111-1111-111111111111';
 const UUID_B = '22222222-2222-2222-2222-222222222222';
+const UUID_FLOOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+const UUID_BUILDING = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2';
 const BASE = 'http://localhost:3000';
 
 function httpStatusOf(fn: () => unknown): number {
@@ -416,8 +418,18 @@ function arrangeStagedKeys() {
   dbMocks.deleteStagedUploads.mockResolvedValue([SUBMIT_STAGED_KEY]);
 }
 
+const TINY_JPEG_BASE64 =
+  '/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAACAAIDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AAA//2Q==';
+
 function fakeStorage(): AttachmentStorage {
-  return { remove: vi.fn(async () => undefined) } as unknown as AttachmentStorage;
+  return {
+    put: vi.fn(),
+    get: vi.fn(async () => ({
+      bytes: Buffer.from(TINY_JPEG_BASE64, 'base64'),
+      contentType: 'image/jpeg',
+    })),
+    remove: vi.fn(),
+  } as unknown as AttachmentStorage;
 }
 
 function submitRequest(): Request {
@@ -445,6 +457,24 @@ function arrangeMasterContext() {
   ]);
   dbMocks.getLocation.mockResolvedValue({ id: UUID_A, tierScore: 12 });
   dbMocks.countAffectedReporters.mockResolvedValue(1);
+}
+
+function arrangeCreatedReport() {
+  dbMocks.createReport.mockResolvedValue({
+    report: {
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'REPORTED',
+      reporterId: SUBMIT_REPORTER_ID,
+      assetId: UUID_B,
+      locationId: UUID_A,
+      submittedCategoryId: SUBMIT_CATEGORY_ID,
+    },
+    duplicateCandidates: [],
+    relation: null,
+    idempotentReplay: false,
+  });
+  dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
 }
 
 describe('submitVerifiedReport held fallback', () => {
@@ -927,7 +957,7 @@ describe('submitVerifiedReport held fallback', () => {
     expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
       expect.anything(),
       SUBMIT_ANALYSIS_ID,
-      { status: 'FAILED', errorCode: 'UNCLEAR_EVIDENCE' },
+      expect.objectContaining({ status: 'FAILED', errorCode: 'UNCLEAR_EVIDENCE' }),
     );
     expect(deleted).toBeGreaterThan(0);
     expect(dbMocks.applyVerification).not.toHaveBeenCalled();
@@ -1143,6 +1173,14 @@ describe('submitVerifiedReport held fallback', () => {
       const opts = aiMocks.verifyReport.mock.calls[0]?.[1] as Record<string, unknown>;
       expect(opts['apiKey']).toBe('test-openrouter-key');
       expect(opts['model']).toBe('test-model');
+      const photos = aiMocks.verifyReport.mock.calls[0]?.[0]?.photos;
+      expect(photos).toEqual([
+        {
+          storageKey: SUBMIT_STAGED_KEY,
+          contentType: 'image/jpeg',
+          dataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
+        },
+      ]);
     } finally {
       vi.unstubAllEnvs();
     }
@@ -1250,6 +1288,346 @@ describe('submitVerifiedReport held fallback', () => {
     ).rejects.toMatchObject({ code: 'DUPLICATE_ACTIVE' });
     expect(verify).not.toHaveBeenCalled();
     expect(dbMocks.recordAiAnalysis).not.toHaveBeenCalled();
+  });
+});
+
+describe('submitVerifiedReport AI verification wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMocks.requireUser.mockResolvedValue(sessionUser());
+    dbMocks.getDb.mockReturnValue({ db: {}, close: async () => undefined });
+    arrangeStagedKeys();
+  });
+
+  it('resolves staged photos and passes labels, bytes, and metadata through', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    dbMocks.getLocation.mockImplementation(async (_db: unknown, id: unknown) => {
+      if (id === UUID_A) {
+        return { id: UUID_A, type: 'ROOM', name: 'Ruang Rapat', parentId: UUID_FLOOR, tierScore: 12 };
+      }
+      if (id === UUID_FLOOR) {
+        return { id: UUID_FLOOR, type: 'FLOOR', name: 'Lantai 2', parentId: UUID_BUILDING };
+      }
+      if (id === UUID_BUILDING) {
+        return { id: UUID_BUILDING, type: 'BUILDING', name: 'Gedung A', parentId: null };
+      }
+      return undefined;
+    });
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: async () => [
+                { id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 },
+              ],
+            }),
+          }),
+        }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.applyVerification.mockResolvedValue({
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'VERIFIED',
+      version: 2,
+    });
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'PASS',
+      category: 'PLUMBING',
+      issueType: 'LEAKING',
+      priority: 'HIGH',
+      confidence: 0.9,
+      reasons: ['ok'],
+      model: 'test-model',
+      promptVersion: 'v2',
+      schemaVersion: 'v2',
+      reasoningSummary: 'Photo matches the asset.',
+      meta: {
+        gatewayRequestId: 'gen-1',
+        upstreamProvider: 'Together',
+        inputTokens: 100,
+        outputTokens: 5,
+        estimatedCost: 0.0002,
+      },
+    });
+    vi.stubEnv('OPENROUTER_API_KEY', 'test-openrouter-key');
+    try {
+      const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-wire-1', {
+        model: 'test-model',
+        timeoutMs: 50,
+        apiKey: 'test-openrouter-key',
+        storage: fakeStorage(),
+      });
+      expect(res.status).toBe(201);
+      const verifyInput = aiMocks.verifyReport.mock.calls[0]?.[0] as {
+        asset: Record<string, unknown>;
+        photos: unknown;
+      };
+      expect(verifyInput.asset).toEqual({
+        name: 'AC Ruang 01',
+        category: 'PLUMBING',
+        room: 'Ruang Rapat',
+        floor: 'Lantai 2',
+        building: 'Gedung A',
+      });
+      expect(verifyInput.photos).toEqual([
+        {
+          storageKey: SUBMIT_STAGED_KEY,
+          contentType: 'image/jpeg',
+          dataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
+        },
+      ]);
+      expect(dbMocks.recordAiAnalysis).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ promptVersion: 'v2', schemaVersion: 'v2' }),
+      );
+      expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
+        expect.anything(),
+        SUBMIT_ANALYSIS_ID,
+        expect.objectContaining({
+          status: 'SUCCEEDED',
+          verdict: 'PASS',
+          reason: 'Photo matches the asset.',
+          gatewayRequestId: 'gen-1',
+          upstreamProvider: 'Together',
+          inputTokens: 100,
+          outputTokens: 5,
+          estimatedCost: 0.0002,
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('holds when the staged object is missing', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    const storage = {
+      put: vi.fn(),
+      get: vi.fn(async () => null),
+      remove: vi.fn(),
+    } as unknown as AttachmentStorage;
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-missing-1', {
+      model: 'test-model',
+      timeoutMs: 50,
+      apiKey: 'test-openrouter-key',
+      storage,
+    });
+    expect(res.status).toBe(202);
+    expect(storage.get).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
+    expect(aiMocks.verifyReport).not.toHaveBeenCalled();
+    expect(dbMocks.markAiAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('holds when the stored bytes are not decodable', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    const storage = {
+      put: vi.fn(),
+      get: vi.fn(async () => ({ bytes: Buffer.from('garbage'), contentType: 'image/jpeg' })),
+      remove: vi.fn(),
+    } as unknown as AttachmentStorage;
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-garbage-1', {
+      model: 'test-model',
+      timeoutMs: 50,
+      apiKey: 'test-openrouter-key',
+      storage,
+    });
+    expect(res.status).toBe(202);
+    expect(storage.get).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
+    expect(aiMocks.verifyReport).not.toHaveBeenCalled();
+    expect(dbMocks.markAiAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('persists a FAIL verdict and metadata when the model rejects', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+      },
+      close: async () => undefined,
+    });
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-model-fail-1', {
+      verify: async () => ({
+        kind: 'FAIL',
+        reason: 'UNCLEAR_EVIDENCE',
+        reasoningSummary: 'Too blurry.',
+        meta: { gatewayRequestId: 'gen-2', inputTokens: 50, outputTokens: 3 },
+      }),
+      model: 'test-model',
+      timeoutMs: 50,
+      storage: fakeStorage(),
+    });
+    expect(res.status).toBe(422);
+    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
+      expect.anything(),
+      SUBMIT_ANALYSIS_ID,
+      expect.objectContaining({
+        status: 'FAILED',
+        verdict: 'FAIL',
+        reason: 'Too blurry.',
+        errorCode: 'UNCLEAR_EVIDENCE',
+        gatewayRequestId: 'gen-2',
+        inputTokens: 50,
+        outputTokens: 3,
+      }),
+    );
+  });
+
+  it('stores no verdict for gateway-side failures', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+      },
+      close: async () => undefined,
+    });
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-gateway-fail-1', {
+      verify: async () => ({ kind: 'FAIL', reason: 'UPSTREAM_REJECTED' }),
+      model: 'test-model',
+      timeoutMs: 50,
+      storage: fakeStorage(),
+    });
+    expect(res.status).toBe(422);
+    const outcome = dbMocks.markAiAnalysis.mock.calls.at(-1)?.[2];
+    expect(outcome).toMatchObject({ status: 'FAILED', errorCode: 'UPSTREAM_REJECTED' });
+    expect(outcome).not.toHaveProperty('verdict');
+  });
+
+  it('logs one metadata line per outcome and never the image data', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: async () => [
+                { id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 },
+              ],
+            }),
+          }),
+        }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.applyVerification.mockResolvedValue({
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'VERIFIED',
+      version: 2,
+    });
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'PASS',
+      category: 'PLUMBING',
+      issueType: 'LEAKING',
+      priority: 'HIGH',
+      confidence: 0.9,
+      reasons: ['ok'],
+      model: 'test-model',
+      promptVersion: 'v2',
+      schemaVersion: 'v2',
+      reasoningSummary: 'Photo matches the asset.',
+      meta: {
+        gatewayRequestId: 'gen-1',
+        upstreamProvider: 'Together',
+        inputTokens: 100,
+        outputTokens: 5,
+        estimatedCost: 0.0002,
+      },
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-log-1', {
+        model: 'test-model',
+        timeoutMs: 50,
+        apiKey: 'test-openrouter-key',
+        storage: fakeStorage(),
+      });
+      expect(res.status).toBe(201);
+      const line = logSpy.mock.calls
+        .map((call) => String(call[0]))
+        .find((entry) => entry.includes('ai verification outcome'));
+      expect(line).toBeDefined();
+      const parsed = JSON.parse(line ?? '{}') as Record<string, unknown>;
+      expect(parsed['result']).toBe('PASS');
+      expect(typeof parsed['durationMs']).toBe('number');
+      expect(line).not.toContain('data:image/');
+      expect(parsed['details']).toMatchObject({ usage: { input: 100, output: 5 } });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('logs a machine code, never model free text, for FAIL outcomes', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+      },
+      close: async () => undefined,
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const outcomeLines = (): string[] =>
+      logSpy.mock.calls
+        .map((call) => String(call[0]))
+        .filter((entry) => entry.includes('ai verification outcome'));
+    try {
+      const freeText = await submitVerifiedReport(
+        submitRequest(),
+        submitBody(),
+        'key-log-freetext-1',
+        {
+          verify: async () => ({
+            kind: 'FAIL',
+            reason: 'Blurry photo, please retake with better lighting',
+            reasoningSummary: 'Too blurry.',
+          }),
+          model: 'test-model',
+          timeoutMs: 50,
+          storage: fakeStorage(),
+        },
+      );
+      expect(freeText.status).toBe(422);
+      const [freeTextLine] = outcomeLines();
+      expect(freeTextLine).toBeDefined();
+      const freeTextParsed = JSON.parse(freeTextLine ?? '{}') as Record<string, unknown>;
+      expect(freeTextParsed['code']).toBe('MODEL_VERDICT_FAIL');
+      expect(freeTextLine).not.toContain('Blurry photo');
+
+      const gateway = await submitVerifiedReport(
+        submitRequest(),
+        submitBody(),
+        'key-log-gateway-1',
+        {
+          verify: async () => ({ kind: 'FAIL', reason: 'UPSTREAM_REJECTED' }),
+          model: 'test-model',
+          timeoutMs: 50,
+          storage: fakeStorage(),
+        },
+      );
+      expect(gateway.status).toBe(422);
+      const gatewayLine = outcomeLines().at(-1);
+      expect(gatewayLine).toBeDefined();
+      const gatewayParsed = JSON.parse(gatewayLine ?? '{}') as Record<string, unknown>;
+      expect(gatewayParsed['code']).toBe('UPSTREAM_REJECTED');
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });
 
