@@ -948,6 +948,19 @@ function metaFields(meta?: VerifyMeta): {
   };
 }
 
+// Stable FAIL codes the AI client can emit; any other FAIL reason is model
+// free text and must never reach the log's machine-code field.
+const VERIFY_FAIL_CODES: ReadonlySet<string> = new Set([
+  'UPSTREAM_REJECTED',
+  'INVALID_INPUT',
+  'UNKNOWN_MODEL',
+  'UNCLEAR_EVIDENCE',
+]);
+
+function logVerifyFailCode(reason: string): string {
+  return VERIFY_FAIL_CODES.has(reason) ? reason : 'MODEL_VERDICT_FAIL';
+}
+
 type SubmitDb = Parameters<typeof repoCreateReport>[0];
 
 // Removes a just-created submit and its submit-time side effects (events,
@@ -1148,7 +1161,7 @@ export async function submitVerifiedReport(
     logger.info('ai verification outcome', {
       route: 'POST /api/reports',
       result: outcome.kind,
-      ...(outcome.kind === 'FAIL' ? { code: outcome.reason } : {}),
+      ...(outcome.kind === 'FAIL' ? { code: logVerifyFailCode(outcome.reason) } : {}),
       durationMs: Date.now() - verifyStartedAt,
       ...(verifyMeta === undefined
         ? {}

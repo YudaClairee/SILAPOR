@@ -1570,6 +1570,65 @@ describe('submitVerifiedReport AI verification wiring', () => {
       logSpy.mockRestore();
     }
   });
+
+  it('logs a machine code, never model free text, for FAIL outcomes', async () => {
+    arrangeMasterContext();
+    arrangeCreatedReport();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+      },
+      close: async () => undefined,
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const outcomeLines = (): string[] =>
+      logSpy.mock.calls
+        .map((call) => String(call[0]))
+        .filter((entry) => entry.includes('ai verification outcome'));
+    try {
+      const freeText = await submitVerifiedReport(
+        submitRequest(),
+        submitBody(),
+        'key-log-freetext-1',
+        {
+          verify: async () => ({
+            kind: 'FAIL',
+            reason: 'Blurry photo, please retake with better lighting',
+            reasoningSummary: 'Too blurry.',
+          }),
+          model: 'test-model',
+          timeoutMs: 50,
+          storage: fakeStorage(),
+        },
+      );
+      expect(freeText.status).toBe(422);
+      const [freeTextLine] = outcomeLines();
+      expect(freeTextLine).toBeDefined();
+      const freeTextParsed = JSON.parse(freeTextLine ?? '{}') as Record<string, unknown>;
+      expect(freeTextParsed['code']).toBe('MODEL_VERDICT_FAIL');
+      expect(freeTextLine).not.toContain('Blurry photo');
+
+      const gateway = await submitVerifiedReport(
+        submitRequest(),
+        submitBody(),
+        'key-log-gateway-1',
+        {
+          verify: async () => ({ kind: 'FAIL', reason: 'UPSTREAM_REJECTED' }),
+          model: 'test-model',
+          timeoutMs: 50,
+          storage: fakeStorage(),
+        },
+      );
+      expect(gateway.status).toBe(422);
+      const gatewayLine = outcomeLines().at(-1);
+      expect(gatewayLine).toBeDefined();
+      const gatewayParsed = JSON.parse(gatewayLine ?? '{}') as Record<string, unknown>;
+      expect(gatewayParsed['code']).toBe('UPSTREAM_REJECTED');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
 });
 
 describe('normalizeVerifiedSubmitBody', () => {
