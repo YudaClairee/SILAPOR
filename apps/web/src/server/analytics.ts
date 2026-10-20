@@ -7,19 +7,27 @@
 import {
   getOverviewCards,
   getPriorityQueue,
+  getReportTrend,
+  getReportsByBuilding,
   getReportsByCategory,
   getReportsByLocation,
   getReportsByStatus,
   getResolutionTimeMetrics,
+  getTechnicianCompletions,
   getTechnicianWorkload,
+  getTopAssets,
   jakartaDayRange,
+  type AssetHotspot,
+  type BuildingCount,
   type CategoryCount,
   type LocationCount,
   type OverviewCards,
   type PriorityQueueItem,
   type ResolutionTimeMetrics,
   type StatusCount,
+  type TechnicianCompletionItem,
   type TechnicianWorkloadItem,
+  type TrendPoint,
 } from '@silapor/analytics';
 import { getDb } from '@silapor/database';
 import { badRequest } from '@silapor/shared';
@@ -31,8 +39,12 @@ export interface DashboardOverviewResponse {
   readonly byStatus: StatusCount[];
   readonly byCategory: CategoryCount[];
   readonly byLocation: LocationCount[];
+  readonly byBuilding: BuildingCount[];
   readonly resolutionTime: ResolutionTimeMetrics;
   readonly technicianWorkload: TechnicianWorkloadItem[];
+  readonly technicianCompletions: TechnicianCompletionItem[];
+  readonly topAssets: AssetHotspot[];
+  readonly trend: TrendPoint[];
   readonly priorityQueue: PriorityQueueItem[];
 }
 
@@ -70,16 +82,24 @@ export async function getDashboardOverviewRoute(
       byStatus,
       byCategory,
       byLocation,
+      byBuilding,
       resolutionTime,
       technicianWorkload,
+      technicianCompletions,
+      topAssets,
+      trend,
       priorityQueue,
     ] = await Promise.all([
       getOverviewCards(conn.db, range),
       getReportsByStatus(conn.db, range),
       getReportsByCategory(conn.db, range),
       getReportsByLocation(conn.db, range),
+      getReportsByBuilding(conn.db, range),
       getResolutionTimeMetrics(conn.db, range),
       getTechnicianWorkload(conn.db),
+      getTechnicianCompletions(conn.db, range),
+      getTopAssets(conn.db, range),
+      getReportTrend(conn.db, range),
       getPriorityQueue(conn.db),
     ]);
     return {
@@ -88,8 +108,12 @@ export async function getDashboardOverviewRoute(
       byStatus,
       byCategory,
       byLocation,
+      byBuilding,
       resolutionTime,
       technicianWorkload,
+      technicianCompletions,
+      topAssets,
+      trend,
       priorityQueue,
     };
   } finally {

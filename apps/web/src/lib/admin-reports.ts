@@ -8,11 +8,10 @@
 
 import { REPORT_STATUS } from '@silapor/domain';
 
-const KNOWN_STATUSES: ReadonlySet<string> = new Set(
-  REPORT_STATUS as readonly string[],
-);
+const KNOWN_STATUSES: ReadonlySet<string> = new Set(REPORT_STATUS as readonly string[]);
 
 const ADMIN_SORTS = [
+  'priority_desc',
   'reported_desc',
   'reported_asc',
   'ticket_asc',
@@ -21,9 +20,19 @@ const ADMIN_SORTS = [
 
 export type AdminSort = (typeof ADMIN_SORTS)[number];
 
-const KNOWN_SORTS: ReadonlySet<string> = new Set(
-  ADMIN_SORTS as readonly string[],
-);
+/** Indonesian labels for the list sort control (Figma 150:626). */
+export const ADMIN_SORT_LABELS: Readonly<Record<AdminSort, string>> = {
+  priority_desc: 'Skor Prioritas Tertinggi',
+  reported_desc: 'Terbaru Dulu',
+  reported_asc: 'Terlama Dulu',
+  ticket_asc: 'Nomor Tiket A–Z',
+  ticket_desc: 'Nomor Tiket Z–A',
+};
+
+export const ADMIN_SORT_OPTIONS: ReadonlyArray<{ value: AdminSort; label: string }> =
+  ADMIN_SORTS.map((value) => ({ value, label: ADMIN_SORT_LABELS[value] }));
+
+const KNOWN_SORTS: ReadonlySet<string> = new Set(ADMIN_SORTS as readonly string[]);
 
 const KNOWN_PRIORITIES: ReadonlySet<string> = new Set(['LOW', 'MEDIUM', 'HIGH']);
 
@@ -72,11 +81,7 @@ export function buildAdminListParams(state: AdminListState): AdminListParams {
   }
 
   const rawStatuses =
-    state.status === undefined
-      ? []
-      : Array.isArray(state.status)
-        ? state.status
-        : [state.status];
+    state.status === undefined ? [] : Array.isArray(state.status) ? state.status : [state.status];
   const statuses = rawStatuses.filter((status) => KNOWN_STATUSES.has(status));
   if (statuses.length === 1) {
     const only = statuses[0];
@@ -110,8 +115,7 @@ export function buildAdminListParams(state: AdminListState): AdminListParams {
   }
 
   const sort = cleanText(state.sort);
-  params['sort'] =
-    sort !== null && KNOWN_SORTS.has(sort) ? sort : DEFAULT_ADMIN_SORT;
+  params['sort'] = sort !== null && KNOWN_SORTS.has(sort) ? sort : DEFAULT_ADMIN_SORT;
 
   const limit = state.limit;
   params['limit'] = String(
@@ -121,9 +125,7 @@ export function buildAdminListParams(state: AdminListState): AdminListParams {
   );
   const offset = state.offset;
   params['offset'] = String(
-    offset !== undefined && Number.isFinite(offset) && offset > 0
-      ? Math.floor(offset)
-      : 0,
+    offset !== undefined && Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0,
   );
 
   return params;
@@ -162,8 +164,7 @@ export function pageRange(total: number, limit: number, offset: number): PageRan
   if (safeTotal === 0) {
     return { from: 0, to: 0, hasPrev: false, hasNext: false };
   }
-  const safeLimit =
-    Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_ADMIN_LIMIT;
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : DEFAULT_ADMIN_LIMIT;
   const safeOffset = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
   return {
     from: safeOffset + 1,

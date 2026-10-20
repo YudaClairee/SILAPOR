@@ -9,6 +9,9 @@
 export { AppShell, navItemsForRole } from './AppShell';
 export type { AppShellNavItem, AppShellProps, AppShellRole, AppShellUser } from './AppShell';
 
+export { AdminShell } from './AdminShell';
+export type { AdminShellProps, AdminShellUser } from './AdminShell';
+
 export { ReporterShell } from './ReporterShell';
 export type { ReporterShellProps, ReporterShellUser } from './ReporterShell';
 
@@ -19,14 +22,17 @@ export {
   BellIcon,
   BriefcaseIcon,
   BuildingIcon,
+  CalendarIcon,
   CheckCircleIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ClipboardIcon,
   ClockIcon,
   CloseIcon,
   DoubleCheckIcon,
+  DownloadIcon,
   FileTextIcon,
   FilterIcon,
   FlagIcon,
@@ -47,6 +53,15 @@ export {
   UsersIcon,
   WrenchIcon,
 } from './Icon';
+
+export { CategoryDonut } from './CategoryDonut';
+export type { CategoryDonutDatum, CategoryDonutProps } from './CategoryDonut';
+
+export { RankedBarList } from './RankedBarList';
+export type { RankedBarItem, RankedBarListProps } from './RankedBarList';
+
+export { TrendChart } from './TrendChart';
+export type { TrendChartDatum, TrendChartProps } from './TrendChart';
 
 export { AttachmentGallery } from './AttachmentGallery';
 export type { AttachmentGalleryProps, GalleryAttachment } from './AttachmentGallery';
@@ -88,6 +103,28 @@ export type { TicketMonoProps } from './TicketMono';
 
 export { PhotoEvidence } from './PhotoEvidence';
 export type { PhotoEvidenceAttachment, PhotoEvidenceProps } from './PhotoEvidence';
+
+export { AdminTicketHeader, AdminTicketStepper } from './AdminTicketHeader';
+export type { AdminTicketHeaderProps, AdminTicketStepReport } from './AdminTicketHeader';
+
+export { AdminTicketTabs } from './AdminTicketTabs';
+
+export { AdminAssetAssignmentCard } from './AdminAssetAssignmentCard';
+
+export { AdminAiScoreCard } from './AdminAiScoreCard';
+
+export { AdminReporterQuotesCard } from './AdminReporterQuotesCard';
+
+export { AdminPhotoPagerCard } from './AdminPhotoPagerCard';
+
+export { AdminTicketAssignmentTab } from './AdminTicketAssignmentTab';
+
+export { AdminTicketHistoryTab } from './AdminTicketHistoryTab';
+
+export { AdminTicketV2Content, useAdminTicketV2Tab } from './AdminTicketV2Content';
+
+export { AdminAiPanel } from './LegacyAdminAiPanel';
+export type { LegacyAdminAiAnalysis, LegacyAdminAiReport } from './LegacyAdminAiPanel';
 
 export { SectionCard } from './SectionCard';
 export type { SectionCardProps } from './SectionCard';

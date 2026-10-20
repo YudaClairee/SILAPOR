@@ -70,6 +70,27 @@ pnpm --filter @silapor/database run db:seed
 Seed upserts 1 admin + 2 reporters by email, so a second run updates zero
 duplicates. Both commands print a credential-redacted URL on failure.
 
+## Report data reset (manual testing)
+
+```sh
+pnpm --filter @silapor/database run db:reset-reports -- --dry-run   # preview counts
+pnpm --filter @silapor/database run db:reset-reports                # wipe report data
+```
+
+Deletes `maintenance_reports` and everything scoped to it (events,
+assignments, updates, relations, attachments), AI analyses, staged uploads,
+notifications, outbox events and the ticket counter — the next submit gets
+`MNT-<year>-000001` again. Master data (users, sessions, locations, facility
+categories, issue types, facility assets, technicians) and `audit_logs` are
+kept, so login and the report form keep working without a re-seed.
+
+Attachment objects are removed from `STORAGE_DIR` too (`--keep-files` keeps
+them; `--keep-orphan-files` only removes objects still referenced by rows;
+`--storage-dir <path>` points the cleanup at another directory, e.g. the
+`apps/web/.data/attachments` folder written by `pnpm --filter` runs). The
+command refuses to run with `NODE_ENV=production` unless `--allow-production`
+is passed. It is idempotent: a second run reports zero rows deleted.
+
 ## Worker
 
 `apps/worker` consumes the `QueueMessage` contract from `@silapor/jobs` and

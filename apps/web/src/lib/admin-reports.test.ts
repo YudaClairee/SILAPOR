@@ -84,8 +84,14 @@ describe('buildAdminListParams', () => {
     expect(buildAdminListParams({ priority: '' })).not.toHaveProperty('priority');
   });
 
-  it('accepts only the four binding sorts, defaulting to reported_desc', () => {
-    for (const sort of ['reported_desc', 'reported_asc', 'ticket_asc', 'ticket_desc']) {
+  it('accepts every binding sort, defaulting to reported_desc', () => {
+    for (const sort of [
+      'reported_desc',
+      'reported_asc',
+      'ticket_asc',
+      'ticket_desc',
+      'priority_desc',
+    ]) {
       expect(buildAdminListParams({ sort })).toMatchObject({ sort });
     }
     expect(buildAdminListParams({})).toMatchObject({ sort: 'reported_desc' });

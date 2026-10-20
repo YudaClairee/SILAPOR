@@ -225,6 +225,20 @@ export function confidenceBand(percent: number): 'Tinggi' | 'Sedang' | 'Rendah' 
   return 'Rendah';
 }
 
+/** Skor 0..100 → "88,5" (koma Indonesia, satu desimal bila perlu). */
+export function formatScoreId(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  const rounded = Math.round(value * 10) / 10;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return text.replace('.', ',');
+}
+
+/** Confidence 0..1 (atau persen) → "94%" untuk meter AI. */
+export function formatConfidencePercent(value: number | null): string {
+  const percent = confidencePercent(value);
+  return percent === null ? '—' : `${percent}%`;
+}
+
 export interface LocationHierarchyOption {
   readonly id: string;
   readonly name: string;

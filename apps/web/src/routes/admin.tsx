@@ -1,16 +1,35 @@
+// Admin layout for the V2 top-nav shell. The redirect-only guard below is
+// unchanged and authoritative navigation-wise; the component owns the display
+// identity fetch (username + NIP only) and the logout POST.
+import { useEffect, useState } from 'react';
 import { Outlet, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { redirectForRole, type GuardUser } from '../server/guard';
-import { AppShell } from '../components/index.js';
+import { AdminShell } from '../components/index.js';
 
-interface MeResponse {
-  readonly user?: { readonly role?: unknown } | null;
+interface MeUser {
+  readonly username: string;
+  readonly nip: string | null;
+  readonly role: 'ADMIN' | 'REPORTER';
 }
 
-function sanitizeRole(value: unknown): GuardUser | null {
+interface MeResponse {
+  readonly user?: unknown;
+}
+
+function sanitizeUser(value: unknown): MeUser | null {
   if (value !== null && typeof value === 'object') {
-    const role = (value as { readonly role?: unknown }).role;
-    if (role === 'ADMIN' || role === 'REPORTER') {
-      return { role };
+    const record = value as {
+      readonly username?: unknown;
+      readonly nim?: unknown;
+      readonly role?: unknown;
+    };
+    if (record.role === 'ADMIN' || record.role === 'REPORTER') {
+      const username = typeof record.username === 'string' ? record.username : '';
+      return {
+        username: username === '' ? 'Administrator' : username,
+        nip: typeof record.nim === 'string' && record.nim !== '' ? record.nim : null,
+        role: record.role,
+      };
     }
   }
   return null;
@@ -27,7 +46,7 @@ export const Route = createFileRoute('/admin')({
     let user: GuardUser | null = null;
     if (response.ok) {
       try {
-        user = sanitizeRole(((await response.json()) as MeResponse).user ?? null);
+        user = sanitizeUser(((await response.json()) as MeResponse).user ?? null);
       } catch {
         user = null;
       }
@@ -42,12 +61,34 @@ export const Route = createFileRoute('/admin')({
 
 function AdminLayout() {
   const navigate = useNavigate();
+  const [me, setMe] = useState<MeUser | null>(null);
 
-  // Presentational shell adoption (Task D-3, mirrors D-2 reporter layout):
-  // the redirect-only guard above is unchanged and authoritative
-  // navigation-wise; this layout only owns the logout POST. The route tree
-  // guarantees ADMIN here post-guard (anonymous/non-admins redirect), so the
-  // shell role is static.
+  // Display-only fetch: the beforeLoad guard already handled auth.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        if (cancelled || !response.ok) {
+          return;
+        }
+        try {
+          setMe(sanitizeUser(((await response.json()) as MeResponse).user ?? null));
+        } catch {
+          setMe(null);
+        }
+      } catch {
+        // Display-only fetch: keep the fallback identity on failure.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Presentational shell adoption (mirrors the reporter layout): the guard
+  // above stays authoritative; this layout only owns the identity display and
+  // the logout POST.
   function handleLogout(): void {
     void (async () => {
       try {
@@ -60,8 +101,11 @@ function AdminLayout() {
   }
 
   return (
-    <AppShell user={{ role: 'ADMIN' }} onLogout={handleLogout}>
+    <AdminShell
+      user={{ username: me?.username ?? 'Administrator', nip: me?.nip ?? null }}
+      onLogout={handleLogout}
+    >
       <Outlet />
-    </AppShell>
+    </AdminShell>
   );
 }

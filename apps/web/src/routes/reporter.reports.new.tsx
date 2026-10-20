@@ -1,6 +1,8 @@
 // New-report form for the AI verification flow: full chain
 // gedung → lantai → ruangan → aset (all required) plus description and
 // 1-3 photos, then a blocking wait for the inline verdict.
+// Verification is text-only (description + asset + location): the photos are
+// evidence for the technician and are never sent to the model.
 //
 // Photo-first: picked photos stage to /api/uploads before the submit, and
 // the submit carries the returned storage keys. The server links staged
@@ -172,7 +174,7 @@ function stringField(body: Record<string, unknown>, key: string): string | null 
 export function toSubmitOutcome(status: number, body: unknown): SubmitOutcome {
   if (!isRecord(body)) {
     if (status === 422) {
-      return { kind: 'failed', reason: 'Verifikasi gagal. Coba lagi dengan foto yang lebih jelas.' };
+      return { kind: 'failed', reason: 'Verifikasi gagal. Periksa kembali deskripsi dan lokasi, lalu coba lagi.' };
     }
     return { kind: 'error', message: `Gagal mengirim laporan (status ${status}).` };
   }
@@ -194,7 +196,7 @@ export function toSubmitOutcome(status: number, body: unknown): SubmitOutcome {
   }
   if (status === 422) {
     const reason =
-      stringField(body, 'reason') ?? 'Verifikasi gagal. Coba lagi dengan foto yang lebih jelas.';
+      stringField(body, 'reason') ?? 'Verifikasi gagal. Periksa kembali deskripsi dan lokasi, lalu coba lagi.';
     return { kind: 'failed', reason };
   }
   if (status === 409) {
@@ -714,7 +716,7 @@ function NewReportPage() {
             <ErrorPanel title="Alasan" message={failReason} />
           </div>
           <p className="mt-4 text-sm text-muted">
-            Perbaiki foto atau deskripsi, lalu kirim ulang sebagai laporan baru.
+            Perbaiki deskripsi atau lokasi, lalu kirim ulang sebagai laporan baru.
           </p>
           <p className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
             <Button type="button" onClick={retryFresh}>
@@ -852,7 +854,7 @@ function NewReportPage() {
           </dl>
           {photoCountLine()}
           <p className="mt-2 text-sm text-muted">
-            Foto dan deskripsi akan diperiksa AI saat laporan dikirim.
+            Foto hanya menjadi bukti untuk teknisi; deskripsi dan lokasi akan diperiksa AI saat laporan dikirim.
           </p>
           <p className="mt-6 flex flex-col gap-2 sm:flex-row">
             <Button type="button" onClick={() => void submitReport()}>

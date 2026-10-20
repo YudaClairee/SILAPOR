@@ -33,6 +33,7 @@ import {
   ilike,
   inArray,
   isNotNull,
+  isNull,
   lt,
   lte,
   ne,
@@ -867,13 +868,22 @@ const REPORT_STATUS_SET: ReadonlySet<string> = new Set(REPORT_STATUS);
 const RELATION_TYPE_SET: ReadonlySet<string> = new Set(RELATION_TYPE);
 const PRIORITY_SET: ReadonlySet<string> = new Set(['LOW', 'MEDIUM', 'HIGH']);
 
-export const REPORT_SORTS = ['reported_desc', 'reported_asc', 'ticket_asc', 'ticket_desc'] as const;
+export const REPORT_SORTS = [
+  'reported_desc',
+  'reported_asc',
+  'ticket_asc',
+  'ticket_desc',
+  // Admin Figma 150:626 "Urutan Default: Skor Prioritas Tertinggi".
+  'priority_desc',
+] as const;
 
 export type ReportSort = (typeof REPORT_SORTS)[number];
 
 export interface ReportOrderSpec {
-  readonly column: 'reportedAt' | 'ticketNumber' | 'id';
+  readonly column: 'reportedAt' | 'ticketNumber' | 'id' | 'priorityScore';
   readonly direction: 'asc' | 'desc';
+  /** Priority ordering keeps unscored rows (null) after scored rows. */
+  readonly nullsLast?: boolean;
 }
 
 // Validates `sort` (default `reported_desc`, anything else → 400).
@@ -908,6 +918,12 @@ export function reportOrderBy(sort: unknown): readonly ReportOrderSpec[] {
         { column: 'ticketNumber', direction: 'desc' },
         { column: 'id', direction: 'asc' },
       ];
+    case 'priority_desc':
+      return [
+        { column: 'priorityScore', direction: 'desc', nullsLast: true },
+        { column: 'reportedAt', direction: 'desc' },
+        { column: 'id', direction: 'asc' },
+      ];
     case 'reported_desc':
     default:
       return [
@@ -925,6 +941,13 @@ function drizzleOrderBy(sort: ReportSort): ReturnType<typeof asc>[] {
       return [asc(schema.maintenanceReports.ticketNumber), asc(schema.maintenanceReports.id)];
     case 'ticket_desc':
       return [desc(schema.maintenanceReports.ticketNumber), asc(schema.maintenanceReports.id)];
+    case 'priority_desc':
+      // Postgres DESC defaults to NULLS FIRST; unscored tickets must stay last.
+      return [
+        sql`${schema.maintenanceReports.priorityScore} DESC NULLS LAST`,
+        desc(schema.maintenanceReports.reportedAt),
+        asc(schema.maintenanceReports.id),
+      ];
     case 'reported_desc':
     default:
       return [desc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id)];
@@ -1063,9 +1086,10 @@ async function queryReportList(
     readonly from?: unknown;
     readonly to?: unknown;
     readonly search?: unknown;
-    // Campus list searches ticket + asset name + location name; admin/own
-    // lists keep the legacy ticket + description search.
-    readonly searchScope?: 'default' | 'campus' | undefined;
+    // Campus list searches ticket + asset name + location name (reporter-safe
+    // locations only); admin lists add description and include hidden/inactive
+    // locations because UMPER must find lift rooms and archived assets too.
+    readonly searchScope?: 'default' | 'campus' | 'admin' | undefined;
     readonly limit?: number | undefined;
     readonly offset?: number | undefined;
     readonly sort?: unknown;
@@ -1129,27 +1153,34 @@ async function queryReportList(
     );
   }
   if (pattern !== null) {
-    if (filter.searchScope === 'campus') {
-      // Campus search follows the UI placeholder: ticket number, asset name,
-      // or location name. Hidden/inactive locations are deliberately excluded
-      // from the location leg so a search cannot reveal lift rooms.
-      conditions.push(
-        or(
-          ilike(schema.maintenanceReports.ticketNumber, pattern),
-          sql`EXISTS (
+    if (filter.searchScope === 'campus' || filter.searchScope === 'admin') {
+      // Search follows the UI placeholder: ticket number, asset name, or
+      // location name. The campus leg deliberately excludes hidden/inactive
+      // locations so a reporter search cannot reveal lift rooms; the admin leg
+      // has no such restriction (UMPER manages those locations).
+      const locationScope =
+        filter.searchScope === 'campus'
+          ? sql`AND l.is_active = true AND l.reporter_hidden = false`
+          : sql``;
+      const parts = [
+        ilike(schema.maintenanceReports.ticketNumber, pattern),
+        sql`EXISTS (
             SELECT 1 FROM facility_assets fa
             WHERE fa.id = ${schema.maintenanceReports.assetId}
               AND fa.name ILIKE ${pattern}
           )`,
-          sql`EXISTS (
+        sql`EXISTS (
             SELECT 1 FROM locations l
             WHERE l.id = ${schema.maintenanceReports.locationId}
-              AND l.is_active = true
-              AND l.reporter_hidden = false
+              ${locationScope}
               AND l.name ILIKE ${pattern}
           )`,
-        ),
-      );
+      ];
+      if (filter.searchScope === 'admin') {
+        // Preserve the legacy admin description search in addition.
+        parts.push(ilike(schema.maintenanceReports.description, pattern));
+      }
+      conditions.push(or(...parts));
     } else {
       conditions.push(
         or(
@@ -1189,6 +1220,142 @@ export async function listAllReports(
   opts?: ListAllReportsOptions,
 ): Promise<ReportListResult> {
   return await queryReportList(db, { ...(opts ?? {}) });
+}
+
+// ---------------------------------------------------------------------------
+// Admin list projection (Figma "Kelola Laporan" 150:626).
+// ---------------------------------------------------------------------------
+//
+// The table needs display labels the raw report row does not carry: asset
+// name, location name (including hidden/inactive rooms — UMPER manages them),
+// the currently assigned technician, and the verified reporter count. Names
+// are joined here so the UI never resolves ids client-side. `statusCounts`
+// feeds the status tabs: one grouped query over the same canonical status set
+// and held-queue exclusion the list uses, so tab totals and filtered pages
+// agree.
+
+export interface AdminReportStatusCount {
+  readonly status: schema.Report['status'];
+  readonly count: number;
+}
+
+export interface AdminReportListItem extends schema.Report {
+  readonly assetName: string | null;
+  readonly locationName: string | null;
+  /** Active assignment only (`unassigned_at IS NULL`); null before assignment. */
+  readonly technicianName: string | null;
+  /** `priority_factors.affectedReporters`; null for pre-scoring rows. */
+  readonly reporterCount: number | null;
+}
+
+export interface AdminReportListResult {
+  readonly items: AdminReportListItem[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+  readonly statusCounts: readonly AdminReportStatusCount[];
+}
+
+// Counts for the admin status tabs. Mirrors `getReportsByStatus` in
+// `@silapor/analytics` (canonical statuses + held-queue exclusion for
+// REPORTED) without pulling the analytics dashboard aggregates into the list.
+export async function countReportsByStatus(
+  db: ReportQueryDb,
+): Promise<readonly AdminReportStatusCount[]> {
+  const rows = await db
+    .select({ status: schema.maintenanceReports.status, value: count() })
+    .from(schema.maintenanceReports)
+    .where(
+      and(
+        inArray(schema.maintenanceReports.status, [...REPORT_STATUS]),
+        or(
+          ne(schema.maintenanceReports.status, 'REPORTED'),
+          isNotNull(schema.maintenanceReports.finalCategoryId),
+          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
+        ),
+      ),
+    )
+    .groupBy(schema.maintenanceReports.status);
+  const counts = new Map(rows.map((row) => [row.status, row.value] as const));
+  return REPORT_STATUS.map((status) => ({ status, count: counts.get(status) ?? 0 }));
+}
+
+// Enriched admin list. Search spans ticket number, description, asset name,
+// and location name (all locations) so the page placeholder is accurate.
+export async function listAdminReports(
+  db: ReportQueryDb,
+  opts?: ListAllReportsOptions,
+): Promise<AdminReportListResult> {
+  const [result, statusCounts] = await Promise.all([
+    queryReportList(db, { ...(opts ?? {}), searchScope: 'admin' }),
+    countReportsByStatus(db),
+  ]);
+
+  const rows = result.items;
+  const reportIds = rows.map((row) => row.id);
+  const assetIds = [
+    ...new Set(rows.map((row) => row.assetId).filter((value): value is string => value !== null)),
+  ];
+  const locationIds = [...new Set(rows.map((row) => row.locationId))];
+
+  const [assetRows, locationRows, assignmentRows] = await Promise.all([
+    assetIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; name: string }>)
+      : db
+          .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
+          .from(schema.facilityAssets)
+          .where(inArray(schema.facilityAssets.id, assetIds)),
+    locationIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; name: string }>)
+      : db
+          .select({ id: schema.locations.id, name: schema.locations.name })
+          .from(schema.locations)
+          .where(inArray(schema.locations.id, locationIds)),
+    reportIds.length === 0
+      ? Promise.resolve([] as Array<{ reportId: string; technicianName: string; assignedAt: Date }>)
+      : db
+          .select({
+            reportId: schema.reportAssignments.reportId,
+            technicianName: schema.technicians.displayName,
+            assignedAt: schema.reportAssignments.assignedAt,
+          })
+          .from(schema.reportAssignments)
+          .innerJoin(
+            schema.technicians,
+            eq(schema.technicians.id, schema.reportAssignments.technicianId),
+          )
+          .where(
+            and(
+              inArray(schema.reportAssignments.reportId, reportIds),
+              isNull(schema.reportAssignments.unassignedAt),
+            ),
+          )
+          .orderBy(desc(schema.reportAssignments.assignedAt)),
+  ]);
+
+  const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
+  const locationNames = new Map(locationRows.map((row) => [row.id, row.name] as const));
+  // Assignment rows are newest-first, so the first hit per report wins.
+  const technicianNames = new Map<string, string>();
+  for (const row of assignmentRows) {
+    if (!technicianNames.has(row.reportId)) {
+      technicianNames.set(row.reportId, row.technicianName);
+    }
+  }
+
+  return {
+    items: rows.map((row) => ({
+      ...row,
+      assetName: row.assetId === null ? null : (assetNames.get(row.assetId) ?? null),
+      locationName: locationNames.get(row.locationId) ?? null,
+      technicianName: technicianNames.get(row.id) ?? null,
+      reporterCount: reporterCountOf(row.priorityFactors),
+    })),
+    total: result.total,
+    limit: result.limit,
+    offset: result.offset,
+    statusCounts,
+  };
 }
 
 export interface ListCampusReportsOptions extends ListMyReportsOptions {

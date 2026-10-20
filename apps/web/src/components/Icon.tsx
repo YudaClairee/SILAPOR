@@ -168,6 +168,34 @@ export function ChevronRightIcon(props: IconProps) {
   );
 }
 
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Svg>
+  );
+}
+
+/** Period picker trigger — calendar sheet with a binding ring. */
+export function CalendarIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M8 3v4M16 3v4M3 10h18" />
+    </Svg>
+  );
+}
+
+/** "Ekspor Laporan PDF" — tray with a down arrow. */
+export function DownloadIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4v11M8 11l4 4 4-4" />
+      <path d="M5 19h14" />
+    </Svg>
+  );
+}
+
 export function UserIcon(props: IconProps) {
   return (
     <Svg {...props}>
