@@ -61,6 +61,7 @@ const GROUP_NAV: readonly NavGroup[] = [
     kind: 'group',
     label: 'Data Master & Parameter',
     items: [
+      { to: '/admin/master-data', label: 'Data Master Referensi' },
       { to: '/admin/categories', label: 'Kategori Fasilitas' },
       { to: '/admin/technicians', label: 'Teknisi' },
       { to: '/admin/scoring', label: 'Pengaturan Scoring' },

@@ -19,6 +19,7 @@ import { Route as AdminAnalyticsRouteImport } from './routes/admin.analytics'
 import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
 import { Route as AdminLocationsRouteImport } from './routes/admin.locations'
 import { Route as AdminMaintenanceReportRouteImport } from './routes/admin.maintenance-report'
+import { Route as AdminMasterDataRouteImport } from './routes/admin.master-data'
 import { Route as AdminScoringRouteImport } from './routes/admin.scoring'
 import { Route as AdminTechniciansRouteImport } from './routes/admin.technicians'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
@@ -116,6 +117,11 @@ const AdminLocationsRoute = AdminLocationsRouteImport.update({
 const AdminMaintenanceReportRoute = AdminMaintenanceReportRouteImport.update({
   id: '/maintenance-report',
   path: '/maintenance-report',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMasterDataRoute = AdminMasterDataRouteImport.update({
+  id: '/master-data',
+  path: '/master-data',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminScoringRoute = AdminScoringRouteImport.update({
@@ -375,6 +381,7 @@ export interface FileRoutesByFullPath {
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
+  '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
   '/api/health': typeof ApiHealthRoute
@@ -433,6 +440,7 @@ export interface FileRoutesByTo {
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
+  '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
   '/api/health': typeof ApiHealthRoute
@@ -494,6 +502,7 @@ export interface FileRoutesById {
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
+  '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
   '/api/health': typeof ApiHealthRoute
@@ -556,6 +565,7 @@ export interface FileRouteTypes {
     | '/admin/categories'
     | '/admin/locations'
     | '/admin/maintenance-report'
+    | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
     | '/api/health'
@@ -614,6 +624,7 @@ export interface FileRouteTypes {
     | '/admin/categories'
     | '/admin/locations'
     | '/admin/maintenance-report'
+    | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
     | '/api/health'
@@ -674,6 +685,7 @@ export interface FileRouteTypes {
     | '/admin/categories'
     | '/admin/locations'
     | '/admin/maintenance-report'
+    | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
     | '/api/health'
@@ -818,6 +830,13 @@ declare module '@tanstack/react-router' {
       path: '/maintenance-report'
       fullPath: '/admin/maintenance-report'
       preLoaderRoute: typeof AdminMaintenanceReportRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/master-data': {
+      id: '/admin/master-data'
+      path: '/master-data'
+      fullPath: '/admin/master-data'
+      preLoaderRoute: typeof AdminMasterDataRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/scoring': {
@@ -1164,6 +1183,7 @@ interface AdminRouteChildren {
   AdminCategoriesRoute: typeof AdminCategoriesRoute
   AdminLocationsRoute: typeof AdminLocationsRoute
   AdminMaintenanceReportRoute: typeof AdminMaintenanceReportRoute
+  AdminMasterDataRoute: typeof AdminMasterDataRoute
   AdminScoringRoute: typeof AdminScoringRoute
   AdminTechniciansRoute: typeof AdminTechniciansRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -1179,6 +1199,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminCategoriesRoute: AdminCategoriesRoute,
   AdminLocationsRoute: AdminLocationsRoute,
   AdminMaintenanceReportRoute: AdminMaintenanceReportRoute,
+  AdminMasterDataRoute: AdminMasterDataRoute,
   AdminScoringRoute: AdminScoringRoute,
   AdminTechniciansRoute: AdminTechniciansRoute,
   AdminIndexRoute: AdminIndexRoute,

@@ -89,7 +89,7 @@ export function AdminTicketV2Content(props: {
           <AdminTicketAssignmentTab ticket={props.ticket} report={detail.report} options={options} onChanged={props.onChanged} />
         ) : null}
         {props.activeTab === 'riwayat' ? (
-          <AdminTicketHistoryTab ticket={props.ticket} events={detail.events} relations={detail.relations} duplicates={detail.duplicateCandidates} />
+          <AdminTicketHistoryTab ticket={props.ticket} reportId={detail.report.id} events={detail.events} relations={detail.relations} duplicates={detail.duplicateCandidates} />
         ) : null}
       </div>
     </>

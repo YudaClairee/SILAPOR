@@ -1,9 +1,32 @@
 // Admin "Detail Tiket" assignment tab (Figma 150:933 "Penugasan dan Progres").
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { REPORT_TRANSITIONS, requiresNote, type ReportStatus } from '@silapor/domain';
 import type { FormOptions } from '../server/reports.js';
-import { Button, Select, StatusBadge, Textarea } from './index.js';
+import { Button, LoadingState, Select, StatusBadge, Textarea } from './index.js';
 import { postAdminWorkflow } from './AdminWorkflowPost.js';
+
+interface TechnicianOption {
+  readonly id: string;
+  readonly displayName: string;
+  readonly isActive: boolean;
+}
+
+function parseTechnicians(value: unknown): TechnicianOption[] {
+  if (!Array.isArray(value)) return [];
+  const out: TechnicianOption[] = [];
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const r = entry as Record<string, unknown>;
+    if (typeof r['id'] !== 'string') continue;
+    if (typeof r['displayName'] !== 'string') continue;
+    out.push({
+      id: r['id'] as string,
+      displayName: r['displayName'] as string,
+      isActive: r['isActive'] === true,
+    });
+  }
+  return out;
+}
 
 export function AdminTicketAssignmentTab(props: {
   readonly ticket: string;
@@ -11,12 +34,53 @@ export function AdminTicketAssignmentTab(props: {
   readonly options: FormOptions | null;
   readonly onChanged: () => void;
 }) {
-  const technicians = props.options?.technicians ?? [];
+  const [technicians, setTechnicians] = useState<TechnicianOption[] | null>(null);
+  const [techError, setTechError] = useState<string | null>(null);
   const [technicianId, setTechnicianId] = useState('');
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Daftar teknisi TIDAK ada di /api/reports/form-options (payload reporter),
+  // jadi dimuat dari endpoint admin khusus teknisi. Hanya yang aktif yg tampil.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/technicians?includeInactive=false&limit=200', {
+          credentials: 'include',
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setTechError('Gagal memuat daftar teknisi (' + res.status + ').');
+          setTechnicians([]);
+          return;
+        }
+        try {
+          const rows = parseTechnicians(await res.json()).filter((t) => t.isActive);
+          if (!cancelled) {
+            setTechnicians(rows);
+            setTechError(rows.length === 0 ? 'Belum ada teknisi aktif. Tambahkan di Kelola Teknisi.' : null);
+          }
+        } catch {
+          if (!cancelled) {
+            setTechError('Respons daftar teknisi tidak valid.');
+            setTechnicians([]);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setTechError('Tidak dapat terhubung ke server saat memuat teknisi.');
+          setTechnicians([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const nextStatuses = (REPORT_TRANSITIONS[props.report.status as ReportStatus] ?? []) as readonly ReportStatus[];
 
   async function submitAssign(): Promise<void> {
@@ -46,11 +110,16 @@ export function AdminTicketAssignmentTab(props: {
         <p className="mt-1 text-xs text-muted">Status saat ini: <StatusBadge status={props.report.status} /></p>
         <div className="mt-3 space-y-3">
           <label className="block"><span className="mb-1 block text-xs font-medium text-muted">Teknisi</span>
-            <Select value={technicianId} onChange={(event) => setTechnicianId(event.target.value)}>
-              <option value="">Pilih teknisi…</option>
-              {technicians.map((technician) => (<option key={technician.id} value={technician.id}>{technician.displayName}</option>))}
-            </Select>
+            {technicians === null ? (
+              <LoadingState message="Memuat teknisi…" />
+            ) : (
+              <Select value={technicianId} onChange={(event) => setTechnicianId(event.target.value)}>
+                <option value="">Pilih teknisi…</option>
+                {technicians.map((technician) => (<option key={technician.id} value={technician.id}>{technician.displayName}</option>))}
+              </Select>
+            )}
           </label>
+          {techError === null ? null : <p className="text-sm text-muted">{techError}</p>}
           <label className="block"><span className="mb-1 block text-xs font-medium text-muted">Alasan (opsional)</span>
             <Textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} placeholder="Contoh: Teknisi spesialis proyektor sedang tersedia." />
           </label>

@@ -1,8 +1,28 @@
 import { useState, type FormEvent } from 'react';
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router';
+import { homeForRole, redirectForRole, type GuardUser } from '../server/guard';
 import '../styles/login.css';
 
 export const Route = createFileRoute('/login')({
+  beforeLoad: async ({ location }) => {
+    let user: GuardUser | null = null;
+    try {
+      const response = await fetch('/api/auth/me', { credentials: 'include' });
+      if (response.ok) {
+        try {
+          const data = (await response.json()) as { readonly user?: unknown };
+          const role = (data.user as { readonly role?: unknown } | null)?.role;
+          if (role === 'ADMIN' || role === 'REPORTER') user = { role };
+        } catch {
+          user = null;
+        }
+      }
+    } catch {
+      return;
+    }
+    const target = redirectForRole(location.pathname, user);
+    if (target !== null) throw redirect({ to: target });
+  },
   component: LoginPage,
 });
 
@@ -113,7 +133,20 @@ function LoginPage() {
         setError(await readErrorMessage(response));
         return;
       }
-      await navigate({ to: '/' });
+      let role: GuardUser['role'] | null = null;
+      try {
+        const data = (await response.json()) as { readonly user?: unknown };
+        const raw = (data.user as { readonly role?: unknown } | null)?.role;
+        if (raw === 'ADMIN' || raw === 'REPORTER') role = raw;
+      } catch {
+        role = null;
+      }
+      if (role === null) {
+        // Sesi dibuat tapi peran tak terbaca — lewatkan dispatcher '/'.
+        await navigate({ to: '/' });
+        return;
+      }
+      await navigate({ to: homeForRole(role) });
     } catch {
       setError(GENERIC_FAILURE);
     } finally {

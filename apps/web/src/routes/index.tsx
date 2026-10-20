@@ -1,41 +1,50 @@
-import { createFileRoute } from '@tanstack/react-router';
+// Root dispatcher: first open always resolves by session.
+// Anonymous -> /login; ADMIN -> /admin; REPORTER -> /reporter.
+// The beforeLoad fetch is navigation-only; API routes enforce auth.
+import { createFileRoute, redirect } from '@tanstack/react-router';
+import { LoadingState } from '../components/index.js';
+import { redirectForRole, type GuardUser } from '../server/guard';
+
+interface MeResponse {
+  readonly user?: unknown;
+}
+
+function sanitizeRole(value: unknown): GuardUser | null {
+  if (value !== null && typeof value === 'object') {
+    const role = (value as { readonly role?: unknown }).role;
+    if (role === 'ADMIN' || role === 'REPORTER') return { role };
+  }
+  return null;
+}
 
 export const Route = createFileRoute('/')({
-  component: Home,
+  beforeLoad: async ({ location }) => {
+    let user: GuardUser | null = null;
+    try {
+      const response = await fetch('/api/auth/me', { credentials: 'include' });
+      if (response.ok) {
+        try {
+          user = sanitizeRole(((await response.json()) as MeResponse).user ?? null);
+        } catch {
+          user = null;
+        }
+      }
+    } catch {
+      return;
+    }
+    const target = redirectForRole(location.pathname, user);
+    if (target !== null) throw redirect({ to: target });
+  },
+  component: RootDispatcher,
 });
 
-function Home() {
+function RootDispatcher() {
   return (
-    <div>
-      <h1>SILAPOR — Smart Campus Maintenance</h1>
-      <p>Portal pelaporan perawatan kampus (placeholder Task 2).</p>
-
-      <section aria-labelledby="state-loading">
-        <h2 id="state-loading">Memuat</h2>
-        <p role="status">Memuat data laporan…</p>
-      </section>
-
-      <section aria-labelledby="state-empty">
-        <h2 id="state-empty">Belum ada laporan</h2>
-        <p>Belum ada laporan perawatan. Buat laporan pertama Anda.</p>
-      </section>
-
-      <section aria-labelledby="state-error">
-        <h2 id="state-error">Gagal memuat</h2>
-        <p role="alert">
-          Data tidak dapat dimuat. <a href="/">Coba lagi</a>.
-        </p>
-      </section>
-
-      <section aria-labelledby="state-forbidden">
-        <h2 id="state-forbidden">Akses ditolak (403)</h2>
-        <p>Anda tidak memiliki izin untuk melihat halaman ini.</p>
-      </section>
-
-      <section aria-labelledby="state-success">
-        <h2 id="state-success">Laporan terkirim</h2>
-        <p role="status">Laporan berhasil dibuat. Nomor tiket akan tampil di sini.</p>
-      </section>
-    </div>
+    <section aria-labelledby="root-dispatcher-title">
+      <h1 id="root-dispatcher-title" className="sr-only">
+        Mengalihkan…
+      </h1>
+      <LoadingState message="Mengalihkan…" />
+    </section>
   );
 }
