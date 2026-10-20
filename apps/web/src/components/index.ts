@@ -9,6 +9,41 @@
 export { AppShell, navItemsForRole } from './AppShell';
 export type { AppShellNavItem, AppShellProps, AppShellRole, AppShellUser } from './AppShell';
 
+export { ReporterShell } from './ReporterShell';
+export type { ReporterShellProps, ReporterShellUser } from './ReporterShell';
+
+export {
+  ActivityIcon,
+  ArrowLeftIcon,
+  BellIcon,
+  BriefcaseIcon,
+  BuildingIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ClipboardIcon,
+  CloseIcon,
+  FileTextIcon,
+  FilterIcon,
+  FlagIcon,
+  GridIcon,
+  HistoryIcon,
+  ImageIcon,
+  InfoIcon,
+  LockIcon,
+  LogoMark,
+  MapPinIcon,
+  MenuIcon,
+  PlusIcon,
+  SearchIcon,
+  ShieldCheckIcon,
+  SparkleIcon,
+  UserIcon,
+  UsersIcon,
+  WrenchIcon,
+} from './Icon';
+
 export { AttachmentGallery } from './AttachmentGallery';
 export type { AttachmentGalleryProps, GalleryAttachment } from './AttachmentGallery';
 
@@ -46,6 +81,15 @@ export type { TextareaProps } from './Textarea';
 
 export { TicketMono } from './TicketMono';
 export type { TicketMonoProps } from './TicketMono';
+
+export { PhotoEvidence } from './PhotoEvidence';
+export type { PhotoEvidenceAttachment, PhotoEvidenceProps } from './PhotoEvidence';
+
+export { SectionCard } from './SectionCard';
+export type { SectionCardProps } from './SectionCard';
+
+export { StatusStepper } from './StatusStepper';
+export type { StatusStepperProps } from './StatusStepper';
 
 export { Timeline } from './Timeline';
 export type { TimelineItem, TimelineProps } from './Timeline';

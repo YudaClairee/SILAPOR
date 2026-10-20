@@ -218,6 +218,15 @@ describe('parseCampusReportsQuery', () => {
     expect(parseCampusReportsQuery(`${BASE}/api/reports?mine=true`)).toEqual({ mine: true });
     expect(parseCampusReportsQuery(`${BASE}/api/reports?mine=0`)).toEqual({});
   });
+
+  it('parses search and the legacy q alias', () => {
+    expect(parseCampusReportsQuery(`${BASE}/api/reports?search=proyektor`)).toEqual({
+      search: 'proyektor',
+    });
+    expect(parseCampusReportsQuery(`${BASE}/api/reports?q=proyektor`)).toEqual({
+      search: 'proyektor',
+    });
+  });
 });
 
 describe('parseAdminReportsQuery', () => {

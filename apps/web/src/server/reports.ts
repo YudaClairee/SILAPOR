@@ -33,6 +33,7 @@ import {
   getAdminReportDetail as repoGetAdminReportDetail,
   getAsset as repoGetAsset,
   getCampusReportDetail as repoGetCampusReportDetail,
+  getCampusReportStats as repoGetCampusReportStats,
   getDb,
   getLocation as repoGetLocation,
   getMyReportDetail as repoGetMyReportDetail,
@@ -58,6 +59,7 @@ import {
   type IssueType,
   type AdminReportDetail,
   type CampusReportDetail,
+  type CampusReportStats,
   type CampusReportListResult,
   type ListAllReportsOptions,
   type ListCampusReportsOptions,
@@ -384,8 +386,9 @@ function parseBaseListQuery(params: URLSearchParams): ListMyReportsOptions {
 }
 
 // Pure parser for `GET /api/reports` query (?status&categoryId&locationId&
-// priority&from&to&limit&offset&sort&mine). `mine=1|true` selects the
-// "Laporan Saya" filter; absence means the whole campus.
+// priority&from&to&limit&offset&sort&mine&search). `mine=1|true` selects the
+// "Laporan Saya" filter; absence means the whole campus. `search` (or the
+// legacy `q` alias) matches ticket number, asset name, or location name.
 export function parseMyReportsQuery(url: string | URL): ListMyReportsOptions {
   return parseBaseListQuery(searchParamsOf(url));
 }
@@ -394,7 +397,14 @@ export function parseCampusReportsQuery(url: string | URL): ListCampusReportsOpt
   const params = searchParamsOf(url);
   const base = parseBaseListQuery(params);
   const mine = queryParam(params, ['mine']);
-  return mine === '1' || mine === 'true' ? { ...base, mine: true } : base;
+  const search = queryParam(params, ['search', 'q']);
+  const extra: ListCampusReportsOptions =
+    search !== null ? { search } : {};
+  return {
+    ...base,
+    ...extra,
+    ...(mine === '1' || mine === 'true' ? { mine: true } : {}),
+  };
 }
 
 // Pure parser for `GET /api/admin/reports` query (base filters +
@@ -442,6 +452,19 @@ export async function listCampusReportsRoute(
   const conn = getDb();
   try {
     return await repoListCampusReports(conn.db, user.id, options);
+  } finally {
+    await conn.close().catch(() => undefined);
+  }
+}
+
+// KPI counters for the reporter landing page. Auth-only: the campus-wide
+// totals are already visible through the sanitized campus list, so this adds
+// no new data class. `mineTotal` is scoped from the session user.
+export async function getReporterStatsRoute(req: Request): Promise<CampusReportStats> {
+  const user = await requireUser(req);
+  const conn = getDb();
+  try {
+    return await repoGetCampusReportStats(conn.db, user.id);
   } finally {
     await conn.close().catch(() => undefined);
   }

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-// Reporter dashboard contract: summary cards + active list from the stubbed
-// mine + notifications endpoints.
+// Reporter V2 dashboard contract: KPI strip + campus table from the stubbed
+// stats/reports endpoints, and the empty state when no rows match.
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import {
   createMemoryHistory,
   createRootRoute,
@@ -26,46 +26,78 @@ function renderPage(): void {
   render(<RouterProvider router={router} />);
 }
 
+const STATS = {
+  total: 28,
+  active: 6,
+  inRepair: 3,
+  done: 22,
+  mineTotal: 3,
+};
+
+const ROW = {
+  id: 'r1',
+  ticketNumber: 'MNT-2026-000142',
+  status: 'IN_REPAIR',
+  finalPriority: 'HIGH',
+  assetId: 'a1',
+  assetName: 'Proyektor Epson EB-X400',
+  locationId: 'l1',
+  locationName: 'R. Kuliah 12',
+  locationBuildingCode: 'C',
+  locationFloorNumber: 3,
+  reporterCount: 4,
+  reportedAt: '2026-10-12T01:30:00.000Z',
+  resolvedAt: null,
+  closedAt: null,
+  isOwn: true,
+};
+
+function stubFetch(reports: { readonly items: readonly unknown[]; readonly total: number }): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (String(url).includes('/api/reports/stats')) {
+        return { status: 200, ok: true, json: async () => STATS };
+      }
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({ ...reports, limit: 10, offset: 0 }),
+      };
+    }),
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-describe('ringkasan saya', () => {
-  it('renders cards and the active ticket list', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => {
-        if (String(url).includes('/api/notifications')) {
-          return { status: 200, ok: true, json: async () => ({ unreadCount: 2, total: 5 }) };
-        }
-        return {
-          status: 200,
-          ok: true,
-          json: async () => ({
-            items: [{ id: 'r1', ticketNumber: 'MNT-2026-000001', status: 'REPORTED', reportedAt: '2026-10-18T02:00:00.000Z' }],
-            total: 1,
-          }),
-        };
-      }),
-    );
+describe('pemantauan tiket', () => {
+  it('renders KPI cards, the campus table, and the owner badge', async () => {
+    stubFetch({ items: [ROW], total: 1 });
     renderPage();
-    expect(await screen.findByRole('heading', { name: 'Ringkasan Saya' })).toBeInTheDocument();
-    expect(screen.getByText('MNT-2026-000001')).toBeInTheDocument();
-    expect(screen.getByText('Laporan aktif saya')).toBeInTheDocument();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Pemantauan Tiket' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Total Laporan')).toBeInTheDocument();
+    const totalCard = screen.getByText('Total Laporan').closest('article');
+    expect(totalCard).not.toBeNull();
+    if (totalCard !== null) {
+      expect(within(totalCard).getByText('28')).toBeInTheDocument();
+    }
+    expect(screen.getByText('MNT-2026-000142')).toBeInTheDocument();
+    expect(screen.getByText('Laporan Anda')).toBeInTheDocument();
+    expect(screen.getByText('4 pelapor')).toBeInTheDocument();
+    expect(screen.getByText('Proyektor Epson EB-X400')).toBeInTheDocument();
+    expect(screen.getByText('R. Kuliah 12 · Gedung C · Lt. 3')).toBeInTheDocument();
   });
 
-  it('shows empty state when the reporter has no active reports', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => {
-        if (String(url).includes('/api/notifications')) {
-          return { status: 200, ok: true, json: async () => ({ unreadCount: 0, total: 0 }) };
-        }
-        return { status: 200, ok: true, json: async () => ({ items: [], total: 0 }) };
-      }),
-    );
+  it('shows the empty state when no rows match', async () => {
+    stubFetch({ items: [], total: 0 });
     renderPage();
-    expect(await screen.findByText('Tidak ada laporan aktif')).toBeInTheDocument();
+
+    expect(await screen.findByText('Belum ada laporan')).toBeInTheDocument();
   });
 });

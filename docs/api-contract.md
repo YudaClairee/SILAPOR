@@ -61,7 +61,7 @@
 |---|---|---|---|---|
 | `/api/auth/login` | POST | `{ "username": "...", "password": "..." }` | `200 { "user": { "id", "username", "role": "REPORTER"\|"ADMIN" } }` + Set-Cookie | `401` kredensial salah; `429` rate-limit (5 gagal / 10 menit) |
 | `/api/auth/logout` | POST | — | `200`, cookie dihapus | — |
-| `/api/auth/me` | GET | — | `200 { "user": { "id", "username", "role" } }` | `401` belum login |
+| `/api/auth/me` | GET | — | `200 { "user": { "id", "username", "role", "nim" } }` — `nim` hanya milik pemanggil (null untuk admin); tidak ada identitas user lain | `401` belum login |
 
 
 ## 2. Reporter — form & daftar laporan
@@ -69,7 +69,8 @@
 | Endpoint | Method | Request | Sukses |
 |---|---|---|---|
 | `/api/reports/form-options` | GET | — | `200 { "locations": [], "categories": [], "issueTypes": [], "assets": [] }` — hanya data aktif. **Reporter tidak memilih kategori/issue**: kategori ditentukan dari asset (dependent select: lokasi → asset), issue type & priority ditetapkan AI. List `categories`/`issueTypes` tetap ada di response untuk pemakaian admin (filter). |
-| `/api/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `q`, `mine=1`, `limit`, `offset` | `200 { "items": ReportItem[], "total": number }` — default **seluruh tiket kampus tersanitasi** (tanpa identitas pelapor lain, deskripsi sensitif, atau attachment); `mine=1` untuk filter "Laporan Saya". Laporan sendiri yang di-hold tampil sebagai pending check di sini. |
+| `/api/reports` | GET | query: `status`, `category_id`, `location_id`, `priority`, `from`, `to`, `search` (alias `q`; cocokkan nomor tiket/nama aset/nama lokasi terlihat), `mine=1`, `limit`, `offset` | `200 { "items": ReportItem[], "total": number }` — default **seluruh tiket kampus tersanitasi** (tanpa identitas pelapor lain, deskripsi sensitif, atau attachment); `mine=1` untuk filter "Laporan Saya". Item memuat `assetName`, `locationName`, `locationBuildingCode`, `locationFloorNumber`, `reporterCount` (agregat pelapor, bukan identitas); nama lokasi menjadi `null` bila lokasi nonaktif/disembunyikan pelapor. Laporan sendiri yang di-hold tampil sebagai pending check di sini. |
+| `/api/reports/stats` | GET | — | `200 { "total": number, "active": number, "inRepair": number, "done": number, "mineTotal": number }` — KPI kampus; `active` = status belum selesai (bukan `RESOLVED`), `done` = `RESOLVED`+`CLOSED`, `mineTotal` = laporan milik pemanggil. Tanpa identitas pelapor. |
 | `/api/reports` | POST | header **wajib** `x-idempotency-key`; body: `{ "location_id" (UUID, wajib), "asset_id" (UUID, wajib), "description" (10–2000 char), "photo_keys" (1–3 storage key dari POST /api/uploads, wajib) }` — **tanpa** kategori/issue/occurred_at dari reporter (400 bila dikirim) | verifikasi sinkron saat submit — lihat kontrak submit AI di bawah |
 | `/api/reports/duplicate-check` | GET | query: `location_id`, `asset_id`? | `200 { "count": number, "candidates": [{ "ticketNumber", "status", "reportedAt" }] }` — **legacy/opsional, bukan gate**. Keputusan duplikat terjadi otomatis di `POST /api/reports`: pelapor sama → `409`; pelapor beda → `SUPPORTING`. |
 | `/api/reports/:id` | GET | — | `200` detail **tersanitasi** untuk semua reporter (identitas pelapor dan teknisi dihilangkan; semua catatan progres tampil, `LAPORAN_PALSU` netral); `isOwn` menandai pemilik, dan attachment hanya disertakan untuk pemilik; `404` jika tiket tidak ada. |

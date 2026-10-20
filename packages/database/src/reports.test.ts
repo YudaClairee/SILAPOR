@@ -45,6 +45,7 @@ import {
   findDuplicateCandidates,
   getAdminReportDetail,
   getCampusReportDetail,
+  getCampusReportStats,
   getJakartaYear,
   getMyReportDetail,
   getMyReportTimeline,
@@ -1959,5 +1960,106 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
     expect(tickets).toContain('P33-JB-IN-END');
     expect(tickets).not.toContain('P33-JB-OUT-BEFORE');
     expect(tickets).not.toContain('P33-JB-OUT-AFTER');
+  });
+
+  it('searches campus by asset/location, masks hidden locations, and reports KPI counts', async () => {
+    const before = await getCampusReportStats(db!, reporterB);
+
+    const visibleLocationId = (
+      await db!
+        .insert(locations)
+        .values({
+          type: 'ROOM',
+          code: `P33-VISIBLE-${randomUUID()}`,
+          name: 'Ruang Rapat Melati',
+          buildingCode: 'Z',
+          floorNumber: 2,
+        })
+        .returning({ id: locations.id })
+    )[0]?.id as string;
+    const hiddenLocationId = (
+      await db!
+        .insert(locations)
+        .values({
+          type: 'ROOM',
+          code: `P33-HIDDEN-${randomUUID()}`,
+          name: 'Ruang Lift Rahasia',
+          reporterHidden: true,
+        })
+        .returning({ id: locations.id })
+    )[0]?.id as string;
+    const assetId = (
+      await db!
+        .insert(facilityAssets)
+        .values({
+          assetCode: `P33-ASSET-${randomUUID()}`,
+          name: 'Proyektor P33',
+          categoryId: catB,
+          locationId: visibleLocationId,
+        })
+        .returning({ id: facilityAssets.id })
+    )[0]?.id as string;
+
+    const insertCampusReport = async (
+      locationId: string,
+      linkedAssetId: string | null,
+      factors: Record<string, unknown> | null = null,
+    ): Promise<string> => {
+      const rows = await db!
+        .insert(maintenanceReports)
+        .values({
+          ticketNumber: `P33-${randomUUID()}`,
+          idempotencyKey: randomUUID(),
+          reporterId: reporterB,
+          locationId,
+          assetId: linkedAssetId,
+          submittedCategoryId: catB,
+          submittedIssueTypeId: null,
+          description: 'Laporan uji pencarian kampus dan sanitasi lokasi tersembunyi.',
+          status: 'REPORTED',
+          priorityFactors: factors,
+        })
+        .returning({ id: maintenanceReports.id });
+      return rows[0]?.id as string;
+    };
+    const assetReportId = await insertCampusReport(visibleLocationId, assetId, {
+      affectedReporters: 4,
+    });
+    const visibleReportId = await insertCampusReport(visibleLocationId, null);
+    const hiddenReportId = await insertCampusReport(hiddenLocationId, null);
+
+    const after = await getCampusReportStats(db!, reporterB);
+    expect(after.total).toBe(before.total + 3);
+    expect(after.active).toBe(before.active + 3);
+    expect(after.done).toBe(before.done);
+    expect(after.mineTotal).toBe(before.mineTotal + 3);
+
+    const byAsset = await listCampusReports(db!, reporterB, { search: 'Proyektor' });
+    expect(byAsset.items.map((item) => item.id)).toEqual([assetReportId]);
+    expect(byAsset.items[0]).toMatchObject({
+      assetName: 'Proyektor P33',
+      locationName: 'Ruang Rapat Melati',
+      locationBuildingCode: 'Z',
+      locationFloorNumber: 2,
+      reporterCount: 4,
+    });
+
+    const byLocation = await listCampusReports(db!, reporterB, { search: 'melati' });
+    expect(new Set(byLocation.items.map((item) => item.id))).toEqual(
+      new Set([assetReportId, visibleReportId]),
+    );
+
+    // Search must not reveal a reporter-hidden location by name.
+    const byHiddenLocation = await listCampusReports(db!, reporterB, { search: 'Rahasia' });
+    expect(byHiddenLocation.total).toBe(0);
+
+    const all = await listCampusReports(db!, reporterB, { limit: 100 });
+    const hidden = all.items.find((item) => item.id === hiddenReportId);
+    expect(hidden).toMatchObject({
+      assetName: null,
+      locationName: null,
+      locationBuildingCode: null,
+      locationFloorNumber: null,
+    });
   });
 });

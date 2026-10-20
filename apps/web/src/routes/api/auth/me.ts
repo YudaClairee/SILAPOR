@@ -2,8 +2,9 @@
 //
 // Reads the session cookie, resolves it through `resolveSessionUser`
 // (unexpired + unrevoked + locally active user), and returns the minimal
-// public shape { user:{ id, username, role } } — no external IDs, NIMs, or
-// hashes. Missing/invalid sessions get 401 { code:'UNAUTHORIZED',
+// public shape { user:{ id, username, role, nim } } — `nim` is the caller's
+// own student id only (never another user's), and no external IDs or hashes
+// are exposed. Missing/invalid sessions get 401 { code:'UNAUTHORIZED',
 // message:'Belum login' } with no further detail.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
@@ -71,7 +72,14 @@ export const Route = createFileRoute('/api/auth/me')({
               details: redact({ userRef: resolved.id }),
             });
             return Response.json(
-              { user: { id: resolved.id, username: resolved.username, role: resolved.role } },
+              {
+                user: {
+                  id: resolved.id,
+                  username: resolved.username,
+                  role: resolved.role,
+                  nim: userRow?.nim ?? null,
+                },
+              },
               { status: 200 },
             );
           } catch (error) {
