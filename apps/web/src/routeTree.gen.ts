@@ -29,6 +29,7 @@ import { Route as ReporterIndexRouteImport } from './routes/reporter.index'
 import { Route as ReporterNotifikasiRouteImport } from './routes/reporter.notifikasi'
 import { Route as AdminFacilitiesIndexRouteImport } from './routes/admin.facilities.index'
 import { Route as AdminFacilitiesAssetIdRouteImport } from './routes/admin.facilities.$assetId'
+import { Route as AdminFacilitiesHistoryRouteImport } from './routes/admin.facilities.history'
 import { Route as AdminReportsIndexRouteImport } from './routes/admin.reports.index'
 import { Route as AdminReportsTicketRouteImport } from './routes/admin.reports.$ticket'
 import { Route as ApiAdminAssetsRouteImport } from './routes/api/admin/assets'
@@ -165,6 +166,11 @@ const AdminFacilitiesIndexRoute = AdminFacilitiesIndexRouteImport.update({
 const AdminFacilitiesAssetIdRoute = AdminFacilitiesAssetIdRouteImport.update({
   id: '/facilities/$assetId',
   path: '/facilities/$assetId',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminFacilitiesHistoryRoute = AdminFacilitiesHistoryRouteImport.update({
+  id: '/facilities/history',
+  path: '/facilities/history',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminReportsIndexRoute = AdminReportsIndexRouteImport.update({
@@ -379,6 +385,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/reporter/': typeof ReporterIndexRoute
   '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
+  '/admin/facilities/history': typeof AdminFacilitiesHistoryRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -436,6 +443,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/reporter': typeof ReporterIndexRoute
   '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
+  '/admin/facilities/history': typeof AdminFacilitiesHistoryRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -496,6 +504,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/reporter/': typeof ReporterIndexRoute
   '/admin/facilities/$assetId': typeof AdminFacilitiesAssetIdRoute
+  '/admin/facilities/history': typeof AdminFacilitiesHistoryRoute
   '/admin/reports/$ticket': typeof AdminReportsTicketRoute
   '/api/admin/assets': typeof ApiAdminAssetsRouteWithChildren
   '/api/admin/categories': typeof ApiAdminCategoriesRouteWithChildren
@@ -557,6 +566,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/reporter/'
     | '/admin/facilities/$assetId'
+    | '/admin/facilities/history'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -614,6 +624,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/reporter'
     | '/admin/facilities/$assetId'
+    | '/admin/facilities/history'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -673,6 +684,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/reporter/'
     | '/admin/facilities/$assetId'
+    | '/admin/facilities/history'
     | '/admin/reports/$ticket'
     | '/api/admin/assets'
     | '/api/admin/categories'
@@ -876,6 +888,13 @@ declare module '@tanstack/react-router' {
       path: '/facilities/$assetId'
       fullPath: '/admin/facilities/$assetId'
       preLoaderRoute: typeof AdminFacilitiesAssetIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/facilities/history': {
+      id: '/admin/facilities/history'
+      path: '/facilities/history'
+      fullPath: '/admin/facilities/history'
+      preLoaderRoute: typeof AdminFacilitiesHistoryRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/reports/': {
@@ -1149,6 +1168,7 @@ interface AdminRouteChildren {
   AdminTechniciansRoute: typeof AdminTechniciansRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminFacilitiesAssetIdRoute: typeof AdminFacilitiesAssetIdRoute
+  AdminFacilitiesHistoryRoute: typeof AdminFacilitiesHistoryRoute
   AdminReportsTicketRoute: typeof AdminReportsTicketRoute
   AdminFacilitiesIndexRoute: typeof AdminFacilitiesIndexRoute
   AdminReportsIndexRoute: typeof AdminReportsIndexRoute
@@ -1163,6 +1183,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminTechniciansRoute: AdminTechniciansRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminFacilitiesAssetIdRoute: AdminFacilitiesAssetIdRoute,
+  AdminFacilitiesHistoryRoute: AdminFacilitiesHistoryRoute,
   AdminReportsTicketRoute: AdminReportsTicketRoute,
   AdminFacilitiesIndexRoute: AdminFacilitiesIndexRoute,
   AdminReportsIndexRoute: AdminReportsIndexRoute,

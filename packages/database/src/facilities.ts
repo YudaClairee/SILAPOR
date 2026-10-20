@@ -7,6 +7,23 @@
 // note ever enters these rows by construction — the SELECT lists project
 // specific columns only.
 //
+// The maintenance-history projection is admin-only and carries one extra
+// display layer for the Histori Perbaikan Aset page (Figma 150:1264): the
+// resolved issue-type name (`final` preferred, `submitted` fallback) and the
+// active technician `displayName` per ticket. Only display names pass through
+// — never technician PII (phone) or reporter identity. Duration is derived
+// client-side from `reportedAt`/`resolvedAt`, so the DB stays a factual
+// transport.
+//
+// The Kelola Aset table (Figma 150:1748) needs two more safe display fields
+// on the SAME status projection: `buildingName` (derived from the room's
+// denormalised building_code via the BUILDING row, null when the asset has
+// no room/building) and `categoryId` (the raw FK for the client-side
+// category filter). Both are display/filter keys only — still no report
+// content. The install-year column comes from the asset's `createdAt`
+// (Jakarta year, derived client-side); facility_assets carries no dedicated
+// procurement-year column.
+//
 // Behavior rulings (ledger): inactive assets are excluded unless
 // `includeInactive` is set (admin list); assets without active reports are
 // OPERATIONAL; `lastUpdated` is the latest active report's reported_at when
@@ -14,7 +31,7 @@
 // operational severity desc, then assetCode asc (problematic facilities
 // first). This module logs nothing and carries no PII in messages.
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { badRequest, notFound } from '@silapor/shared';
 import {
@@ -67,11 +84,17 @@ export interface FacilityStatusItem {
   readonly assetName: string;
   // Building + room display label only — never free-text report content.
   readonly locationLabel: string;
+  /** Building display name (null when the asset has no room/building). */
+  readonly buildingName: string | null;
   readonly categoryName: string | null;
+  /** Raw category FK for the client-side KATEGORI filter. */
+  readonly categoryId: string | null;
   readonly derivedStatus: FacilityStatus;
   readonly isActive: boolean;
   readonly activeReportCount: number;
   readonly lastUpdated: Date;
+  /** Asset creation timestamp — the TAHUN column derives its Jakarta year. */
+  readonly createdAt: Date;
 }
 
 export interface FacilityStatusResult {
@@ -137,7 +160,9 @@ export async function listFacilityStatus(
       assetCode: schema.facilityAssets.assetCode,
       name: schema.facilityAssets.name,
       isActive: schema.facilityAssets.isActive,
+      createdAt: schema.facilityAssets.createdAt,
       updatedAt: schema.facilityAssets.updatedAt,
+      categoryId: schema.facilityAssets.categoryId,
       categoryName: schema.facilityCategories.name,
       roomName: schema.locations.name,
       roomBuildingCode: schema.locations.buildingCode,
@@ -213,21 +238,21 @@ export async function listFacilityStatus(
     const active =
       activeByAsset.get(asset.id) ??
       ({ statuses: [], latestReportedAt: null } as AssetStatusBucket);
+    const buildingName =
+      asset.roomBuildingCode === null ? null : (buildingNames.get(asset.roomBuildingCode) ?? null);
     return {
       assetId: asset.id,
       assetCode: asset.assetCode,
       assetName: asset.name,
-      locationLabel: buildLocationLabel(
-        asset.roomName,
-        asset.roomBuildingCode === null
-          ? null
-          : (buildingNames.get(asset.roomBuildingCode) ?? null),
-      ),
+      locationLabel: buildLocationLabel(asset.roomName, buildingName),
+      buildingName,
       categoryName: asset.categoryName,
+      categoryId: asset.categoryId,
       derivedStatus: deriveFacilityStatus(active.statuses),
       isActive: asset.isActive,
       activeReportCount: active.statuses.length,
       lastUpdated: active.latestReportedAt ?? asset.updatedAt,
+      createdAt: asset.createdAt,
     };
   });
   const filtered =
@@ -262,6 +287,16 @@ export interface AssetMaintenanceHistoryItem {
   readonly resolvedAt: Date | null;
   readonly closedAt: Date | null;
   readonly finalPriority: PriorityLevel | null;
+  /**
+   * Display name for the JENIS MASALAH column: `final` issue type preferred,
+   * `submitted` fallback, null when the ticket predates classification.
+   */
+  readonly issueTypeName: string | null;
+  /**
+   * Display name only (`technicians.displayName`) of the active assignment
+   * (`unassigned_at IS NULL`); null before assignment. Never PII.
+   */
+  readonly technicianName: string | null;
 }
 
 export interface AssetMaintenanceHistory {
@@ -316,6 +351,8 @@ export async function getFacilityMaintenanceHistory(
       resolvedAt: schema.maintenanceReports.resolvedAt,
       closedAt: schema.maintenanceReports.closedAt,
       finalPriority: schema.maintenanceReports.finalPriority,
+      finalIssueTypeId: schema.maintenanceReports.finalIssueTypeId,
+      submittedIssueTypeId: schema.maintenanceReports.submittedIssueTypeId,
     })
     .from(schema.maintenanceReports)
     .where(eq(schema.maintenanceReports.assetId, id))
@@ -324,6 +361,53 @@ export async function getFacilityMaintenanceHistory(
   const activeStatuses = reports
     .filter((report) => (ACTIVE_REPORT_STATUSES as readonly string[]).includes(report.status))
     .map((report) => report.status);
+
+  // Resolve display names for the history table (Figma 150:1264): issue type
+  // (`final` preferred, `submitted` fallback) and the active technician.
+  // Only display names cross this boundary — no reporter identity, no
+  // technician PII, no report content.
+  const issueTypeIds = Array.from(
+    new Set(
+      reports.flatMap((report) => [report.finalIssueTypeId, report.submittedIssueTypeId]),
+    ),
+  ).filter((value): value is string => value !== null);
+  const reportIds = reports.map((report) => report.id);
+  const [issueTypeRows, assignmentRows] = await Promise.all([
+    issueTypeIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; name: string }>)
+      : db
+          .select({ id: schema.issueTypes.id, name: schema.issueTypes.name })
+          .from(schema.issueTypes)
+          .where(inArray(schema.issueTypes.id, issueTypeIds)),
+    reportIds.length === 0
+      ? Promise.resolve([] as Array<{ reportId: string; technicianName: string; assignedAt: Date }>)
+      : db
+          .select({
+            reportId: schema.reportAssignments.reportId,
+            technicianName: schema.technicians.displayName,
+            assignedAt: schema.reportAssignments.assignedAt,
+          })
+          .from(schema.reportAssignments)
+          .innerJoin(
+            schema.technicians,
+            eq(schema.technicians.id, schema.reportAssignments.technicianId),
+          )
+          .where(
+            and(
+              inArray(schema.reportAssignments.reportId, reportIds),
+              isNull(schema.reportAssignments.unassignedAt),
+            ),
+          )
+          .orderBy(desc(schema.reportAssignments.assignedAt)),
+  ]);
+  const issueTypeNames = new Map(issueTypeRows.map((row) => [row.id, row.name] as const));
+  // Assignment rows are newest-first, so the first hit per report wins.
+  const technicianNames = new Map<string, string>();
+  for (const row of assignmentRows) {
+    if (!technicianNames.has(row.reportId)) {
+      technicianNames.set(row.reportId, row.technicianName);
+    }
+  }
 
   let buildingName: string | null = null;
   if (asset.roomBuildingCode !== null) {
@@ -361,6 +445,16 @@ export async function getFacilityMaintenanceHistory(
       closedAt: report.closedAt,
       // Column is text with a DB check constraint on the three priority levels.
       finalPriority: report.finalPriority as PriorityLevel | null,
+      // `final` classification wins; `submitted` is the pre-verification
+      // fallback so REPORTED tickets still show a jenis masalah.
+      issueTypeName:
+        (report.finalIssueTypeId !== null
+          ? (issueTypeNames.get(report.finalIssueTypeId) ?? null)
+          : null) ??
+        (report.submittedIssueTypeId !== null
+          ? (issueTypeNames.get(report.submittedIssueTypeId) ?? null)
+          : null),
+      technicianName: technicianNames.get(report.id) ?? null,
     })),
   };
 }

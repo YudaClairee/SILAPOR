@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-// Admin technicians page contract: renders the stubbed technician list
-// with the add form and archive toggles.
+// Admin technicians page contract (Figma 150:1484): breadcrumb + header +
+// CTA Tambah Teknisi, kartu filter (pencarian + ketersediaan + toggle
+// nonaktif), tabel 7 kolom dengan badge ketersediaan/tugas aktif/status,
+// aksi Ubah + Nonaktifkan/Aktifkan, footer "Menampilkan a–b dari N".
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import {
@@ -15,9 +17,13 @@ import { Route } from './admin.technicians';
 function stubFetch(body: unknown, status = 200): void {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({
-      status,
-      ok: status >= 200 && status < 300,
+    vi.fn(async (url: unknown) => ({
+      status:
+        typeof url === 'string' && url.includes('/api/admin/analytics/overview') ? 500 : status,
+      ok:
+        typeof url === 'string' && url.includes('/api/admin/analytics/overview')
+          ? false
+          : status >= 200 && status < 300,
       json: async () => body,
     })),
   );
@@ -43,13 +49,28 @@ afterEach(() => {
 });
 
 describe('kelola teknisi', () => {
-  it('renders rows with code, name, and archive action', async () => {
-    stubFetch([{ id: 't1', technicianCode: 'TECH-001', displayName: 'Budi', specialty: 'Listrik', isActive: true }]);
+  it('renders rows with availability, workload, status, and edit/deactivate actions', async () => {
+    stubFetch([
+      {
+        id: 't1',
+        technicianCode: 'TEK-01',
+        displayName: 'Budi Santoso',
+        specialty: 'Elektronik & Audio-Visual',
+        isActive: true,
+      },
+    ]);
     renderPage();
     expect(await screen.findByRole('heading', { name: 'Kelola Teknisi' })).toBeInTheDocument();
-    expect(screen.getByText('Budi')).toBeInTheDocument();
-    expect(screen.getByText('TECH-001')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Arsipkan' })).toBeInTheDocument();
+    expect(screen.getByText('Budi Santoso')).toBeInTheDocument();
+    expect(screen.getByText('TEK-01')).toBeInTheDocument();
+    expect(screen.getAllByText('Tersedia').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('0 tugas aktif')).toBeInTheDocument();
+    expect(screen.getByText('Aktif')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tambah Teknisi' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ubah' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Nonaktifkan' })).toBeInTheDocument();
+    expect(screen.getByText(/Menampilkan 1–1 dari 1 teknisi terdaftar/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Cari nama atau spesialisasi teknisi/)).toBeInTheDocument();
   });
 
   it('shows empty state when no technicians exist', async () => {
