@@ -590,8 +590,8 @@ function NewReportPage() {
           Lihat detail laporan
         </Link>
         <Link
-          to="/reporter/reports"
-          search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+          to="/reporter"
+          search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
           className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
         >
           Laporan Saya
@@ -655,8 +655,8 @@ function NewReportPage() {
             description="Daftar lokasi kosong atau belum tersedia. Coba muat ulang, atau lihat laporan yang sudah ada."
             action={
               <Link
-                to="/reporter/reports"
-                search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+                to="/reporter"
+                search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
                 className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
               >
                 Laporan Saya
@@ -721,8 +721,8 @@ function NewReportPage() {
               Buat laporan baru
             </Button>
             <Link
-              to="/reporter/reports"
-              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+              to="/reporter"
+              search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Laporan Saya
@@ -754,8 +754,8 @@ function NewReportPage() {
           ) : null}
           <p className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
             <Link
-              to="/reporter/reports"
-              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+              to="/reporter"
+              search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Laporan Saya
@@ -1123,8 +1123,8 @@ function NewReportPage() {
 
           <div className="flex flex-col-reverse gap-3 border-t border-[#edf0f2] pt-5 sm:flex-row sm:items-center sm:justify-end md:col-span-2">
             <Link
-              to="/reporter/reports"
-              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+              to="/reporter"
+              search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
               className={`${buttonBaseClasses} ${buttonVariantClasses.ghost} justify-center text-muted`}
             >
               Batal / Kembali

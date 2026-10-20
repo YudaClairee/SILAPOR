@@ -173,6 +173,20 @@ describe('detail tiket pelapor', () => {
     expect(screen.getAllByText('12 Okt 2026, 08:30 WIB').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('points the breadcrumb and back link at the V2 monitoring page', async () => {
+    stubFetch();
+    renderPage();
+    const back = await screen.findByRole('link', { name: /Kembali ke Pemantauan Tiket/ });
+    // /reporter is the V2 "Pemantauan Tiket" page; /reporter/reports is the
+    // legacy "Tiket Kampus" list and must not be the back target.
+    expect(back.getAttribute('href')?.startsWith('/reporter')).toBe(true);
+    expect(back.getAttribute('href')).not.toContain('/reporter/reports');
+    const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    const crumb = within(breadcrumb).getByRole('link', { name: 'Pemantauan Tiket' });
+    expect(crumb.getAttribute('href')?.startsWith('/reporter')).toBe(true);
+    expect(crumb.getAttribute('href')).not.toContain('/reporter/reports');
+  });
+
   it('drives the stepper from the report status and events', async () => {
     stubFetch();
     renderPage();

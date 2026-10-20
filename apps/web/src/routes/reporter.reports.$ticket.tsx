@@ -377,8 +377,8 @@ function ReportDetailPage() {
         <div className="min-w-0">
           <nav aria-label="Breadcrumb" className="text-xs text-muted">
             <Link
-              to="/reporter/reports"
-              search={{ filter: 'semua', status: '', mine: false, offset: 0 }}
+              to="/reporter"
+              search={{ search: '', mine: false, status: '', priority: '', offset: 0 }}
               className="hover:text-accent hover:underline"
             >
               Pemantauan Tiket
@@ -409,9 +409,12 @@ function ReportDetailPage() {
             </p>
           )}
         </div>
+        {/* V2 monitoring is /reporter; /reporter/reports is the legacy "Tiket
+            Kampus" list, so both the breadcrumb and this button intentionally
+            target the V2 page. */}
         <Link
-          to="/reporter/reports"
-          search={{ filter: 'semua', status: '', mine: false, offset: 0 }}
+          to="/reporter"
+          search={{ search: '', mine: false, status: '', priority: '', offset: 0 }}
           className={`${buttonBaseClasses} ${buttonVariantClasses.secondary} gap-2 rounded-full`}
         >
           <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />

@@ -7,6 +7,11 @@
 // /admin/reports 307-redirect to defaults queries; Playwright follows them.
 // Descriptions carry a timestamp/random suffix so reruns never collide with
 // prior tickets (dev DB already holds MNT-2026-000001/000002, counter seq 2+).
+//
+// ENV PRECONDITION: run with OPENROUTER_API_KEY unset/empty so submit takes
+// the deterministic held path (202). With a live key the 1×1 PNG fixture is a
+// legitimate AI FAIL (422, no ticket) and the gate cannot proceed.
+// TEST 8 PRECONDITION: no worker process running (fail-open health check).
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:3000';
@@ -86,14 +91,23 @@ async function fillReportForm(
   fillOptions: E2eFillOptions = {},
 ): Promise<number> {
   await page.goto('/reporter/reports/new');
-  await expect(page.getByRole('heading', { name: 'Buat Laporan Baru' })).toBeVisible();
+  // The v2 reporter form renders "Buat Laporan Kerusakan" once the options
+  // load; "Buat Laporan Baru" only appears in the loading/empty branches.
+  await expect(page.getByRole('heading', { name: /Buat Laporan (Baru|Kerusakan)/ })).toBeVisible();
 
   const optionsResponse = await page.request.get(`${BASE_URL}/api/reports/form-options`);
   expect(optionsResponse.ok()).toBe(true);
   const options = (await optionsResponse.json()) as E2eFormOptions;
   const assets = options.assets.filter(
-    (asset): asset is { readonly id: string; readonly locationId: string } =>
-      asset.locationId !== null,
+    (asset): asset is { readonly id: string; readonly locationId: string } => {
+      if (asset.locationId === null) {
+        return false;
+      }
+      // The v2 cascade offers ROOM rows only; assets placed in a SHARED_AREA
+      // cannot be selected in the form, so they are not valid E2E targets.
+      const location = options.locations.find((item) => item.id === asset.locationId);
+      return location?.type === 'ROOM';
+    },
   );
   const chosenIndex = fillOptions.assetIndex ?? (await firstFreeAssetIndex(page, assets));
   const asset = assets[chosenIndex];
@@ -114,25 +128,27 @@ async function fillReportForm(
     throw new Error('E2E: asset building missing from form options');
   }
 
-  const buildingSelect = page.getByLabel('Gedung', { exact: true });
+  // v2 labels append a generated "*" (CSS content) and the photo label is
+  // duplicated for the drop zone, so target the stable control ids instead.
+  const buildingSelect = page.locator('#report-building');
   await expect(buildingSelect.locator(`option[value="${building.id}"]`)).toBeAttached();
   await buildingSelect.selectOption(building.id);
   if (floor !== undefined) {
-    const floorSelect = page.getByLabel('Lantai', { exact: true });
+    const floorSelect = page.locator('#report-floor');
     await expect(floorSelect.locator(`option[value="${floor.id}"]`)).toBeAttached();
     await floorSelect.selectOption(floor.id);
   }
-  const roomSelect = page.getByLabel('Ruangan', { exact: true });
+  const roomSelect = page.locator('#report-room');
   await expect(roomSelect.locator(`option[value="${room.id}"]`)).toBeAttached();
   await roomSelect.selectOption(room.id);
-  const assetSelect = page.getByLabel('Aset', { exact: true });
+  const assetSelect = page.locator('#report-asset');
   await expect(assetSelect.locator(`option[value="${asset.id}"]`)).toBeAttached();
   await assetSelect.selectOption(asset.id);
 
-  await page.getByLabel('Deskripsi', { exact: true }).fill(description);
+  await page.locator('#report-description').fill(description);
   const photo = fillOptions.photo ?? { name: 'bukti.png', buffer: PNG };
   await page
-    .getByLabel('Foto', { exact: true })
+    .locator('#report-photos')
     .setInputFiles([{ name: photo.name, mimeType: 'image/png', buffer: photo.buffer }]);
   return chosenIndex;
 }
@@ -175,7 +191,9 @@ test('1 gate: reporter submits a report and receives a ticket', async ({ browser
     expect(ticketA).toMatch(TICKET_PATTERN);
 
     await page.getByRole('link', { name: 'Lihat detail laporan' }).click();
-    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    // v2 reporter detail: the H1 is the ticket number ("#MNT-…"), the
+    // "Detail Laporan" title only renders in the loading/not-found state.
+    await expect(page.getByRole('heading', { name: new RegExp(ticketA) })).toBeVisible();
     await expect(page.getByText(ticketA).first()).toBeVisible();
     await expect(page.getByText(descriptionA)).toBeVisible();
   } finally {
@@ -195,7 +213,7 @@ test('2 list/detail: reporter sees the ticket in the list with REPORTED status',
     await expect(rowLink).toBeVisible();
     await rowLink.click();
 
-    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: new RegExp(ticketA) })).toBeVisible();
     await expect(page.getByText(descriptionA)).toBeVisible();
     // REPORTED renders as "Dilaporkan" (P3-5 copy); scoped to the definition
     // list so the list-page status <select> options cannot collide.
@@ -213,7 +231,7 @@ test('3 campus visibility: reporter-B opens reporter-A ticket in sanitized form'
   const page = await context.newPage();
   try {
     await page.goto(`/reporter/reports/${ticketA}`);
-    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: new RegExp(ticketA) })).toBeVisible();
     await expect(page.getByText(descriptionA)).toBeVisible();
     await expect(page.getByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.')).toBeVisible();
     await expect(page.getByText('Laporan tidak ditemukan')).toHaveCount(0);
@@ -415,7 +433,7 @@ test('9 attachments: reporter uploads a photo, sees the thumbnail, broken image 
     await expect(page.getByText('1 foto terlampir.')).toBeVisible();
 
     await page.getByRole('link', { name: 'Lihat detail laporan' }).click();
-    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: new RegExp(ticket) })).toBeVisible();
     const thumb = page.getByRole('img', { name: 'lampu-rusak.png' });
     await expect(thumb).toBeVisible();
     expect(await thumb.getAttribute('src')).toContain(`/api/reports/${ticket}/attachments/`);
@@ -430,7 +448,7 @@ test('9 attachments: reporter uploads a photo, sees the thumbnail, broken image 
       }),
     );
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: new RegExp(ticket) })).toBeVisible();
     await expect(page.getByRole('img', { name: 'Gambar tidak dapat dimuat' })).toBeVisible();
     await expect(page.getByText('Gambar tidak dapat dimuat')).toBeVisible();
   } finally {

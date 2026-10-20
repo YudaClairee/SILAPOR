@@ -987,6 +987,40 @@ describe.skipIf(!enabled)('createReport duplicate-first + applyVerification (req
     expect(events.map((e) => e.eventType)).toContain('REPORT_VERIFIED');
   });
 
+  it('applyVerification queues a REPORT_VERIFIED notification for the worker', async () => {
+    const asset = await createAsset('T3-ASSET-AV-N1', catElec);
+    const created = await createReport(
+      db!,
+      {
+        reporterId: reporterA,
+        locationId: locA,
+        assetId: asset,
+        description: longDescription('notifikasi verifikasi'),
+      },
+      randomUUID(),
+    );
+    await applyVerification(db!, created.report.id, {
+      finalCategoryId: catElec,
+      finalIssueTypeId: itElec,
+      finalPriority: 'MEDIUM',
+    });
+    // Only WORKFLOW_NOTIFICATION rows reach the reporter (notifications.ts);
+    // the submit-time AI_REVIEW_REQUESTED row is a separate concern.
+    const queued = (await db!.select().from(outboxEvents)).filter(
+      (row) =>
+        row.type === 'WORKFLOW_NOTIFICATION' &&
+        (row.payload as { reportId?: string }).reportId === created.report.id,
+    );
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.status).toBe('PENDING');
+    expect(queued[0]?.payload).toMatchObject({
+      reportId: created.report.id,
+      ticketNumber: created.report.ticketNumber,
+      kind: 'REPORT_VERIFIED',
+      actorId: null,
+    });
+  });
+
   it('applyVerification leaves the auto-merged SUPPORTING link untouched', async () => {
     const asset = await createAsset('T3-ASSET-AV-2', catElec);
     const first = await createReport(

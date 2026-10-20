@@ -1,9 +1,10 @@
 // Reporter layout for the V2 top-nav shell. The redirect-only guard below is
 // unchanged and authoritative navigation-wise; the component owns the display
 // identity fetch (username + NIM only) and the logout POST.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Outlet, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { redirectForRole, type GuardUser } from '../server/guard';
+import { NOTIFICATIONS_CHANGED_EVENT } from '../lib/notification-events.js';
 import { ReporterShell } from '../components/index.js';
 
 interface MeUser {
@@ -100,6 +101,30 @@ function ReporterLayout() {
       cancelled = true;
     };
   }, []);
+
+  // The notification page marks rows read in-place, so refetch the dot count
+  // when it announces a change instead of waiting for the next full reload.
+  const refreshUnreadCount = useCallback((): void => {
+    void (async () => {
+      try {
+        const response = await fetch('/api/notifications', { credentials: 'include' });
+        if (!response.ok) return;
+        const body = (await response.json()) as { readonly unreadCount?: unknown };
+        setUnreadCount(
+          typeof body.unreadCount === 'number' && body.unreadCount >= 0 ? body.unreadCount : 0,
+        );
+      } catch {
+        // Display-only refresh: keep the last known count on failure.
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+    };
+  }, [refreshUnreadCount]);
 
   function handleLogout(): void {
     void (async () => {

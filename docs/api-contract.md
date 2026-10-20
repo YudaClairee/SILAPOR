@@ -223,7 +223,7 @@ sebagai panel/kolom **berbeda**.
 |---|---|---|
 | `/api/facilities/status` | GET | **admin-only** — query: `location_id`, `category_id`, `status`, `limit`, `offset` + `include_inactive` → `{ "items": [{ "assetId", "assetCode", "assetName", "locationLabel", "categoryName", "derivedStatus", "isActive", "activeReportCount", "lastUpdated" }], "total", "limit", "offset" }` (tanggal ISO); proyeksi tersanitasi **tanpa identitas reporter, deskripsi, attachment, internal note**; `401` anonim, `403` non-admin |
 | `/api/admin/assets/:id/history` | GET | `200 { "asset": { "assetId", "assetCode", "assetName", "isActive", "locationLabel", "categoryName", "derivedStatus" }, "items": [{ "reportId", "ticketNumber", "status", "reportedAt", "resolvedAt"?, "closedAt"?, "finalPriority"? }] }` — admin-only; semua tiket per asset + status + tanggal, terbaru dulu; `404` unknown asset. |
-| `/api/notifications` | GET | `200 { "items": [{ "id", "type", "title", "message", "reportId"?, "ticketNumber"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja. |
+| `/api/notifications` | GET | `200 { "items": [{ "id", "type", "title", "message", "reportId"?, "ticketNumber"?, "reportStatus"?, "assetName"?, "locationName"?, "locationBuildingCode"?, "locationFloorNumber"?, "readAt"?, "createdAt" }], "total", "unreadCount" }` — milik sendiri saja. `reportStatus`/`assetName`/`location*` di-join dari laporan (null bila laporan/aset sudah tidak ada atau lokasi nonaktif/`reporter_hidden`). |
 | `/api/notifications/:id/read` | POST | `200` — idempoten; id milik user lain/tidak ada → `404`. |
 | `/api/notifications/read-all` | POST | `200 { "updated" }` — tandai semua belum-dibaca milik sesi sebagai dibaca; idempoten, `updated: 0` valid. |
 

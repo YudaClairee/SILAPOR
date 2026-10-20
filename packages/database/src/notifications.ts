@@ -19,7 +19,7 @@
 // between the two is impossible; a post-commit redelivery is absorbed by the
 // unique constraint.
 
-import { and, count, desc, eq, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { badRequest, notFound } from '@silapor/shared';
 import * as schema from './schema.js';
@@ -198,6 +198,16 @@ export interface NotificationListItem {
   readonly reportId: string | null;
   /** The report's ticket when the notification's report row still exists. */
   readonly ticketNumber: string | null;
+  /** Current report status; null when the report row is gone (legacy row). */
+  readonly reportStatus: schema.Report['status'] | null;
+  /** Asset display name; null when the report has no asset or it was deleted. */
+  readonly assetName: string | null;
+  // Reporter-facing location display fields. Null when the report is gone, has
+  // no location, or the location is inactive/reporterHidden (lift rooms) — the
+  // same visibility rule as the campus report list.
+  readonly locationName: string | null;
+  readonly locationBuildingCode: string | null;
+  readonly locationFloorNumber: number | null;
   readonly readAt: Date | null;
   readonly createdAt: Date;
 }
@@ -231,6 +241,9 @@ export async function listNotificationsForUser(
       message: schema.notifications.message,
       reportId: schema.notifications.reportId,
       ticketNumber: schema.maintenanceReports.ticketNumber,
+      reportStatus: schema.maintenanceReports.status,
+      reportAssetId: schema.maintenanceReports.assetId,
+      reportLocationId: schema.maintenanceReports.locationId,
       readAt: schema.notifications.readAt,
       createdAt: schema.notifications.createdAt,
     })
@@ -241,6 +254,42 @@ export async function listNotificationsForUser(
     )
     .where(eq(schema.notifications.userId, userId))
     .orderBy(desc(schema.notifications.createdAt), desc(schema.notifications.id));
+  // Resolve display names in two batched lookups (same approach as
+  // listCampusReports) instead of a wide join: a missing/deleted asset or a
+  // hidden location degrades to null without dropping the notification row.
+  const assetIds = [
+    ...new Set(
+      rows.map((row) => row.reportAssetId).filter((value): value is string => value !== null),
+    ),
+  ];
+  const locationIds = [
+    ...new Set(
+      rows.map((row) => row.reportLocationId).filter((value): value is string => value !== null),
+    ),
+  ];
+  const assetRows =
+    assetIds.length === 0
+      ? []
+      : await db
+          .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
+          .from(schema.facilityAssets)
+          .where(inArray(schema.facilityAssets.id, assetIds));
+  const locationRows =
+    locationIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: schema.locations.id,
+            name: schema.locations.name,
+            buildingCode: schema.locations.buildingCode,
+            floorNumber: schema.locations.floorNumber,
+            isActive: schema.locations.isActive,
+            reporterHidden: schema.locations.reporterHidden,
+          })
+          .from(schema.locations)
+          .where(inArray(schema.locations.id, locationIds));
+  const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
+  const locationsById = new Map(locationRows.map((row) => [row.id, row] as const));
   const totalRows = await db
     .select({ value: count() })
     .from(schema.notifications)
@@ -250,7 +299,18 @@ export async function listNotificationsForUser(
     .from(schema.notifications)
     .where(and(eq(schema.notifications.userId, userId), isNull(schema.notifications.readAt)));
   return {
-    items: rows,
+    items: rows.map(({ reportAssetId, reportLocationId, ...row }) => {
+      const location = reportLocationId === null ? undefined : locationsById.get(reportLocationId);
+      const visibleLocation =
+        location !== undefined && location.isActive && !location.reporterHidden ? location : null;
+      return {
+        ...row,
+        assetName: reportAssetId === null ? null : (assetNames.get(reportAssetId) ?? null),
+        locationName: visibleLocation?.name ?? null,
+        locationBuildingCode: visibleLocation?.buildingCode ?? null,
+        locationFloorNumber: visibleLocation?.floorNumber ?? null,
+      };
+    }),
     total: totalRows[0]?.value ?? 0,
     unreadCount: unreadRows[0]?.value ?? 0,
   };

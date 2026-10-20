@@ -126,7 +126,7 @@ function LoginPage() {
       <header className="login-header">
         <div className="login-brand">
           <img
-            src="/assets/login/upi-tasikmalaya.png"
+            src="/logo-upi.png"
             alt="Logo UPI Kampus Tasikmalaya"
             width={36}
             height={36}

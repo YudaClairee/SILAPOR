@@ -218,6 +218,45 @@ export function ActivityIcon(props: IconProps) {
   );
 }
 
+/** Timestamp meta and progress-note notifications. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </Svg>
+  );
+}
+
+export function ArrowRightIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </Svg>
+  );
+}
+
+/** "Tandai semua telah dibaca" — two stacked ticks. */
+export function DoubleCheckIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m2 12 4 4 7-8" />
+      <path d="m11 15.5.5.5 8-9" />
+    </Svg>
+  );
+}
+
+/** Duplicate-merge notification: two branches converging into one. */
+export function MergeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6 3v4a4 4 0 0 0 4 4h8" />
+      <path d="m15 8 3 3-3 3" />
+      <path d="M6 21v-4a4 4 0 0 1 4-4" />
+    </Svg>
+  );
+}
+
 export function MapPinIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -301,26 +340,16 @@ export function LockIcon(props: IconProps) {
 }
 
 
-/** Institutional mark used in the top-left brand block. */
+/** Institutional mark used in the top-left brand block. The single source of
+ *  truth is the campus logo in `public/logo-upi.png` (160×148, white
+ *  background) so every shell shows the same artwork. */
 export function LogoMark({ className }: { readonly className?: string }) {
   return (
-    <svg viewBox="0 0 40 40" className={className} aria-hidden="true" focusable="false">
-      <rect width="40" height="40" rx="10" fill="#0a3947" />
-      <path
-        d="M8 25.5 20 16l12 9.5"
-        fill="none"
-        stroke="#ffffff"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 24.5V31M20 24.5V31M28 24.5V31"
-        stroke="#ffffff"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <circle cx="31" cy="10" r="2.5" fill="#f2b84b" />
-    </svg>
+    <img
+      src="/logo-upi.png"
+      alt=""
+      aria-hidden="true"
+      className={`object-contain ${className ?? ''}`.trim()}
+    />
   );
 }

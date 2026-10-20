@@ -267,6 +267,11 @@ describe('reporter form render', () => {
       photoKeys: unknown;
     };
     expect(body.photoKeys).toEqual(['staging_testkey']);
+    // Post-submit CTA returns to the V2 monitoring list, not the legacy
+    // "Tiket Kampus" page at /reporter/reports.
+    const mineLink = screen.getByRole('link', { name: 'Laporan Saya' });
+    expect(mineLink.getAttribute('href')?.startsWith('/reporter')).toBe(true);
+    expect(mineLink.getAttribute('href')).not.toContain('/reporter/reports');
   });
 
   it('shows the fail reason with a fresh-report retry', async () => {

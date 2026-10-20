@@ -76,7 +76,7 @@ function KebijakanPrivasiPage() {
       <header className="policy-header">
         <div className="policy-brand">
           <img
-            src="/assets/login/upi-tasikmalaya.png"
+            src="/logo-upi.png"
             alt="Logo UPI Kampus Tasikmalaya"
             width={36}
             height={36}

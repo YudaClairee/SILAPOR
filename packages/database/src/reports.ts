@@ -813,6 +813,22 @@ export async function applyVerification(
           finalPriority,
         },
       });
+      // Parity with workflow.verifyReport: verification must reach the
+      // reporter. Without this row the held/AI verify paths leave the reporter
+      // with no "Laporan diverifikasi" notification (notifications.ts only
+      // reads WORKFLOW_NOTIFICATION outbox rows). Queued in-tx so the
+      // notification can never disagree with the status flip; the worker
+      // consumes it asynchronously and idempotently.
+      await tx.insert(schema.outboxEvents).values({
+        type: 'WORKFLOW_NOTIFICATION',
+        payload: {
+          reportId: report.id,
+          ticketNumber: report.ticketNumber,
+          kind: 'REPORT_VERIFIED',
+          actorId: actorId ?? null,
+        },
+        status: 'PENDING',
+      });
       return next;
     });
   } catch (error) {
