@@ -1,13 +1,13 @@
 // Report attachment download (Phase 4 P4-3): GET byte stream for one file.
 //
 // Reporter+admin: `requireUser` inside the try (401 anonymous); the service
-// layer re-guards on the same request (ownership mirrors the report:
-// reporter own, admin any). `:id` accepts a row UUID or a ticket number;
-// missing/foreign references → identical 404, missing attachment → 404.
-// Streams bytes with exact headers (`Content-Type` from the canonical DB
-// MIME, `Content-Disposition: inline`, `nosniff`, private 60s cache) —
-// never a redirect, presigned URL, or storage key. Logs carry opaque user
-// and attachment IDs plus codes only.
+// layer re-guards on the same request. Downloads are campus-readable: any
+// authenticated reporter may read any existing report's attachment, while
+// upload stays owner-only. `:id` accepts a row UUID or a ticket number;
+// missing reports/attachments → 404. Streams bytes with exact headers
+// (`Content-Type` from the canonical DB MIME, `Content-Disposition: inline`,
+// `nosniff`, private 60s cache) — never a redirect, presigned URL, or storage
+// key. Logs carry opaque user and attachment IDs plus codes only.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
 import { createLogger, redact, toHttpResponse, withRequestId } from '@silapor/shared';

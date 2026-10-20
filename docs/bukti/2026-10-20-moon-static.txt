@@ -1,0 +1,254 @@
+[ WARN 2026-10-20 10:41:47.941] moon_task_hasher::task_hasher  Attempted to hash input apps/web/app.config.ts but it does not exist, skipping 
+          web:build | vite v8.3.4 building client environment for production...
+          web:build | transforming...
+          web:build | ✓ 212 modules transformed.
+          web:build | rendering chunks...
+          web:build | computing gzip size...
+          web:build | dist/client/assets/ibm-plex-mono-vietnamese-500-normal-C8zxqsMH.woff       5.61 kB
+          web:build | dist/client/assets/ibm-plex-mono-vietnamese-400-normal-DDuiU_S-.woff       5.62 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-ext-500-normal-BIfNGwUT.woff     5.77 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-ext-400-normal-DMdlQ8Kv.woff     5.82 kB
+          web:build | dist/client/assets/ibm-plex-mono-vietnamese-400-normal-BulugwFq.woff2      5.86 kB
+          web:build | dist/client/assets/ibm-plex-mono-vietnamese-500-normal-DZ4AoWbu.woff2      6.04 kB
+          web:build | dist/client/assets/ibm-plex-sans-vietnamese-400-normal-fK1oJ5dG.woff       6.39 kB
+          web:build | dist/client/assets/ibm-plex-sans-vietnamese-600-normal-DgdngZtN.woff       6.58 kB
+          web:build | dist/client/assets/ibm-plex-sans-vietnamese-500-normal-BEb3_waV.woff       6.58 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-ext-400-normal-xuaO2J-f.woff2    6.91 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-ext-500-normal-BqneJy0T.woff2    6.97 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-400-normal-CEL4l2ZJ.woff         7.20 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-500-normal-Ael50iVv.woff         7.20 kB
+          web:build | dist/client/assets/ibm-plex-sans-vietnamese-400-normal-DG4YqDda.woff2      8.20 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-400-normal-BSMlKf0J.woff2        8.35 kB
+          web:build | dist/client/assets/ibm-plex-sans-vietnamese-500-normal-e4dixQRQ.woff2      8.41 kB
+          web:build | dist/client/assets/ibm-plex-mono-cyrillic-500-normal-Bq9vWWag.woff2        8.46 kB
+          web:build | dist/client/assets/ibm-plex-sans-vietnamese-600-normal-DpPYBSTl.woff2      8.46 kB
+          web:build | dist/client/assets/ibm-plex-sans-greek-400-normal-D9ESIMu3.woff            8.76 kB
+          web:build | dist/client/assets/ibm-plex-sans-greek-500-normal-CuWXN6rf.woff            9.14 kB
+          web:build | dist/client/assets/ibm-plex-sans-greek-600-normal-D-CqTdkO.woff            9.22 kB
+          web:build | dist/client/assets/ibm-plex-sans-greek-400-normal-_efipK4i.woff2           9.94 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-ext-400-normal-Dsrv2Tcn.woff    10.28 kB
+          web:build | dist/client/assets/ibm-plex-sans-greek-600-normal-DzTrcv_p.woff2          10.36 kB
+          web:build | dist/client/assets/ibm-plex-sans-greek-500-normal-JMMifIXV.woff2          10.37 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-ext-500-normal-DB5PtV2g.woff    10.59 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-ext-600-normal-Bz0x94Yp.woff    10.61 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-ext-400-normal-D3D2R8hC.woff       11.76 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-ext-500-normal-CZ70TYgx.woff       11.76 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-ext-400-normal-g30qAdWV.woff2   12.14 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-ext-600-normal-DUMzJB7m.woff2   12.30 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-ext-500-normal-Cs5J6C77.woff2   12.30 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-400-normal-CvHOgSBP.woff           13.14 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-500-normal-CB9ihrfo.woff           13.15 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-ext-400-normal-BmRBH3aV.woff2      13.34 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-ext-500-normal-CAhNIIs5.woff2      13.43 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-400-normal-BTotfTJu.woff        13.51 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-500-normal-ByOcLdNv.woff        13.85 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-600-normal-BGq0mW3O.woff        13.88 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-ext-400-normal-RBey6euL.woff       14.36 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2          14.70 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-ext-500-normal-D0aIdm-b.woff       14.73 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-ext-600-normal-DIrixKbi.woff       14.77 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-400-normal-DZqxrq2p.woff2       14.80 kB
+          web:build | dist/client/assets/ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2          14.88 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-500-normal-CocWQlwt.woff2       15.00 kB
+          web:build | dist/client/assets/ibm-plex-sans-cyrillic-600-normal-71GNu3SW.woff2       15.04 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-ext-400-normal-C5H60-Va.woff2      15.98 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-ext-600-normal-DOrvGEcy.woff2      16.44 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-ext-500-normal-DakdToA3.woff2      16.45 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-400-normal-CYLoc0-x.woff           22.10 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2          22.58 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-600-normal-Cu4Hd6ag.woff           23.87 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-500-normal-BgVn5rGT.woff           23.91 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-500-normal-6ng42L7E.woff2          24.18 kB
+          web:build | dist/client/assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2          24.25 kB
+          web:build | dist/client/assets/index-CcUOeIxp.css                                     38.44 kB │ gzip:  7.72 kB
+          web:build | dist/client/assets/useNavigate-CSTd2cy-.js                                 0.22 kB │ gzip:  0.19 kB
+          web:build | dist/client/assets/admin-BG2UfDTe.js                                       0.40 kB │ gzip:  0.29 kB
+          web:build | dist/client/assets/reporter-n937Sv7o.js                                    0.40 kB │ gzip:  0.29 kB
+          web:build | dist/client/assets/jsx-runtime-BkSabwWG.js                                 0.96 kB │ gzip:  0.55 kB
+          web:build | dist/client/assets/routes-Utm9_IyI.js                                      1.38 kB │ gzip:  0.52 kB
+          web:build | dist/client/assets/useSelector-vBeVTDf_.js                                 1.92 kB │ gzip:  0.84 kB
+          web:build | dist/client/assets/admin.maintenance-report-CwDD8R0Y.js                    3.40 kB │ gzip:  1.19 kB
+          web:build | dist/client/assets/admin.analytics-C1mVQHwB.js                             3.87 kB │ gzip:  1.54 kB
+          web:build | dist/client/assets/reporter.index-C5zKHWy_.js                              3.93 kB │ gzip:  1.36 kB
+          web:build | dist/client/assets/login-DH7hkMit.js                                       4.79 kB │ gzip:  1.85 kB
+          web:build | dist/client/assets/reporter.notifikasi-DMP6GHXN.js                         4.92 kB │ gzip:  1.77 kB
+          web:build | dist/client/assets/preload-helper-D2C1Tb4M.js                              5.50 kB │ gzip:  2.14 kB
+          web:build | dist/client/assets/reporter.reports.index-CICJHCBe.js                      5.82 kB │ gzip:  1.97 kB
+          web:build | dist/client/assets/admin.technicians-Dd78bIWg.js                           5.95 kB │ gzip:  2.02 kB
+          web:build | dist/client/assets/admin.scoring-BcK0UTBL.js                               6.29 kB │ gzip:  1.80 kB
+          web:build | dist/client/assets/admin.locations-Df32qtiA.js                             6.45 kB │ gzip:  2.20 kB
+          web:build | dist/client/assets/admin.facilities._assetId-CbxoYnAe.js                   6.90 kB │ gzip:  2.06 kB
+          web:build | dist/client/assets/admin.index-D7JTPJTk.js                                 7.05 kB │ gzip:  2.44 kB
+          web:build | dist/client/assets/admin.facilities.index-DreTazXz.js                      7.62 kB │ gzip:  2.50 kB
+          web:build | dist/client/assets/reporter.reports._ticket-CtYejXM4.js                    8.18 kB │ gzip:  2.32 kB
+          web:build | dist/client/assets/kebijakan-privasi-926mhxTc.js                           8.71 kB │ gzip:  2.75 kB
+          web:build | dist/client/assets/admin.categories-DnNRQano.js                            9.75 kB │ gzip:  2.46 kB
+          web:build | dist/client/assets/admin.reports.index-1j_Ih3xI.js                         9.84 kB │ gzip:  2.84 kB
+          web:build | dist/client/assets/reporter.reports.new-Dgyiy8Un.js                       19.02 kB │ gzip:  4.69 kB
+          web:build | dist/client/assets/admin.reports._ticket-CKluCXXt.js                      24.62 kB │ gzip:  5.50 kB
+          web:build | dist/client/assets/link-BNblT-EP.js                                       71.30 kB │ gzip: 25.53 kB
+          web:build | dist/client/assets/index-DPCdjKtf.js                                     299.04 kB │ gzip: 90.92 kB
+          web:build | 
+          web:build | ✓ built in 10.06s
+          web:build | vite v8.3.4 building ssr environment for production...
+          web:build | transforming...
+          web:build | ✓ 1240 modules transformed.
+          web:build | rendering chunks...
+          web:build | computing gzip size...
+          web:build | dist/server/assets/dist-es-CyA-JwH7.js                              0.05 kB │ gzip:   0.06 kB
+          web:build | dist/server/assets/event-streams-BlxY1rqw.js                        0.09 kB │ gzip:   0.09 kB
+          web:build | dist/server/assets/empty-plugin-adapters-DSSFgsCl.js                0.28 kB │ gzip:   0.18 kB
+          web:build | dist/server/assets/start-1FKycyH3.js                                0.29 kB │ gzip:   0.21 kB
+          web:build | dist/server/assets/setCredentialFeature-D_aNF7Wd.js                 0.36 kB │ gzip:   0.21 kB
+          web:build | dist/server/assets/chain-BeBDuqqx.js                                0.58 kB │ gzip:   0.35 kB
+          web:build | dist/server/assets/externalDataInterceptor-Dt1mzE_B.js              0.63 kB │ gzip:   0.34 kB
+          web:build | dist/server/assets/admin-Dx-UC6rU.js                                0.67 kB │ gzip:   0.41 kB
+          web:build | dist/server/assets/reporter-YgXW8xzQ.js                             0.68 kB │ gzip:   0.41 kB
+          web:build | dist/server/assets/parseKnownFiles-BAYc7ik8.js                      0.86 kB │ gzip:   0.38 kB
+          web:build | dist/server/assets/getSSOTokenFromFile-DjqfZNdi.js                  1.04 kB │ gzip:   0.45 kB
+          web:build | dist/server/assets/readFile-CKeh-aMk.js                             1.29 kB │ gzip:   0.52 kB
+          web:build | dist/server/assets/CredentialsProviderError-CD2zi2jR.js             1.35 kB │ gzip:   0.50 kB
+          web:build | dist/server/assets/httpRequest-iP2DbTDC.js                          1.61 kB │ gzip:   0.68 kB
+          web:build | dist/server/assets/routes-Cbpa4LrX.js                               1.94 kB │ gzip:   0.63 kB
+          web:build | dist/server/assets/admin.technicians-HP08BUMH.js                    1.98 kB │ gzip:   0.86 kB
+          web:build | dist/server/assets/admin.locations-BuD6x5b_.js                      2.03 kB │ gzip:   0.88 kB
+          web:build | dist/server/assets/hex-encoding-yGKP5w3O.js                         2.31 kB │ gzip:   0.84 kB
+          web:build | dist/server/assets/admin.categories-CDu2U5ev.js                     2.36 kB │ gzip:   0.95 kB
+          web:build | dist/server/assets/admin.index-Dcvmamp4.js                          2.43 kB │ gzip:   1.04 kB
+          web:build | dist/server/assets/admin.analytics-Bod4koIv.js                      2.54 kB │ gzip:   1.06 kB
+          web:build | dist/server/assets/dist-es-DoTVB2Kw.js                              2.75 kB │ gzip:   0.95 kB
+          web:build | dist/server/assets/dist-es-p1TxDdJu.js                              3.47 kB │ gzip:   1.10 kB
+          web:build | dist/server/assets/toUtf8-BQchbs4D.js                               3.70 kB │ gzip:   1.27 kB
+          web:build | dist/server/assets/package-OfacEBzn.js                              4.47 kB │ gzip:   1.29 kB
+          web:build | dist/server/assets/loadSharedConfigFiles-A-sjLGQh.js                4.53 kB │ gzip:   1.52 kB
+          web:build | dist/server/assets/admin.maintenance-report-DppcuuE0.js             5.29 kB │ gzip:   1.53 kB
+          web:build | dist/server/assets/configLoader-ClkWFw6F.js                         5.46 kB │ gzip:   1.60 kB
+          web:build | dist/server/assets/_tanstack-start-manifest_v-7TYrr1UR.js           5.48 kB │ gzip:   1.09 kB
+          web:build | dist/server/assets/sdk-stream-mixin-OuGrUivO.js                     6.08 kB │ gzip:   1.86 kB
+          web:build | dist/server/assets/admin.analytics-BdV-CWLN.js                      6.38 kB │ gzip:   1.96 kB
+          web:build | dist/server/assets/reporter.index-afx4Qkve.js                       6.43 kB │ gzip:   1.78 kB
+          web:build | dist/server/assets/dist-es-DF2xRg5T.js                              6.96 kB │ gzip:   2.20 kB
+          web:build | dist/server/assets/login-DhwYwqWw.js                                7.51 kB │ gzip:   2.28 kB
+          web:build | dist/server/assets/reporter.notifikasi-BL_7zD8M.js                  8.69 kB │ gzip:   2.39 kB
+          web:build | dist/server/assets/admin.technicians-DnE8LrQJ.js                    9.66 kB │ gzip:   2.55 kB
+          web:build | dist/server/assets/dist-es-CPpQt8b9.js                             10.46 kB │ gzip:   3.36 kB
+          web:build | dist/server/assets/reporter.reports.index-DbFjm9n0.js              10.54 kB │ gzip:   2.63 kB
+          web:build | dist/server/assets/admin.locations-CjdXZ5BT.js                     10.61 kB │ gzip:   2.82 kB
+          web:build | dist/server/assets/admin.scoring-DauQzln9.js                       10.67 kB │ gzip:   2.36 kB
+          web:build | dist/server/assets/admin.facilities._assetId-CNQEEyCW.js           11.60 kB │ gzip:   2.70 kB
+          web:build | dist/server/assets/admin.index-B0gs4cWI.js                         12.02 kB │ gzip:   3.22 kB
+          web:build | dist/server/assets/dist-es-DUjYj5Dp.js                             12.02 kB │ gzip:   2.70 kB
+          web:build | dist/server/assets/kebijakan-privasi-B2ZnASBK.js                   12.37 kB │ gzip:   3.15 kB
+          web:build | dist/server/assets/admin.facilities.index-BsKix-PE.js              13.21 kB │ gzip:   3.38 kB
+          web:build | dist/server/assets/reporter.reports._ticket-CXyKoU3m.js            13.40 kB │ gzip:   3.01 kB
+          web:build | dist/server/assets/dist-es-qoVrdC0L.js                             14.11 kB │ gzip:   3.52 kB
+          web:build | dist/server/assets/dist-es-CWKfqcKT.js                             14.72 kB │ gzip:   3.91 kB
+          web:build | dist/server/assets/admin.categories-DODjXuTT.js                    15.75 kB │ gzip:   3.07 kB
+          web:build | dist/server/assets/HttpInterceptingShapeSerializer-smqZlgI7.js     15.86 kB │ gzip:   4.03 kB
+          web:build | dist/server/assets/admin.reports.index-35gZSoq3.js                 17.40 kB │ gzip:   3.75 kB
+          web:build | dist/server/assets/loadSso-BWjWlivo.js                             19.46 kB │ gzip:   4.77 kB
+          web:build | dist/server/assets/resolveAwsSdkSigV4AConfig-DfcL8HTK.js           19.69 kB │ gzip:   5.34 kB
+          web:build | dist/server/assets/signin-CZ-vS8Tq.js                              21.98 kB │ gzip:   5.37 kB
+          web:build | dist/server/assets/components-DYnMGaJH.js                          24.68 kB │ gzip:   7.31 kB
+          web:build | dist/server/assets/sso-oidc-ghB3oHmt.js                            25.19 kB │ gzip:   5.26 kB
+          web:build | dist/server/assets/node-http-handler-CKCEYfhS.js                   29.58 kB │ gzip:   7.67 kB
+          web:build | dist/server/assets/AwsRestJsonProtocol-DjCnGpiO.js                 32.08 kB │ gzip:   7.91 kB
+          web:build | dist/server/assets/reporter.reports.new-ee1MKT5A.js                32.18 kB │ gzip:   6.24 kB
+          web:build | dist/server/assets/admin.reports._ticket-6wUmDuEO.js               40.69 kB │ gzip:   7.45 kB
+          web:build | dist/server/assets/sts-Cr1Xua01.js                                 49.41 kB │ gzip:  11.30 kB
+          web:build | dist/server/assets/httpAuthSchemes-CzDNenlZ.js                    199.91 kB │ gzip:  48.27 kB
+          web:build | dist/server/server.js                                             242.88 kB │ gzip:  56.40 kB
+          web:build | dist/server/assets/router-BwLUvvUJ.js                           1,042.09 kB │ gzip: 230.07 kB
+          web:build | 
+          web:build | ✓ built in 9.84s
+[ WARN 10:41:47.978] moon_task_hasher::task_hasher  Attempted to hash input packages/shared/vite.config.ts but it does not exist, skipping 
+[ WARN 10:41:47.979] moon_task_hasher::task_hasher  Attempted to hash input packages/shared/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:47.982] moon_task_hasher::task_hasher  Attempted to hash input packages/storage/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:47.983] moon_task_hasher::task_hasher  Attempted to hash input packages/storage/vite.config.ts but it does not exist, skipping 
+          web:build | $ vite build
+▮▮▮▮ web:build (cached, 1546585d)
+[ WARN 10:41:47.992] moon_task_hasher::task_hasher  Attempted to hash input packages/analytics/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:47.993] moon_task_hasher::task_hasher  Attempted to hash input packages/analytics/vite.config.ts but it does not exist, skipping 
+[ WARN 10:41:47.994] moon_task_hasher::task_hasher  Attempted to hash input apps/worker/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.010] moon_task_hasher::task_hasher  Attempted to hash input packages/domain/vite.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.045] moon_task_hasher::task_hasher  Attempted to hash input packages/domain/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.045] moon_task_hasher::task_hasher  Attempted to hash input apps/worker/vite.config.ts but it does not exist, skipping 
+        worker:lint | $ eslint .
+    analytics:build | $ echo "build: @silapor/analytics (stub, no emit yet)"
+   shared:typecheck | $ tsc --noEmit -p tsconfig.json
+      storage:build | $ echo "build: @silapor/storage (stub, no emit yet)"
+analytics:typecheck | $ tsc --noEmit -p tsconfig.json
+     auth:typecheck | $ tsc --noEmit -p tsconfig.json
+            ai:lint | $ eslint .
+           web:lint | $ eslint .
+       shared:build | $ echo "build: @silapor/shared (stub, no emit yet)"
+    analytics:build | build: @silapor/analytics (stub, no emit yet)
+▮▮▮▮ worker:lint (cached, 1de81e56)
+▮▮▮▮ analytics:build (cached, f3777d7c)
+▮▮▮▮ shared:typecheck (cached, 15ms, 6274427e)
+      storage:build | build: @silapor/storage (stub, no emit yet)
+▮▮▮▮ storage:build (cached, 72ms, 0e5c935c)
+▮▮▮▮ analytics:typecheck (cached, 15ms, 0ff5a6ce)
+▮▮▮▮ ai:lint (cached, 15ms, a0885a80)
+▮▮▮▮ auth:typecheck (cached, 15ms, 1ea417d2)
+▮▮▮▮ web:lint (cached, 15ms, e53b63ae)
+       shared:build | build: @silapor/shared (stub, no emit yet)
+▮▮▮▮ shared:build (cached, 30ms, 1e9071a7)
+[ WARN 10:41:48.095] moon_task_hasher::task_hasher  Attempted to hash input packages/ai/vite.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.095] moon_task_hasher::task_hasher  Attempted to hash input packages/ai/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.095] moon_task_hasher::task_hasher  Attempted to hash input packages/database/vite.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.095] moon_task_hasher::task_hasher  Attempted to hash input packages/jobs/vite.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.095] moon_task_hasher::task_hasher  Attempted to hash input packages/jobs/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.096] moon_task_hasher::task_hasher  Attempted to hash input packages/database/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.136] moon_task_hasher::task_hasher  Attempted to hash input packages/auth/app.config.ts but it does not exist, skipping 
+[ WARN 10:41:48.136] moon_task_hasher::task_hasher  Attempted to hash input packages/auth/vite.config.ts but it does not exist, skipping 
+▮▮▮▮ database:typecheck (cached, 15ms, c9958462)
+▮▮▮▮ storage:lint (cached, 2ms, 4f107e5f)
+▮▮▮▮ domain:typecheck (cached, 2ms, e495f094)
+       worker:build | build: @silapor/worker (no emit yet)
+▮▮▮▮ worker:build (cached, 15ms, 40637bd9)
+▮▮▮▮ jobs:lint (cached, 3ms, aa853e56)
+       domain:build | build: @silapor/domain (stub, no emit yet)
+▮▮▮▮ domain:build (cached, 15ms, fb49bf71)
+           ai:build | build: @silapor/ai (stub, no emit yet)
+▮▮▮▮ ai:build (cached, 33c15000)
+▮▮▮▮ auth:lint (cached, 9ms, fe42f796)
+▮▮▮▮ analytics:lint (cached, 5ms, bb087acd)
+         jobs:build | build: @silapor/jobs (stub, no emit yet)
+▮▮▮▮ jobs:build (cached, 3ms, aa8af584)
+     database:build | build: @silapor/database (stub, no emit yet)
+▮▮▮▮ database:build (cached, 3ms, c62b05fd)
+▮▮▮▮ ai:typecheck (cached, 14ms, e197987c)
+▮▮▮▮ database:lint (cached, 14ms, d6e40ec3)
+▮▮▮▮ storage:typecheck (cached, 9ms, 1e2a6214)
+▮▮▮▮ worker:typecheck (cached, 14ms, 3901ec6c)
+ database:typecheck | $ tsc --noEmit -p tsconfig.json
+       storage:lint | $ eslint .
+   domain:typecheck | $ tsc --noEmit -p tsconfig.json
+       worker:build | $ echo "build: @silapor/worker (no emit yet)"
+          jobs:lint | $ eslint .
+       domain:build | $ echo "build: @silapor/domain (stub, no emit yet)"
+           ai:build | $ echo "build: @silapor/ai (stub, no emit yet)"
+          auth:lint | $ eslint .
+     analytics:lint | $ eslint .
+         jobs:build | $ echo "build: @silapor/jobs (stub, no emit yet)"
+     database:build | $ echo "build: @silapor/database (stub, no emit yet)"
+      database:lint | $ eslint .
+       ai:typecheck | $ tsc --noEmit -p tsconfig.json
+  storage:typecheck | $ tsc --noEmit -p tsconfig.json
+   worker:typecheck | $ tsc --noEmit -p tsconfig.json
+     jobs:typecheck | $ tsc --noEmit -p tsconfig.json
+        shared:lint | $ eslint .
+        domain:lint | $ eslint .
+      web:typecheck | $ tsc --noEmit -p tsconfig.json
+         auth:build | $ echo "build: @silapor/auth (stub, no emit yet)"
+▮▮▮▮ jobs:typecheck (cached, 9ms, f4cf7bc1)
+▮▮▮▮ shared:lint (cached, 9ms, 8c0834a6)
+▮▮▮▮ domain:lint (cached, 9ms, dbc83fc7)
+▮▮▮▮ web:typecheck (cached, 638305d0)
+         auth:build | build: @silapor/auth (stub, no emit yet)
+▮▮▮▮ auth:build (cached, 30ms, 4696ec8e)
+
+Tasks: 30 completed (30 cached)
+ Time: 464ms ❯❯❯❯ to the moon
+

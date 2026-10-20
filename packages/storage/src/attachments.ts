@@ -181,8 +181,10 @@ export interface VisionImage {
   readonly height: number;
 }
 
-// Fail-closed bounded JPEG for AI vision: same guards as processImage, never
-// enlarges, white-flattened, EXIF-stripped by construction (no `.withMetadata()`).
+// Fail-closed bounded JPEG for image analysis (same guards as processImage, never
+// enlarges, white-flattened, EXIF-stripped by construction: no `.withMetadata()`).
+// Since 2026-10-20 submit-time verification is text-only, so the verify path no
+// longer calls this; it stays for bounded-image tooling and manual checks.
 export async function prepareVisionImage(
   bytes: Uint8Array,
   opts?: { readonly maxEdge?: number; readonly quality?: number },

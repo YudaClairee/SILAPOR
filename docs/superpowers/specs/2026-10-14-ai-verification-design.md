@@ -1,11 +1,22 @@
 # AI Verification Design — 2026-10-14
 
+## Revision 2026-10-20 — photo checks removed
+
+Photo verification is dropped: the vision model produced too many false
+rejections (clear photos judged blurry/dark, correct assets judged
+mismatched). AI now judges **text only** — the written description against
+the chosen asset and its building/floor/room, then classifies category,
+issue type, and priority. Photos are still required at submit and still
+attach to the ticket, but only as evidence for the technician; they are
+never sent to the model. Everything else in this document stands.
+
 ## Intent and why
 
 Report verification belongs to the AI end to end. A reporter files a
-report, the AI checks the photos are clear and real, checks the written
-description actually matches the asset the reporter picked, and sets the
-asset category, the issue type, and the priority by itself. A pass turns
+report, the AI checks the written description actually matches the asset
+and the location the reporter picked, and sets the asset category, the
+issue type, and the priority by itself. (Photos are attached separately
+and are not judged — see the 2026-10-20 revision.) A pass turns
 the report VERIFIED with no admin click. The human partner's reason:
 verification must be instant at submit time, and admins should spend
 their time on real repair work, not re-reading every report. The admin
@@ -16,19 +27,21 @@ reports wait until an admin verifies them by hand.
 
 - Reporter submits building, floor, room, and asset (all four required),
   a description, and up to 3 photos (existing 5 MB limit stays).
-- AI auto-pass: photos clear and relevant, description matches the
-  chosen asset. System writes `final_category_id`, `final_issue_type_id`,
-  and `final_priority`, sets status VERIFIED, and the ticket flows on
-  toward assignment and repair.
+- AI auto-pass: description matches the chosen asset and its location
+  (visible damage is **not** required: functional faults such as "not
+  cooling" may look normal in the photo). Photos are evidence for the
+  technician and are never judged. System writes
+  `final_category_id`, `final_issue_type_id`, and `final_priority`, sets
+  status VERIFIED, and the ticket flows on toward assignment and repair.
 - AI clear fail: stopped at submit with one plain reason the reporter
-  can act on (retake the photo, fix the description). Nothing sits in a
-  queue.
+  can act on (pick the right asset or location, add more detail to the
+  description). Nothing sits in a queue.
 - AI service down (third-party API unreachable): the report is saved and
   held as unverified. The reporter sees their own report as waiting for
   its check; the full held queue is visible only to admins. The held
   report moves only when an admin verifies it by hand, doing
-  the same checks (photos, description-to-asset match, category, issue
-  type, priority).
+  the same checks (description-to-asset and location match, photos as
+  supporting evidence, category, issue type, priority).
 - Taxonomy is fixed master data, never free text. Six active categories
   (`data/master/facility-categories.csv`: ELECTRICAL, HVAC, FURNITURE,
   ELECTRONIC, PLUMBING, OTHER) and seven generic issue types
@@ -75,9 +88,13 @@ reports wait until an admin verifies them by hand.
    (0 photos is a validation fail before the AI runs). The reporter
    waits in the submit moment for the verdict (synchronous, partner
    answer 1).
-2. AI checks photo clarity and relevance, then description-to-asset
-   match, then writes category, issue type, and priority from master
-   data only.
+2. AI judges the text only: whether the written description matches the
+   chosen asset and the chosen building/floor/room. Photo quality,
+   photo content, and photo-to-description matching are never evaluated,
+   so a terse but plausible report passes. It does not require the defect
+   to be described as visible, so a functional complaint about the right
+   asset at the right place is enough. It then writes category, issue
+   type, and priority from master data only.
 3. Pass becomes VERIFIED automatically and consumes a ticket number.
    Fail saves nothing, consumes no ticket, and stops with a plain
    reason; fixing means filing a fresh report (partner answer 2).

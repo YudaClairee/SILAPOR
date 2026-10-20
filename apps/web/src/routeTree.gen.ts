@@ -45,6 +45,7 @@ import { Route as ApiNotificationsReadAllRouteImport } from './routes/api/notifi
 import { Route as ApiReportsIdRouteImport } from './routes/api/reports.$id'
 import { Route as ApiReportsDuplicateCheckRouteImport } from './routes/api/reports.duplicate-check'
 import { Route as ApiReportsFormOptionsRouteImport } from './routes/api/reports.form-options'
+import { Route as ApiReportsStatsRouteImport } from './routes/api/reports.stats'
 import { Route as ReporterReportsIndexRouteImport } from './routes/reporter.reports.index'
 import { Route as ReporterReportsTicketRouteImport } from './routes/reporter.reports.$ticket'
 import { Route as ReporterReportsNewRouteImport } from './routes/reporter.reports.new'
@@ -247,6 +248,11 @@ const ApiReportsFormOptionsRoute = ApiReportsFormOptionsRouteImport.update({
   path: '/form-options',
   getParentRoute: () => ApiReportsRoute,
 } as any)
+const ApiReportsStatsRoute = ApiReportsStatsRouteImport.update({
+  id: '/stats',
+  path: '/stats',
+  getParentRoute: () => ApiReportsRoute,
+} as any)
 const ReporterReportsIndexRoute = ReporterReportsIndexRouteImport.update({
   id: '/reports/',
   path: '/reports/',
@@ -388,6 +394,7 @@ export interface FileRoutesByFullPath {
   '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
   '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
+  '/api/reports/stats': typeof ApiReportsStatsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
   '/admin/facilities/': typeof AdminFacilitiesIndexRoute
@@ -444,6 +451,7 @@ export interface FileRoutesByTo {
   '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
   '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
+  '/api/reports/stats': typeof ApiReportsStatsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
   '/admin/facilities': typeof AdminFacilitiesIndexRoute
@@ -503,6 +511,7 @@ export interface FileRoutesById {
   '/api/reports/$id': typeof ApiReportsIdRouteWithChildren
   '/api/reports/duplicate-check': typeof ApiReportsDuplicateCheckRoute
   '/api/reports/form-options': typeof ApiReportsFormOptionsRoute
+  '/api/reports/stats': typeof ApiReportsStatsRoute
   '/reporter/reports/$ticket': typeof ReporterReportsTicketRoute
   '/reporter/reports/new': typeof ReporterReportsNewRoute
   '/admin/facilities/': typeof AdminFacilitiesIndexRoute
@@ -563,6 +572,7 @@ export interface FileRouteTypes {
     | '/api/reports/$id'
     | '/api/reports/duplicate-check'
     | '/api/reports/form-options'
+    | '/api/reports/stats'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
     | '/admin/facilities/'
@@ -619,6 +629,7 @@ export interface FileRouteTypes {
     | '/api/reports/$id'
     | '/api/reports/duplicate-check'
     | '/api/reports/form-options'
+    | '/api/reports/stats'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
     | '/admin/facilities'
@@ -677,6 +688,7 @@ export interface FileRouteTypes {
     | '/api/reports/$id'
     | '/api/reports/duplicate-check'
     | '/api/reports/form-options'
+    | '/api/reports/stats'
     | '/reporter/reports/$ticket'
     | '/reporter/reports/new'
     | '/admin/facilities/'
@@ -978,6 +990,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReportsFormOptionsRouteImport
       parentRoute: typeof ApiReportsRoute
     }
+    '/api/reports/stats': {
+      id: '/api/reports/stats'
+      path: '/stats'
+      fullPath: '/api/reports/stats'
+      preLoaderRoute: typeof ApiReportsStatsRouteImport
+      parentRoute: typeof ApiReportsRoute
+    }
     '/reporter/reports/': {
       id: '/reporter/reports/'
       path: '/reports'
@@ -1217,12 +1236,14 @@ interface ApiReportsRouteChildren {
   ApiReportsIdRoute: typeof ApiReportsIdRouteWithChildren
   ApiReportsDuplicateCheckRoute: typeof ApiReportsDuplicateCheckRoute
   ApiReportsFormOptionsRoute: typeof ApiReportsFormOptionsRoute
+  ApiReportsStatsRoute: typeof ApiReportsStatsRoute
 }
 
 const ApiReportsRouteChildren: ApiReportsRouteChildren = {
   ApiReportsIdRoute: ApiReportsIdRouteWithChildren,
   ApiReportsDuplicateCheckRoute: ApiReportsDuplicateCheckRoute,
   ApiReportsFormOptionsRoute: ApiReportsFormOptionsRoute,
+  ApiReportsStatsRoute: ApiReportsStatsRoute,
 }
 
 const ApiReportsRouteWithChildren = ApiReportsRoute._addFileChildren(

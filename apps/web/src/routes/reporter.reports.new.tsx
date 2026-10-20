@@ -1,6 +1,8 @@
 // New-report form for the AI verification flow: full chain
 // gedung → lantai → ruangan → aset (all required) plus description and
 // 1-3 photos, then a blocking wait for the inline verdict.
+// Verification is text-only (description + asset + location): the photos are
+// evidence for the technician and are never sent to the model.
 //
 // Photo-first: picked photos stage to /api/uploads before the submit, and
 // the submit carries the returned storage keys. The server links staged
@@ -10,7 +12,15 @@
 // role=status loading, disabled-until-valid submit, real buttons, no
 // styling framework (follows login.tsx). Server validation stays
 // authoritative: 422 reasons render as-is; 401 redirects to /login.
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import {
   Button,
@@ -25,6 +35,7 @@ import {
   buttonBaseClasses,
   buttonVariantClasses,
 } from '../components/index.js';
+import { InfoIcon, ShieldCheckIcon, TrashIcon, UploadIcon } from '../components/Icon.js';
 import { visibleLocations } from '../lib/report-helpers.js';
 import {
   stageReportPhotos,
@@ -163,7 +174,7 @@ function stringField(body: Record<string, unknown>, key: string): string | null 
 export function toSubmitOutcome(status: number, body: unknown): SubmitOutcome {
   if (!isRecord(body)) {
     if (status === 422) {
-      return { kind: 'failed', reason: 'Verifikasi gagal. Coba lagi dengan foto yang lebih jelas.' };
+      return { kind: 'failed', reason: 'Verifikasi gagal. Periksa kembali deskripsi dan lokasi, lalu coba lagi.' };
     }
     return { kind: 'error', message: `Gagal mengirim laporan (status ${status}).` };
   }
@@ -185,7 +196,7 @@ export function toSubmitOutcome(status: number, body: unknown): SubmitOutcome {
   }
   if (status === 422) {
     const reason =
-      stringField(body, 'reason') ?? 'Verifikasi gagal. Coba lagi dengan foto yang lebih jelas.';
+      stringField(body, 'reason') ?? 'Verifikasi gagal. Periksa kembali deskripsi dan lokasi, lalu coba lagi.';
     return { kind: 'failed', reason };
   }
   if (status === 409) {
@@ -324,6 +335,7 @@ function NewReportPage() {
 
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoDropActive, setPhotoDropActive] = useState(false);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [failReason, setFailReason] = useState<string | null>(null);
@@ -339,6 +351,10 @@ function NewReportPage() {
     const picked = Array.from(event.target.files ?? []);
     // Reset so the same file can be re-picked after a rejection.
     event.target.value = '';
+    addPhotos(picked);
+  }
+
+  function addPhotos(picked: readonly File[]): void {
     if (picked.length === 0) {
       return;
     }
@@ -350,6 +366,12 @@ function NewReportPage() {
     }
     setPhotoError(null);
     setPhotoFiles(combined);
+  }
+
+  function onDropPhotos(event: DragEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    setPhotoDropActive(false);
+    addPhotos(Array.from(event.dataTransfer.files));
   }
 
   function removePhoto(index: number): void {
@@ -570,8 +592,8 @@ function NewReportPage() {
           Lihat detail laporan
         </Link>
         <Link
-          to="/reporter/reports"
-          search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+          to="/reporter"
+          search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
           className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
         >
           Laporan Saya
@@ -635,8 +657,8 @@ function NewReportPage() {
             description="Daftar lokasi kosong atau belum tersedia. Coba muat ulang, atau lihat laporan yang sudah ada."
             action={
               <Link
-                to="/reporter/reports"
-                search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+                to="/reporter"
+                search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
                 className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
               >
                 Laporan Saya
@@ -694,15 +716,15 @@ function NewReportPage() {
             <ErrorPanel title="Alasan" message={failReason} />
           </div>
           <p className="mt-4 text-sm text-muted">
-            Perbaiki foto atau deskripsi, lalu kirim ulang sebagai laporan baru.
+            Perbaiki deskripsi atau lokasi, lalu kirim ulang sebagai laporan baru.
           </p>
           <p className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
             <Button type="button" onClick={retryFresh}>
               Buat laporan baru
             </Button>
             <Link
-              to="/reporter/reports"
-              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+              to="/reporter"
+              search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Laporan Saya
@@ -734,8 +756,8 @@ function NewReportPage() {
           ) : null}
           <p className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
             <Link
-              to="/reporter/reports"
-              search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
+              to="/reporter"
+              search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
               className={`${buttonBaseClasses} ${buttonVariantClasses.secondary}`}
             >
               Laporan Saya
@@ -832,7 +854,7 @@ function NewReportPage() {
           </dl>
           {photoCountLine()}
           <p className="mt-2 text-sm text-muted">
-            Foto dan deskripsi akan diperiksa AI saat laporan dikirim.
+            Foto hanya menjadi bukti untuk teknisi; deskripsi dan lokasi akan diperiksa AI saat laporan dikirim.
           </p>
           <p className="mt-6 flex flex-col gap-2 sm:flex-row">
             <Button type="button" onClick={() => void submitReport()}>
@@ -849,10 +871,21 @@ function NewReportPage() {
 
   const descLength = values.description.trim().length;
   return (
-    <section aria-labelledby="new-report-title" className="max-w-3xl">
-      <h1 id="new-report-title" className="text-2xl font-semibold text-text">
-        Buat Laporan Baru
-      </h1>
+    <section aria-labelledby="new-report-title" className="w-full">
+      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 id="new-report-title" className="text-[clamp(1.75rem,3vw,2rem)] font-semibold tracking-[-0.04em] text-[#202a33]">
+            Buat Laporan Kerusakan
+          </h1>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+            Lokasi, deskripsi kondisi fisik, dan foto bukti diperlukan untuk memeriksa serta memproses laporan penanganan sarana prasarana kampus.
+          </p>
+        </div>
+        <div className="inline-flex w-fit items-center gap-2 rounded-full bg-[#e7f7fb] px-3 py-2 text-[11px] font-semibold tracking-[0.02em] text-[#0a3947]">
+          <ShieldCheckIcon className="h-4 w-4" />
+          Verifikasi Cepat Otomatis
+        </div>
+      </div>
       {formAlert !== null ? (
         <div className="mt-4">
           <ErrorPanel message={formAlert} />
@@ -860,15 +893,20 @@ function NewReportPage() {
       ) : null}
       <form
         onSubmit={onSubmitForm}
-        className="mt-4 rounded-md border border-border bg-surface p-4 md:p-6"
+        className="mt-6 rounded-lg border border-[#edf0f2] bg-surface p-6 shadow-[0_1px_2px_rgba(6,70,83,0.06)] md:p-8"
       >
-        <div className="flex flex-col gap-4">
-          <div>
-            <label htmlFor="report-building" className="mb-1 block text-sm font-medium text-text">
-              Gedung
-            </label>
+        <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <label htmlFor="report-building" className="text-xs font-semibold tracking-[0.02em] text-[#202a33] after:ml-0.5 after:text-[#ba1a1a] after:content-['*']">
+                Gedung
+              </label>
+              <span className="text-[11px] text-muted">Kampus Tasikmalaya</span>
+            </div>
             <Select
               id="report-building"
+              className="shadow-[0_1px_1px_rgba(0,0,0,0.05)]"
+              required
               value={values.buildingId}
               invalid={shownErrors.buildingId !== undefined}
               aria-describedby={shownErrors.buildingId ? 'report-building-error' : undefined}
@@ -886,12 +924,14 @@ function NewReportPage() {
             <FieldError id="report-building-error" message={shownErrors.buildingId} />
           </div>
 
-          <div>
-            <label htmlFor="report-floor" className="mb-1 block text-sm font-medium text-text">
+          <div className="min-w-0">
+            <label htmlFor="report-floor" className="mb-1.5 block text-xs font-semibold tracking-[0.02em] text-[#202a33] after:ml-0.5 after:text-[#ba1a1a] after:content-['*']">
               Lantai
             </label>
             <Select
               id="report-floor"
+              className="shadow-[0_1px_1px_rgba(0,0,0,0.05)]"
+              required
               value={values.floorId}
               disabled={values.buildingId === '' || !floorRequired}
               invalid={shownErrors.floorId !== undefined}
@@ -916,12 +956,14 @@ function NewReportPage() {
             <FieldError id="report-floor-error" message={shownErrors.floorId} />
           </div>
 
-          <div>
-            <label htmlFor="report-room" className="mb-1 block text-sm font-medium text-text">
+          <div className="min-w-0">
+            <label htmlFor="report-room" className="mb-1.5 block text-xs font-semibold tracking-[0.02em] text-[#202a33] after:ml-0.5 after:text-[#ba1a1a] after:content-['*']">
               Ruangan
             </label>
             <Select
               id="report-room"
+              className="shadow-[0_1px_1px_rgba(0,0,0,0.05)]"
+              required
               value={values.locationId}
               disabled={values.buildingId === '' || (floorRequired && values.floorId === '')}
               invalid={shownErrors.locationId !== undefined}
@@ -946,12 +988,19 @@ function NewReportPage() {
             <FieldError id="report-room-error" message={shownErrors.locationId} />
           </div>
 
-          <div>
-            <label htmlFor="report-asset" className="mb-1 block text-sm font-medium text-text">
-              Aset
-            </label>
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <label htmlFor="report-asset" className="text-xs font-semibold tracking-[0.02em] text-[#202a33] after:ml-0.5 after:text-[#ba1a1a] after:content-['*']">
+                Aset
+              </label>
+              {values.locationId !== '' ? (
+                <span className="text-[11px] text-muted">{assetOptions.length} Aset terdaftar</span>
+              ) : null}
+            </div>
             <Select
               id="report-asset"
+              className="shadow-[0_1px_1px_rgba(0,0,0,0.05)]"
+              required
               value={values.assetId}
               disabled={values.locationId === ''}
               invalid={shownErrors.assetId !== undefined}
@@ -977,18 +1026,19 @@ function NewReportPage() {
             ) : null}
           </div>
 
-          <div>
+          <div className="md:col-span-2">
             <label
               htmlFor="report-description"
-              className="mb-1 block text-sm font-medium text-text"
+              className="mb-1.5 block text-xs font-semibold tracking-[0.02em] text-[#202a33]"
             >
-              Deskripsi
+              Deskripsi Kerusakan
             </label>
             <Textarea
               id="report-description"
               value={values.description}
+              required
               maxLength={2000}
-              rows={5}
+              rows={4}
               invalid={shownErrors.description !== undefined}
               aria-describedby={shownErrors.description ? 'report-description-error' : undefined}
               onChange={(event) => {
@@ -996,37 +1046,75 @@ function NewReportPage() {
               }}
             />
             <p aria-live="polite" className="mt-1 font-mono text-xs text-subtle">
-              {descLength}/2000 karakter
+              {descLength} / 2000 karakter
             </p>
-            <p className="mt-1 text-sm text-muted">Minimal 10 karakter.</p>
+            <p className="mt-2 flex items-start gap-2 rounded-md bg-[#eef7ff] px-3 py-2 text-xs leading-5 text-muted">
+              <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#426e9b]" />
+              Jelaskan kondisi fisik yang terlihat secara spesifik, bukan menebak penyebab teknis kerusakan.
+            </p>
             <FieldError id="report-description-error" message={shownErrors.description} />
           </div>
 
-          <div>
-            <label htmlFor="report-photos" className="mb-1 block text-sm font-medium text-text">
-              Foto
-            </label>
+          <div className="md:col-span-2">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <label htmlFor="report-photos" className="text-xs font-semibold tracking-[0.02em] text-[#202a33]">
+                Foto Bukti Kerusakan
+              </label>
+              <span className="text-[11px] text-muted">{photoFiles.length} / 3 foto terlampir</span>
+            </div>
+            <div
+              className={`rounded-lg border border-dashed px-4 py-7 text-center transition-colors ${
+                photoDropActive
+                  ? 'border-accent bg-[#eef8fb]'
+                  : 'border-[#d9e8ed] bg-[#f7fbff] hover:border-[#94cbd5]'
+              }`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                setPhotoDropActive(true);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={() => setPhotoDropActive(false)}
+              onDrop={onDropPhotos}
+            >
+              <UploadIcon className="mx-auto h-6 w-6 text-accent" />
+              <p className="mt-2 text-sm font-semibold text-accent">Tarik &amp; lepaskan foto ke sini, atau</p>
+              <label
+                htmlFor="report-photos"
+                className="mt-2 inline-flex min-h-[44px] cursor-pointer items-center justify-center rounded-md bg-[#e2f4f8] px-4 py-2 text-sm font-semibold text-accent transition-colors hover:bg-[#d2edf2]"
+              >
+                Pilih Foto
+              </label>
+              <p className="mt-2 text-[11px] text-muted">Dukungan: JPG, PNG, WebP (Maks. 5 MB)</p>
+            </div>
             <Input
               id="report-photos"
               type="file"
               accept="image/jpeg,image/png,image/webp"
               multiple
               onChange={onPickPhotos}
+              className="sr-only"
               aria-describedby={shownPhotoError ? 'report-photos-error' : 'report-photos-hint'}
             />
-            <p id="report-photos-hint" className="mt-1 text-sm text-muted">
+            <p id="report-photos-hint" className="sr-only">
               Wajib 1 sampai 3 foto, masing-masing tidak lebih dari 5 MB (JPG, PNG, WebP).
             </p>
             <FieldError id="report-photos-error" message={shownPhotoError ?? undefined} />
             {photoFiles.length > 0 ? (
-              <ul className="mt-2 flex flex-col gap-1">
+              <ul className="mt-4 grid gap-3 sm:grid-cols-2">
                 {photoFiles.map((file, index) => (
                   <li
                     key={`${file.name}-${file.size}-${index}`}
-                    className="flex items-center justify-between gap-2 text-sm text-text"
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[#edf0f2] px-3 py-2 text-sm text-text"
                   >
-                    <span className="truncate">{file.name}</span>
-                    <Button type="button" variant="ghost" onClick={() => removePhoto(index)}>
+                    <span className="min-w-0 truncate">{file.name}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      aria-label={`Hapus ${file.name}`}
+                      className="shrink-0 px-2 text-danger"
+                      onClick={() => removePhoto(index)}
+                    >
+                      <TrashIcon className="h-4 w-4" />
                       Hapus
                     </Button>
                   </li>
@@ -1035,20 +1123,20 @@ function NewReportPage() {
             ) : null}
           </div>
 
-          <Button type="submit" disabled={!submittable}>
-            Lanjut ke review
-          </Button>
+          <div className="flex flex-col-reverse gap-3 border-t border-[#edf0f2] pt-5 sm:flex-row sm:items-center sm:justify-end md:col-span-2">
+            <Link
+              to="/reporter"
+              search={{ search: '', mine: true, status: '', priority: '', offset: 0 }}
+              className={`${buttonBaseClasses} ${buttonVariantClasses.ghost} justify-center text-muted`}
+            >
+              Batal / Kembali
+            </Link>
+            <Button type="submit" disabled={!submittable}>
+              Lanjut ke review
+            </Button>
+          </div>
         </div>
       </form>
-      <p className="mt-4">
-        <Link
-          to="/reporter/reports"
-          search={{ filter: 'semua', status: '', mine: true, offset: 0 }}
-          className="text-accent underline underline-offset-2"
-        >
-          Laporan Saya
-        </Link>
-      </p>
     </section>
   );
 }

@@ -113,3 +113,29 @@
     }
   }
 }
+
+/* Print / "Ekspor Laporan PDF" (dashboard V2): the export action calls
+   window.print(), so the shell chrome and action controls opt out while the
+   report cards stay on the page. */
+@media print {
+  body {
+    background-color: #ffffff;
+  }
+
+  [data-print='hide'] {
+    display: none !important;
+  }
+
+  /* Cards are <section> elements, but so is the page root — never "avoid" the
+     whole page. Lists and figures are the break-safe units. */
+  figure,
+  li {
+    break-inside: avoid;
+  }
+
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+}

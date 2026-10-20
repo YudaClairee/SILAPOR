@@ -33,11 +33,12 @@ import {
   getAdminReportDetail as repoGetAdminReportDetail,
   getAsset as repoGetAsset,
   getCampusReportDetail as repoGetCampusReportDetail,
+  getCampusReportStats as repoGetCampusReportStats,
   getDb,
   getLocation as repoGetLocation,
   getMyReportDetail as repoGetMyReportDetail,
   getReporterTimeline as repoGetReporterTimeline,
-  listAllReports as repoListAllReports,
+  listAdminReports as repoListAdminReports,
   listAssets as repoListAssets,
   listCampusReports as repoListCampusReports,
   listCategories as repoListCategories,
@@ -57,7 +58,9 @@ import {
   type FacilityCategory,
   type IssueType,
   type AdminReportDetail,
+  type AdminReportListResult,
   type CampusReportDetail,
+  type CampusReportStats,
   type CampusReportListResult,
   type ListAllReportsOptions,
   type ListCampusReportsOptions,
@@ -86,11 +89,7 @@ import {
   isAppError,
   notFound,
 } from '@silapor/shared';
-import {
-  createAttachmentStorage,
-  prepareVisionImage,
-  type AttachmentStorage,
-} from '@silapor/storage';
+import { createAttachmentStorage, type AttachmentStorage } from '@silapor/storage';
 import { requireAdmin, requireUser } from './auth';
 import { removeStagedObjects, resolveStagedPhotoKeys } from './uploads.js';
 
@@ -384,8 +383,9 @@ function parseBaseListQuery(params: URLSearchParams): ListMyReportsOptions {
 }
 
 // Pure parser for `GET /api/reports` query (?status&categoryId&locationId&
-// priority&from&to&limit&offset&sort&mine). `mine=1|true` selects the
-// "Laporan Saya" filter; absence means the whole campus.
+// priority&from&to&limit&offset&sort&mine&search). `mine=1|true` selects the
+// "Laporan Saya" filter; absence means the whole campus. `search` (or the
+// legacy `q` alias) matches ticket number, asset name, or location name.
 export function parseMyReportsQuery(url: string | URL): ListMyReportsOptions {
   return parseBaseListQuery(searchParamsOf(url));
 }
@@ -394,7 +394,13 @@ export function parseCampusReportsQuery(url: string | URL): ListCampusReportsOpt
   const params = searchParamsOf(url);
   const base = parseBaseListQuery(params);
   const mine = queryParam(params, ['mine']);
-  return mine === '1' || mine === 'true' ? { ...base, mine: true } : base;
+  const search = queryParam(params, ['search', 'q']);
+  const extra: ListCampusReportsOptions = search !== null ? { search } : {};
+  return {
+    ...base,
+    ...extra,
+    ...(mine === '1' || mine === 'true' ? { mine: true } : {}),
+  };
 }
 
 // Pure parser for `GET /api/admin/reports` query (base filters +
@@ -447,15 +453,28 @@ export async function listCampusReportsRoute(
   }
 }
 
+// KPI counters for the reporter landing page. Auth-only: the campus-wide
+// totals are already visible through the sanitized campus list, so this adds
+// no new data class. `mineTotal` is scoped from the session user.
+export async function getReporterStatsRoute(req: Request): Promise<CampusReportStats> {
+  const user = await requireUser(req);
+  const conn = getDb();
+  try {
+    return await repoGetCampusReportStats(conn.db, user.id);
+  } finally {
+    await conn.close().catch(() => undefined);
+  }
+}
+
 export async function listAllReportsRoute(
   req: Request,
   url: string | URL,
-): Promise<ReportListResult> {
+): Promise<AdminReportListResult> {
   await requireAdmin(req);
   const options = parseAdminReportsQuery(url);
   const conn = getDb();
   try {
-    return await repoListAllReports(conn.db, options);
+    return await repoListAdminReports(conn.db, options);
   } finally {
     await conn.close().catch(() => undefined);
   }
@@ -727,17 +746,16 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
 
 const REPORTER_REASONS: Record<string, string> = {
   INVALID_INPUT:
-    'We could not verify this report. Please check the photos and description, then try again.',
+    'We could not verify this report. Please check the description and the selected location, then try again.',
   UNKNOWN_MODEL:
     'Verification is unavailable right now. Your report was not saved. Please try again later.',
   UPSTREAM_REJECTED:
     'The verification service could not process this report. It was not saved. Please try again later.',
   UNCLEAR_EVIDENCE:
-    'The photos or description were not clear enough to verify. Please add clearer photos and more detail, then try again.',
+    'The description was not clear enough to verify. Please add more detail about the damage and the location, then try again.',
   WRONG_ASSET:
-    'The photos do not seem to show the selected asset. Please check the asset and photos, then try again.',
-  UNKNOWN_CODE:
-    'We could not classify this report. Please try again with clearer photos and description.',
+    'The description does not seem to match the selected asset or location. Please check both, then try again.',
+  UNKNOWN_CODE: 'We could not classify this report. Please try again with a clearer description.',
 };
 
 // Machine codes never reach the reporter — FAIL bodies carry plain language only.
@@ -748,7 +766,6 @@ export function toReporterReason(code: string): string {
 export interface SubmitVerifyInput {
   readonly description: string;
   readonly asset: { readonly name: string; readonly category: string };
-  readonly photos: readonly string[];
   readonly categories: readonly string[];
   readonly issueTypes: readonly string[];
 }
@@ -782,7 +799,6 @@ export type SubmitVerifyFn = (
     readonly timeoutMs: number;
     readonly model?: string;
     readonly apiKey?: string;
-    readonly storage?: AttachmentStorage;
   },
 ) => Promise<SubmitVerifyOutcome>;
 
@@ -863,15 +879,16 @@ function resolveAiApiKey(override?: string): string | undefined {
 // Static dependency on `@silapor/ai` (no lazy-load fallback): the AI client
 // itself classifies upstream errors into FAIL (deterministic) or DOWN
 // (transient), so any unexpected throw only falls back to held, never
-// rejected. Photos are resolved to bounded JPEG data URLs before the call —
-// any storage or decode failure is a held submit, never a reporter rejection.
+// rejected. Verification is text-only: description + chosen asset + sanitized
+// location labels. Photo bytes are deliberately NOT loaded or sent anymore —
+// vision checks rejected too many valid reports. Photos still upload and stay
+// attached as evidence for the technician.
 async function defaultSubmitVerify(
   input: SubmitVerifyInput,
   opts: {
     readonly timeoutMs: number;
     readonly model?: string;
     readonly apiKey?: string;
-    readonly storage?: AttachmentStorage;
   },
 ): Promise<SubmitVerifyOutcome> {
   // An unconfigured API key is a deployment fault, not reporter evidence:
@@ -879,34 +896,12 @@ async function defaultSubmitVerify(
   if (opts.apiKey === undefined) {
     return { kind: 'DOWN' };
   }
-  const storage = opts.storage ?? createAttachmentStorage();
-  let photos: { storageKey: string; contentType: string; dataUrl: string }[];
   try {
-    photos = [];
-    for (const key of input.photos) {
-      const loaded = await storage.get(key);
-      if (loaded === null) {
-        return { kind: 'DOWN' };
-      }
-      const prepared = await prepareVisionImage(loaded.bytes);
-      photos.push({
-        storageKey: key,
-        contentType: prepared.mimeType,
-        dataUrl: `data:${prepared.mimeType};base64,${Buffer.from(prepared.bytes).toString('base64')}`,
-      });
-    }
-  } catch {
-    return { kind: 'DOWN' };
-  }
-  try {
-    return await aiVerifyReport(
-      { ...input, photos },
-      {
-        timeoutMs: opts.timeoutMs,
-        ...(opts.model === undefined ? {} : { model: opts.model }),
-        apiKey: opts.apiKey,
-      },
-    );
+    return await aiVerifyReport(input, {
+      timeoutMs: opts.timeoutMs,
+      ...(opts.model === undefined ? {} : { model: opts.model }),
+      apiKey: opts.apiKey,
+    });
   } catch {
     return { kind: 'DOWN' };
   }
@@ -1146,7 +1141,6 @@ export async function submitVerifiedReport(
       {
         description: normalized.description,
         asset: { name: asset.name, category: assetCategory.code, ...labels },
-        photos: [...normalized.photoKeys],
         categories: categories.map((entry) => entry.code),
         issueTypes: issueTypes.map((entry) => entry.code),
       },
@@ -1154,7 +1148,6 @@ export async function submitVerifiedReport(
         timeoutMs,
         ...(model === undefined ? {} : { model }),
         ...(apiKey === undefined ? {} : { apiKey }),
-        ...(deps?.storage === undefined ? {} : { storage: deps.storage }),
       },
     );
     const verifyMeta = outcome.kind === 'DOWN' ? undefined : outcome.meta;
@@ -1172,6 +1165,9 @@ export async function submitVerifiedReport(
               provider: verifyMeta.upstreamProvider,
               usage: { input: verifyMeta.inputTokens, output: verifyMeta.outputTokens },
               costUsd: verifyMeta.estimatedCost,
+              ...(verifyMeta.upstreamStatus === undefined
+                ? {}
+                : { httpStatus: verifyMeta.upstreamStatus }),
             },
           }),
     });

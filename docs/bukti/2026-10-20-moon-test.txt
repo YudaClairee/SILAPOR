@@ -1,0 +1,284 @@
+▮▮▮▮ There's a new version of moon available, 2.6.0 (currently on 2.2.1)!
+▮▮▮▮ Task cleanup/wait deps, new task options, OTEL metrics, Pkl types, and more!
+▮▮▮▮ Run moon upgrade or install from https://moonrepo.dev/docs/install
+  storage:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/storage
+  storage:test | 
+  storage:test | 
+  storage:test |  Test Files  4 passed (4)
+  storage:test |       Tests  53 passed | 2 skipped (55)
+  storage:test |    Start at  07:30:46
+  storage:test |    Duration  991ms (import 47%, tests 27%, transform 24%, worker 2%)
+▮▮▮▮ storage:test (cached, 2ms, aed0283c)
+   domain:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/domain
+   domain:test | 
+   domain:test | 
+   domain:test |  Test Files  5 passed (5)
+   domain:test |       Tests  60 passed (60)
+   domain:test |    Start at  08:52:13
+   domain:test |    Duration  2.34s (transform 60%, import 24%, tests 9%, worker 7%)
+   domain:test | 
+   domain:test |   Transform  transforming modules took 2.57s · 60% of tracked time, re-done on every run
+   domain:test |              persist transforms across runs with fsModuleCache: true
+   domain:test |              learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+[ WARN 2026-10-20 09:52:06.848] moon_task_hasher::task_hasher  Attempted to hash input packages/ai/vitest.config.ts but it does not exist, skipping 
+▮▮▮▮ domain:test (cached, 2ms, d1dde530)
+     jobs:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/jobs
+     jobs:test | 
+     jobs:test | 
+     jobs:test |  Test Files  1 passed (1)
+     jobs:test |       Tests  2 passed (2)
+     jobs:test |    Start at  07:31:42
+     jobs:test |    Duration  1.99s (transform 52%, import 27%, tests 13%, worker 8%)
+▮▮▮▮ jobs:test (cached, 2ms, b267bfd5)
+     auth:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/auth
+     auth:test | 
+     auth:test | 
+     auth:test |  Test Files  4 passed (4)
+     auth:test |       Tests  43 passed (43)
+     auth:test |    Start at  07:31:42
+     auth:test |    Duration  2.45s (transform 64%, import 22%, tests 7%, worker 6%)
+     auth:test | 
+     auth:test |   Transform  transforming modules took 2.50s · 64% of tracked time, re-done on every run
+     auth:test |              persist transforms across runs with fsModuleCache: true
+     auth:test |              learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+▮▮▮▮ auth:test (cached, 2ms, 0a5cf9c4)
+   worker:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/apps/worker
+   worker:test | 
+   worker:test | 
+   worker:test |  Test Files  1 passed (1)
+   worker:test |       Tests  3 passed (3)
+   worker:test |    Start at  14:14:19
+   worker:test |    Duration  12.80s (import 56%, transform 42%, tests 1%, worker 1%)
+   worker:test | 
+   worker:test |   Transform  transforming modules took 4.79s · 42% of tracked time, re-done on every run
+   worker:test |              persist transforms across runs with fsModuleCache: true
+   worker:test |              learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+▮▮▮▮ worker:test (cached, 4ms, 8efdafef)
+   shared:test | Scope: all 11 workspace projects
+   shared:test | ✓ Lockfile passes supply-chain policies (verified 1h ago)
+   shared:test | ../..                                    | Progress: resolved 1, reused 0, downloaded 0, added 0
+   shared:test | ../..                                    | Progress: resolved 56, reused 0, downloaded 0, added 0
+   shared:test | ../..                                    |  +56   -1 ++++++-
+   shared:test | ../..                                    | Progress: resolved 56, reused 1, downloaded 0, added 0
+   shared:test | ../..                                    | Progress: resolved 56, reused 37, downloaded 0, added 0
+   shared:test | ../..                                    | Progress: resolved 56, reused 50, downloaded 0, added 3
+   shared:test | ../..                                    | Progress: resolved 56, reused 53, downloaded 0, added 17
+   shared:test | ../..                                    | Progress: resolved 56, reused 56, downloaded 0, added 46
+   shared:test | ../..                                    | Progress: resolved 56, reused 56, downloaded 0, added 56, done
+   shared:test | [WARN] Failed to create bin at /home/yudaclairee/kuliah/silapor/node_modules/.pnpm/@tanstack+router-utils@1.162.3_supports-color@7.2.0/node_modules/@tanstack/router-utils/node_modules/.bin/parser. ENOENT: no such file or directory, chmod '/home/yudaclairee/kuliah/silapor/node_modules/.pnpm/@tanstack+router-utils@1.162.3_supports-color@7.2.0/node_modules/@tanstack/router-utils/node_modules/.bin/parser'
+   shared:test | [WARN] Failed to create bin at /home/yudaclairee/kuliah/silapor/apps/web/node_modules/.bin/vitest. ENOENT: no such file or directory, chmod '/home/yudaclairee/kuliah/silapor/apps/web/node_modules/.bin/vitest'
+   shared:test | 
+   shared:test | devDependencies:
+   shared:test | - vitest
+   shared:test | + vitest 5.0.3
+   shared:test | 
+   shared:test | [WARN] Failed to create bin at /home/yudaclairee/kuliah/silapor/node_modules/.bin/eslint. ENOENT: no such file or directory, chmod '/home/yudaclairee/kuliah/silapor/node_modules/.bin/eslint'
+   shared:test | [WARN] Failed to create bin at /home/yudaclairee/kuliah/silapor/node_modules/.bin/moonx. ENOENT: no such file or directory, chmod '/home/yudaclairee/kuliah/silapor/node_modules/.bin/moonx'
+   shared:test | Done in 22.6s using pnpm v11.21.0
+   shared:test | 
+   shared:test |  RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/shared
+   shared:test | 
+   shared:test | 
+   shared:test |  Test Files  2 passed (2)
+   shared:test |       Tests  5 passed (5)
+   shared:test |    Start at  13:43:04
+   shared:test |    Duration  2.75s (transform 53%, import 22%, worker 18%, tests 7%)
+▮▮▮▮ shared:test (cached, 1ms, 07fe4faa)
+ database:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/database
+ database:test | 
+ database:test | 
+ database:test |  Test Files  12 passed | 1 skipped (13)
+ database:test |       Tests  209 passed | 1 skipped (210)
+ database:test |    Start at  17:12:57
+ database:test |    Duration  23.41s (tests 71%, import 22%, transform 7%)
+▮▮▮▮ database:test (cached, 2ms, c103d935)
+       ai:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/ai
+       ai:test | 
+       ai:test | 
+       ai:test |  Test Files  1 passed (1)
+       ai:test |       Tests  20 passed (20)
+       ai:test |    Start at  07:29:27
+       ai:test |    Duration  2.17s (transform 37%, import 33%, tests 27%, worker 2%)
+▮▮▮▮ ai:test (cached, 1ms, 55edba25)
+▮▮▮▮ web:test (edb5b80d)
+analytics:test | RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/packages/analytics
+analytics:test | 
+analytics:test | 
+analytics:test |  Test Files  2 passed (2)
+analytics:test |       Tests  22 passed (22)
+analytics:test |    Start at  17:11:18
+analytics:test |    Duration  67.92s (import 59%, transform 25%, tests 15%)
+analytics:test | 
+analytics:test |   Transform  transforming modules took 16.95s · 25% of tracked time, re-done on every run
+analytics:test |              persist transforms across runs with fsModuleCache: true
+analytics:test |              learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+  storage:test | $ vitest run
+   domain:test | $ vitest run
+     jobs:test | $ vitest run
+     auth:test | $ vitest run
+   worker:test | $ vitest run
+   shared:test | $ vitest run
+ database:test | $ vitest run
+       ai:test | $ vitest run
+analytics:test | $ vitest run
+▮▮▮▮ analytics:test (cached, d9f5300d)
+      web:test | $ vitest run
+
+      web:test |  RUN  v5.0.3 /home/yudaclairee/kuliah/silapor/apps/web
+
+      web:test |  ✓ src/components/BarChart.test.tsx (8 tests) 2282ms
+      web:test |    ✓ BarChart (8)
+      web:test |      ✓ shows title, labels, and values as visible text 2095ms
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/routes/admin.analytics.test.tsx (2 tests) 919ms
+      web:test |    ✓ analytics (2)
+      web:test |      ✓ renders charts and the resolution summary 871ms
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/routes/admin.technicians.test.tsx (3 tests) 1031ms
+      web:test |    ✓ kelola teknisi (3)
+      web:test |      ✓ renders rows with code, name, and archive action 948ms
+      web:test |  ✓ src/routes/admin.locations.test.tsx (4 tests) 1057ms
+      web:test |    ✓ kelola lokasi (4)
+      web:test |      ✓ renders rows with code, name, type, and archive action 927ms
+      web:test |  ✓ src/routes/admin.categories.test.tsx (2 tests) 1215ms
+      web:test |    ✓ kelola kategori (2)
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | stderr | src/routes/admin.index.test.tsx > admin dashboard > renders the five overview cards with drill-down links
+      web:test | Encountered two children with the same key, `44444444-4444-4444-8444-444444444444`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |      ✓ renders both tables with rows 1166ms
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/server/attachments.test.ts (29 tests) 465ms
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/routes/admin.scoring.test.tsx (4 tests) 2011ms
+      web:test |    ✓ pengaturan scoring (4)
+      web:test |      ✓ renders the heading, the four weight defaults, and editable inputs 1052ms
+      web:test |      ✓ maps score ranges to priority levels 375ms
+      web:test |  ✓ src/routes/admin.maintenance-report.test.tsx (6 tests) 2046ms
+      web:test |    ✓ laporan maintenance (6)
+      web:test |      ✓ renders the heading and marks the mock data as contoh 899ms
+      web:test |      ✓ renders the per-period table with its four columns 407ms
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > holds as REPORTED with a ticket when the AI is DOWN
+      web:test | {"timestamp":"2026-10-20T02:52:23.477Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"DOWN","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > replays the prior ticket on a same-key retry without touching staged keys
+      web:test | {"timestamp":"2026-10-20T02:52:23.527Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"PASS","durationMs":1}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > compensates the report when another submit claimed the keys first
+      web:test | {"timestamp":"2026-10-20T02:52:23.536Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"PASS","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > verifies as VERIFIED with a ticket when the AI passes
+      web:test | {"timestamp":"2026-10-20T02:52:23.541Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"PASS","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > floors a DANGEROUS verdict to HIGH
+      web:test | {"timestamp":"2026-10-20T02:52:23.549Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"PASS","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > rejects with 422 and no row when the AI fails
+      web:test | {"timestamp":"2026-10-20T02:52:23.558Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"FAIL","code":"UNCLEAR_EVIDENCE","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > keeps keys claimed by another submit when the AI fails
+      web:test | {"timestamp":"2026-10-20T02:52:23.580Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"FAIL","code":"UNCLEAR_EVIDENCE","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > compensates and 409s when the snapshot update loses a version race
+      web:test | {"timestamp":"2026-10-20T02:52:23.585Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"PASS","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > threads the OPENROUTER_API_KEY through the default verify call
+      web:test | {"timestamp":"2026-10-20T02:52:23.656Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"DOWN","durationMs":37}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > holds without an AI call when no API key is configured
+      web:test | {"timestamp":"2026-10-20T02:52:23.677Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"DOWN","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport held fallback > rejects with 422 when the AI verdict points at the wrong asset
+      web:test | {"timestamp":"2026-10-20T02:52:23.680Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"PASS","durationMs":1}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport AI verification wiring > resolves staged photos and passes labels, bytes, and metadata through
+      web:test | {"timestamp":"2026-10-20T02:52:23.708Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"PASS","durationMs":16,"details":{"model":"test-model","requestId":"gen-1","provider":"Together","usage":{"input":100,"output":5},"costUsd":0.0002}}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport AI verification wiring > holds when the staged object is missing
+      web:test | {"timestamp":"2026-10-20T02:52:23.710Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"DOWN","durationMs":0}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport AI verification wiring > holds when the stored bytes are not decodable
+      web:test | {"timestamp":"2026-10-20T02:52:23.713Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"DOWN","durationMs":1}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport AI verification wiring > persists a FAIL verdict and metadata when the model rejects
+      web:test | {"timestamp":"2026-10-20T02:52:23.715Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"FAIL","code":"UNCLEAR_EVIDENCE","durationMs":0,"details":{"model":"test-model","requestId":"gen-2","usage":{"input":50,"output":3}}}
+
+      web:test | stdout | src/server/reports.test.ts > submitVerifiedReport AI verification wiring > stores no verdict for gateway-side failures
+      web:test | {"timestamp":"2026-10-20T02:52:23.730Z","level":"info","service":"web","message":"ai verification outcome","route":"POST /api/reports","result":"FAIL","code":"UPSTREAM_REJECTED","durationMs":0}
+
+      web:test |  ✓ src/lib/attachments.test.ts (11 tests) 275ms
+      web:test |  ✓ src/server/reports.test.ts (51 tests) 467ms
+      web:test | stderr | src/routes/admin.index.test.tsx > admin dashboard > links queue rows to the report detail with status and priority badges
+      web:test | Encountered two children with the same key, `44444444-4444-4444-8444-444444444444`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/components/tokens.test.ts (5 tests) 40ms
+      web:test | stderr | src/routes/admin.index.test.tsx > admin dashboard > renders the queue, chart, and workload section headings with data
+      web:test | Encountered two children with the same key, `44444444-4444-4444-8444-444444444444`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/routes/reporter.reports.new.test.tsx (11 tests) 3439ms
+      web:test |    ✓ reporter form render (5)
+      web:test |      ✓ disables submit with no photo and requires the full asset chain 1065ms
+      web:test |      ✓ keeps submit disabled until the chain and a photo are complete 574ms
+      web:test |      ✓ stages photos first and shows the verified ticket 785ms
+      web:test |      ✓ shows the fail reason with a fresh-report retry 557ms
+      web:test |      ✓ shows the held ticket with the waiting notice 431ms
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/lib/admin-reports.test.ts (21 tests) 117ms
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/routes/admin.index.test.tsx (6 tests) 3744ms
+      web:test |    ✓ admin dashboard (6)
+      web:test |      ✓ renders the five overview cards with drill-down links 2021ms
+      web:test |      ✓ links queue rows to the report detail with status and priority badges 637ms
+      web:test |      ✓ renders the queue, chart, and workload section headings with data 433ms
+      web:test |      ✓ shows empty states when the range has no data 374ms
+      web:test |  ✓ src/components/components.test.ts (14 tests) 48ms
+      web:test |  ✓ src/lib/report-helpers.test.ts (33 tests) 78ms
+      web:test |  ✓ src/routes/admin.reports.$ticket.test.tsx (2 tests) 70ms
+      web:test |  ✓ src/server/facilities.test.ts (16 tests) 129ms
+      web:test |  ✓ src/server/analytics.test.ts (10 tests) 104ms
+      web:test |  ✓ src/server/uploads.test.ts (9 tests) 153ms
+      web:test |  ✓ src/server/notifications.test.ts (6 tests) 60ms
+      web:test |  ✓ src/server/held.test.ts (17 tests) 12ms
+      web:test |  ✓ src/routes/reporter.index.test.tsx (2 tests) 229ms
+      web:test | Not implemented: Window's scrollTo() method
+      web:test | Not implemented: Window's scrollTo() method
+      web:test |  ✓ src/server/workflow.test.ts (10 tests) 14ms
+
+      web:test |  Test Files  24 passed (24)
+      web:test |       Tests  282 passed (282)
+      web:test |    Start at  09:52:09
+      web:test |    Duration  18.42s (environment 41%, import 31%, transform 16%, tests 11%)
+
+      web:test |     Isolate  24 workers spawned · ~3.51s startup each (spawn + environment, per file)
+      web:test |              at least ~4.15s faster with isolate: false — reuses workers across files instead of one per file
+
+▮▮▮▮ web:test (20s 797ms, edb5b80d)
+
+Tasks: 10 completed (9 cached)
+ Time: 21s 367ms
+

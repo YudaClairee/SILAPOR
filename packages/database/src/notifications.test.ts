@@ -4,11 +4,13 @@
 // database (`silapor_p63_test`) created/dropped in beforeAll/afterAll and
 // skips without a reachable PostgreSQL (same contract as workflow.test.ts).
 import postgres from 'postgres';
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, afterAll, beforeAll } from 'vitest';
 import { getDb, resolveDatabaseUrl } from './index.js';
 import { runMigrations } from './migrate.js';
 import {
+  facilityAssets,
   facilityCategories,
   locations,
   maintenanceReports,
@@ -420,14 +422,22 @@ describe.skipIf(!enabled)('notification queries (requires reachable PostgreSQL)'
     expect(result.unreadCount).toBe(2);
   });
 
-  it('carries the joined ticket number and stays null-safe without a report', async () => {
+  it('carries the joined ticket, status, and visible location, and stays null-safe without a report', async () => {
     const result = await listNotificationsForUser(requireDb(), reporterAId);
     const newest = result.items.find((item) => item.id === newestId)!;
     expect(newest.reportId).toBe(reportId);
     expect(newest.ticketNumber).toBe('MNT-2026-000210');
+    expect(newest.reportStatus).toBe('REPORTED');
+    expect(newest.assetName).toBeNull();
+    expect(newest.locationName).toBe('Kampus');
+    expect(newest.locationBuildingCode).toBeNull();
+    expect(newest.locationFloorNumber).toBeNull();
     const noReport = result.items.find((item) => item.id === noReportId)!;
     expect(noReport.reportId).toBeNull();
     expect(noReport.ticketNumber).toBeNull();
+    expect(noReport.reportStatus).toBeNull();
+    expect(noReport.assetName).toBeNull();
+    expect(noReport.locationName).toBeNull();
   });
 
   it("never leaks another reporter's rows", async () => {
@@ -479,5 +489,86 @@ describe.skipIf(!enabled)('notification queries (requires reachable PostgreSQL)'
     await expect(markAllNotificationsRead(requireDb(), 'not-a-valid-uuid')).rejects.toMatchObject({
       status: 400,
     });
+  });
+
+  it('resolves asset names and nulls locations that are reporter-hidden or inactive', async () => {
+    const d = requireDb();
+    const [campus] = await d
+      .select({ id: locations.id })
+      .from(locations)
+      .where(eq(locations.code, 'P65B-CAMPUS'));
+    const [category] = await d
+      .select({ id: facilityCategories.id })
+      .from(facilityCategories)
+      .where(eq(facilityCategories.code, 'P65B-ELEC'));
+    const [asset] = await d
+      .insert(facilityAssets)
+      .values({
+        assetCode: 'P65B-ASSET',
+        name: 'Proyektor Epson',
+        categoryId: category!.id,
+        locationId: campus!.id,
+      })
+      .returning({ id: facilityAssets.id });
+    const [hiddenLocation] = await d
+      .insert(locations)
+      .values({
+        type: 'ROOM',
+        code: 'P65B-HIDDEN',
+        name: 'Ruang Rapat',
+        buildingCode: 'C',
+        floorNumber: 3,
+        reporterHidden: true,
+      })
+      .returning({ id: locations.id });
+    const [reportRow] = await d
+      .insert(maintenanceReports)
+      .values({
+        ticketNumber: 'MNT-2026-000212',
+        idempotencyKey: randomUUID(),
+        reporterId: reporterAId,
+        assetId: asset!.id,
+        locationId: hiddenLocation!.id,
+        submittedCategoryId: category!.id,
+        description: 'Proyektor tidak menyala saat perkuliahan.',
+      })
+      .returning({ id: maintenanceReports.id });
+    await d.insert(notifications).values({
+      userId: reporterAId,
+      type: 'REPORT_RESOLVED',
+      title: 'Laporan selesai',
+      message: 'Tiket MNT-2026-000212 telah selesai ditangani.',
+      reportId: reportRow!.id,
+      sourceEventId: randomUUID(),
+    });
+
+    const resolve = async () =>
+      (await listNotificationsForUser(requireDb(), reporterAId)).items.find(
+        (item) => item.ticketNumber === 'MNT-2026-000212',
+      )!;
+
+    const hidden = await resolve();
+    expect(hidden.assetName).toBe('Proyektor Epson');
+    expect(hidden.reportStatus).toBe('REPORTED');
+    expect(hidden.locationName).toBeNull();
+    expect(hidden.locationBuildingCode).toBeNull();
+    expect(hidden.locationFloorNumber).toBeNull();
+
+    // Un-hide: the reporter-visible room and its denormalised parts resolve.
+    await d
+      .update(locations)
+      .set({ reporterHidden: false })
+      .where(eq(locations.id, hiddenLocation!.id));
+    const visible = await resolve();
+    expect(visible.locationName).toBe('Ruang Rapat');
+    expect(visible.locationBuildingCode).toBe('C');
+    expect(visible.locationFloorNumber).toBe(3);
+
+    // Deactivated locations disappear from reporter-facing fields again.
+    await d.update(locations).set({ isActive: false }).where(eq(locations.id, hiddenLocation!.id));
+    const inactive = await resolve();
+    expect(inactive.locationName).toBeNull();
+    expect(inactive.locationBuildingCode).toBeNull();
+    expect(inactive.locationFloorNumber).toBeNull();
   });
 });

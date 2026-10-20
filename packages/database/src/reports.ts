@@ -33,6 +33,7 @@ import {
   ilike,
   inArray,
   isNotNull,
+  isNull,
   lt,
   lte,
   ne,
@@ -813,6 +814,22 @@ export async function applyVerification(
           finalPriority,
         },
       });
+      // Parity with workflow.verifyReport: verification must reach the
+      // reporter. Without this row the held/AI verify paths leave the reporter
+      // with no "Laporan diverifikasi" notification (notifications.ts only
+      // reads WORKFLOW_NOTIFICATION outbox rows). Queued in-tx so the
+      // notification can never disagree with the status flip; the worker
+      // consumes it asynchronously and idempotently.
+      await tx.insert(schema.outboxEvents).values({
+        type: 'WORKFLOW_NOTIFICATION',
+        payload: {
+          reportId: report.id,
+          ticketNumber: report.ticketNumber,
+          kind: 'REPORT_VERIFIED',
+          actorId: actorId ?? null,
+        },
+        status: 'PENDING',
+      });
       return next;
     });
   } catch (error) {
@@ -834,9 +851,10 @@ export async function applyVerification(
 // an identical 404 for missing vs foreign rows. The campus paths
 // (`listCampusReports`, `getCampusReportDetail`) instead expose every ticket
 // through a sanitized projection (no reporter identity/idempotency/audit
-// fields; attachments/candidates stay owner-only) and 404 only when the
-// ticket itself is missing. Admin paths (`listAllReports`,
-// `getAdminReportDetail`) add reporter/search filters and skip ownership.
+// fields; attachments are campus-readable while duplicate candidates stay
+// owner-only) and 404 only when the ticket itself is missing. Admin paths
+// (`listAllReports`, `getAdminReportDetail`) add reporter/search filters and
+// skip ownership.
 // `linkSupportingReport` is metadata only: no status change, no repair job.
 // `countAffectedReporters` counts DISTINCT reporters over the shared incident
 // predicate above plus one hop of SUPPORTING/RELATED links.
@@ -850,13 +868,22 @@ const REPORT_STATUS_SET: ReadonlySet<string> = new Set(REPORT_STATUS);
 const RELATION_TYPE_SET: ReadonlySet<string> = new Set(RELATION_TYPE);
 const PRIORITY_SET: ReadonlySet<string> = new Set(['LOW', 'MEDIUM', 'HIGH']);
 
-export const REPORT_SORTS = ['reported_desc', 'reported_asc', 'ticket_asc', 'ticket_desc'] as const;
+export const REPORT_SORTS = [
+  'reported_desc',
+  'reported_asc',
+  'ticket_asc',
+  'ticket_desc',
+  // Admin Figma 150:626 "Urutan Default: Skor Prioritas Tertinggi".
+  'priority_desc',
+] as const;
 
 export type ReportSort = (typeof REPORT_SORTS)[number];
 
 export interface ReportOrderSpec {
-  readonly column: 'reportedAt' | 'ticketNumber' | 'id';
+  readonly column: 'reportedAt' | 'ticketNumber' | 'id' | 'priorityScore';
   readonly direction: 'asc' | 'desc';
+  /** Priority ordering keeps unscored rows (null) after scored rows. */
+  readonly nullsLast?: boolean;
 }
 
 // Validates `sort` (default `reported_desc`, anything else → 400).
@@ -891,6 +918,12 @@ export function reportOrderBy(sort: unknown): readonly ReportOrderSpec[] {
         { column: 'ticketNumber', direction: 'desc' },
         { column: 'id', direction: 'asc' },
       ];
+    case 'priority_desc':
+      return [
+        { column: 'priorityScore', direction: 'desc', nullsLast: true },
+        { column: 'reportedAt', direction: 'desc' },
+        { column: 'id', direction: 'asc' },
+      ];
     case 'reported_desc':
     default:
       return [
@@ -908,6 +941,13 @@ function drizzleOrderBy(sort: ReportSort): ReturnType<typeof asc>[] {
       return [asc(schema.maintenanceReports.ticketNumber), asc(schema.maintenanceReports.id)];
     case 'ticket_desc':
       return [desc(schema.maintenanceReports.ticketNumber), asc(schema.maintenanceReports.id)];
+    case 'priority_desc':
+      // Postgres DESC defaults to NULLS FIRST; unscored tickets must stay last.
+      return [
+        sql`${schema.maintenanceReports.priorityScore} DESC NULLS LAST`,
+        desc(schema.maintenanceReports.reportedAt),
+        asc(schema.maintenanceReports.id),
+      ];
     case 'reported_desc':
     default:
       return [desc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id)];
@@ -1046,6 +1086,10 @@ async function queryReportList(
     readonly from?: unknown;
     readonly to?: unknown;
     readonly search?: unknown;
+    // Campus list searches ticket + asset name + location name (reporter-safe
+    // locations only); admin lists add description and include hidden/inactive
+    // locations because UMPER must find lift rooms and archived assets too.
+    readonly searchScope?: 'default' | 'campus' | 'admin' | undefined;
     readonly limit?: number | undefined;
     readonly offset?: number | undefined;
     readonly sort?: unknown;
@@ -1109,12 +1153,42 @@ async function queryReportList(
     );
   }
   if (pattern !== null) {
-    conditions.push(
-      or(
+    if (filter.searchScope === 'campus' || filter.searchScope === 'admin') {
+      // Search follows the UI placeholder: ticket number, asset name, or
+      // location name. The campus leg deliberately excludes hidden/inactive
+      // locations so a reporter search cannot reveal lift rooms; the admin leg
+      // has no such restriction (UMPER manages those locations).
+      const locationScope =
+        filter.searchScope === 'campus'
+          ? sql`AND l.is_active = true AND l.reporter_hidden = false`
+          : sql``;
+      const parts = [
         ilike(schema.maintenanceReports.ticketNumber, pattern),
-        ilike(schema.maintenanceReports.description, pattern),
-      ),
-    );
+        sql`EXISTS (
+            SELECT 1 FROM facility_assets fa
+            WHERE fa.id = ${schema.maintenanceReports.assetId}
+              AND fa.name ILIKE ${pattern}
+          )`,
+        sql`EXISTS (
+            SELECT 1 FROM locations l
+            WHERE l.id = ${schema.maintenanceReports.locationId}
+              ${locationScope}
+              AND l.name ILIKE ${pattern}
+          )`,
+      ];
+      if (filter.searchScope === 'admin') {
+        // Preserve the legacy admin description search in addition.
+        parts.push(ilike(schema.maintenanceReports.description, pattern));
+      }
+      conditions.push(or(...parts));
+    } else {
+      conditions.push(
+        or(
+          ilike(schema.maintenanceReports.ticketNumber, pattern),
+          ilike(schema.maintenanceReports.description, pattern),
+        ),
+      );
+    }
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -1148,26 +1222,172 @@ export async function listAllReports(
   return await queryReportList(db, { ...(opts ?? {}) });
 }
 
+// ---------------------------------------------------------------------------
+// Admin list projection (Figma "Kelola Laporan" 150:626).
+// ---------------------------------------------------------------------------
+//
+// The table needs display labels the raw report row does not carry: asset
+// name, location name (including hidden/inactive rooms — UMPER manages them),
+// the currently assigned technician, and the verified reporter count. Names
+// are joined here so the UI never resolves ids client-side. `statusCounts`
+// feeds the status tabs: one grouped query over the same canonical status set
+// and held-queue exclusion the list uses, so tab totals and filtered pages
+// agree.
+
+export interface AdminReportStatusCount {
+  readonly status: schema.Report['status'];
+  readonly count: number;
+}
+
+export interface AdminReportListItem extends schema.Report {
+  readonly assetName: string | null;
+  readonly locationName: string | null;
+  /** Active assignment only (`unassigned_at IS NULL`); null before assignment. */
+  readonly technicianName: string | null;
+  /** `priority_factors.affectedReporters`; null for pre-scoring rows. */
+  readonly reporterCount: number | null;
+}
+
+export interface AdminReportListResult {
+  readonly items: AdminReportListItem[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+  readonly statusCounts: readonly AdminReportStatusCount[];
+}
+
+// Counts for the admin status tabs. Mirrors `getReportsByStatus` in
+// `@silapor/analytics` (canonical statuses + held-queue exclusion for
+// REPORTED) without pulling the analytics dashboard aggregates into the list.
+export async function countReportsByStatus(
+  db: ReportQueryDb,
+): Promise<readonly AdminReportStatusCount[]> {
+  const rows = await db
+    .select({ status: schema.maintenanceReports.status, value: count() })
+    .from(schema.maintenanceReports)
+    .where(
+      and(
+        inArray(schema.maintenanceReports.status, [...REPORT_STATUS]),
+        or(
+          ne(schema.maintenanceReports.status, 'REPORTED'),
+          isNotNull(schema.maintenanceReports.finalCategoryId),
+          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
+        ),
+      ),
+    )
+    .groupBy(schema.maintenanceReports.status);
+  const counts = new Map(rows.map((row) => [row.status, row.value] as const));
+  return REPORT_STATUS.map((status) => ({ status, count: counts.get(status) ?? 0 }));
+}
+
+// Enriched admin list. Search spans ticket number, description, asset name,
+// and location name (all locations) so the page placeholder is accurate.
+export async function listAdminReports(
+  db: ReportQueryDb,
+  opts?: ListAllReportsOptions,
+): Promise<AdminReportListResult> {
+  const [result, statusCounts] = await Promise.all([
+    queryReportList(db, { ...(opts ?? {}), searchScope: 'admin' }),
+    countReportsByStatus(db),
+  ]);
+
+  const rows = result.items;
+  const reportIds = rows.map((row) => row.id);
+  const assetIds = [
+    ...new Set(rows.map((row) => row.assetId).filter((value): value is string => value !== null)),
+  ];
+  const locationIds = [...new Set(rows.map((row) => row.locationId))];
+
+  const [assetRows, locationRows, assignmentRows] = await Promise.all([
+    assetIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; name: string }>)
+      : db
+          .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
+          .from(schema.facilityAssets)
+          .where(inArray(schema.facilityAssets.id, assetIds)),
+    locationIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; name: string }>)
+      : db
+          .select({ id: schema.locations.id, name: schema.locations.name })
+          .from(schema.locations)
+          .where(inArray(schema.locations.id, locationIds)),
+    reportIds.length === 0
+      ? Promise.resolve([] as Array<{ reportId: string; technicianName: string; assignedAt: Date }>)
+      : db
+          .select({
+            reportId: schema.reportAssignments.reportId,
+            technicianName: schema.technicians.displayName,
+            assignedAt: schema.reportAssignments.assignedAt,
+          })
+          .from(schema.reportAssignments)
+          .innerJoin(
+            schema.technicians,
+            eq(schema.technicians.id, schema.reportAssignments.technicianId),
+          )
+          .where(
+            and(
+              inArray(schema.reportAssignments.reportId, reportIds),
+              isNull(schema.reportAssignments.unassignedAt),
+            ),
+          )
+          .orderBy(desc(schema.reportAssignments.assignedAt)),
+  ]);
+
+  const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
+  const locationNames = new Map(locationRows.map((row) => [row.id, row.name] as const));
+  // Assignment rows are newest-first, so the first hit per report wins.
+  const technicianNames = new Map<string, string>();
+  for (const row of assignmentRows) {
+    if (!technicianNames.has(row.reportId)) {
+      technicianNames.set(row.reportId, row.technicianName);
+    }
+  }
+
+  return {
+    items: rows.map((row) => ({
+      ...row,
+      assetName: row.assetId === null ? null : (assetNames.get(row.assetId) ?? null),
+      locationName: locationNames.get(row.locationId) ?? null,
+      technicianName: technicianNames.get(row.id) ?? null,
+      reporterCount: reporterCountOf(row.priorityFactors),
+    })),
+    total: result.total,
+    limit: result.limit,
+    offset: result.offset,
+    statusCounts,
+  };
+}
+
 export interface ListCampusReportsOptions extends ListMyReportsOptions {
   /** `true` = "Laporan Saya" filter; default is the whole campus. */
   readonly mine?: boolean | undefined;
+  /** Campus search: ticket number, asset name, or location name. */
+  readonly search?: string | undefined;
 }
 
 // Reporter-facing campus projection. Identity and audit-only fields never
-// leave the repository: no reporterId, idempotencyKey, priority factors, or
-// decider ids. The ticket number, safe location/asset ids, status, final
-// classification, and timestamps are enough to render the campus list.
+// leave the repository: no reporterId, idempotencyKey, priority weights, or
+// decider ids. Asset/location display names are joined server-side so the UI
+// never has to leak a hidden location by resolving an id client-side.
 export interface CampusReportListItem {
   readonly id: string;
   readonly ticketNumber: string;
   readonly status: schema.Report['status'];
   readonly locationId: string;
   readonly assetId: string | null;
+  readonly assetName: string | null;
+  // Null when the location is inactive or reporterHidden (lift rooms).
+  readonly locationName: string | null;
+  readonly locationBuildingCode: string | null;
+  readonly locationFloorNumber: number | null;
   readonly submittedCategoryId: string;
   readonly submittedIssueTypeId: string | null;
   readonly finalCategoryId: string | null;
   readonly finalIssueTypeId: string | null;
   readonly finalPriority: string | null;
+  // Snapshot from priority_factors.affectedReporters (the verified impact
+  // count). Null for rows created before the factor existed.
+  readonly reporterCount: number | null;
   readonly reportedAt: Date;
   readonly resolvedAt: Date | null;
   readonly closedAt: Date | null;
@@ -1181,6 +1401,14 @@ export interface CampusReportListResult {
   readonly offset: number;
 }
 
+function reporterCountOf(value: unknown): number | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const raw = (value as { readonly affectedReporters?: unknown }).affectedReporters;
+  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null;
+}
+
 function toCampusReportListItem(row: schema.Report, viewerId: string): CampusReportListItem {
   return {
     id: row.id,
@@ -1188,11 +1416,16 @@ function toCampusReportListItem(row: schema.Report, viewerId: string): CampusRep
     status: row.status,
     locationId: row.locationId,
     assetId: row.assetId,
+    assetName: null,
+    locationName: null,
+    locationBuildingCode: null,
+    locationFloorNumber: null,
     submittedCategoryId: row.submittedCategoryId,
     submittedIssueTypeId: row.submittedIssueTypeId,
     finalCategoryId: row.finalCategoryId,
     finalIssueTypeId: row.finalIssueTypeId,
     finalPriority: row.finalPriority,
+    reporterCount: reporterCountOf(row.priorityFactors),
     reportedAt: row.reportedAt,
     resolvedAt: row.resolvedAt,
     closedAt: row.closedAt,
@@ -1201,7 +1434,8 @@ function toCampusReportListItem(row: schema.Report, viewerId: string): CampusRep
 }
 
 // Campus-wide reporter list (UI No. 5). Every authenticated reporter sees
-// all sanitized tickets; `mine=true` narrows to the viewer's own rows.
+// all sanitized tickets; `mine=true` narrows to the viewer's own rows and
+// `search` matches ticket number, asset name, or visible location name.
 // The shared query keeps filters, deterministic ordering, and pagination
 // identical to the reporter/admin lists.
 export async function listCampusReports(
@@ -1210,16 +1444,103 @@ export async function listCampusReports(
   opts?: ListCampusReportsOptions,
 ): Promise<CampusReportListResult> {
   const id = requireUuid(viewerId, 'viewerId');
-  const { mine, ...base } = opts ?? {};
+  const { mine, search, ...base } = opts ?? {};
   const result = await queryReportList(db, {
     ...base,
+    ...(search === undefined ? {} : { search }),
+    searchScope: 'campus',
     ...(mine === true ? { reporterId: id } : {}),
   });
+
+  const rows = result.items.map((row) => toCampusReportListItem(row, id));
+  const assetIds = [
+    ...new Set(rows.map((row) => row.assetId).filter((value): value is string => value !== null)),
+  ];
+  const locationIds = [...new Set(rows.map((row) => row.locationId))];
+  const assetRows =
+    assetIds.length === 0
+      ? []
+      : await db
+          .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
+          .from(schema.facilityAssets)
+          .where(inArray(schema.facilityAssets.id, assetIds));
+  const locationRows =
+    locationIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: schema.locations.id,
+            name: schema.locations.name,
+            buildingCode: schema.locations.buildingCode,
+            floorNumber: schema.locations.floorNumber,
+            isActive: schema.locations.isActive,
+            reporterHidden: schema.locations.reporterHidden,
+          })
+          .from(schema.locations)
+          .where(inArray(schema.locations.id, locationIds));
+  const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
+  const locationsById = new Map(locationRows.map((row) => [row.id, row] as const));
+
   return {
-    items: result.items.map((row) => toCampusReportListItem(row, id)),
+    items: rows.map((row) => {
+      const location = locationsById.get(row.locationId);
+      const visibleLocation =
+        location !== undefined && location.isActive && !location.reporterHidden ? location : null;
+      return {
+        ...row,
+        assetName: row.assetId === null ? null : (assetNames.get(row.assetId) ?? null),
+        locationName: visibleLocation?.name ?? null,
+        locationBuildingCode: visibleLocation?.buildingCode ?? null,
+        locationFloorNumber: visibleLocation?.floorNumber ?? null,
+      };
+    }),
     total: result.total,
     limit: result.limit,
     offset: result.offset,
+  };
+}
+
+export interface CampusReportStats {
+  readonly total: number;
+  readonly active: number;
+  readonly inRepair: number;
+  readonly done: number;
+  readonly mineTotal: number;
+}
+
+// KPI counters for the reporter landing page. Counts are campus-wide except
+// `mineTotal` (the "Laporan Saya" tab). `active` follows the domain's open-work
+// subset (RESOLVED is NOT active); `done` is RESOLVED + CLOSED.
+export async function getCampusReportStats(
+  db: ReportQueryDb,
+  viewerId: string,
+): Promise<CampusReportStats> {
+  const id = requireUuid(viewerId, 'viewerId');
+  const [totalRows, activeRows, inRepairRows, doneRows, mineRows] = await Promise.all([
+    db.select({ value: count() }).from(schema.maintenanceReports),
+    db
+      .select({ value: count() })
+      .from(schema.maintenanceReports)
+      .where(inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES])),
+    db
+      .select({ value: count() })
+      .from(schema.maintenanceReports)
+      .where(eq(schema.maintenanceReports.status, 'IN_REPAIR')),
+    db
+      .select({ value: count() })
+      .from(schema.maintenanceReports)
+      .where(inArray(schema.maintenanceReports.status, ['RESOLVED', 'CLOSED'])),
+    db
+      .select({ value: count() })
+      .from(schema.maintenanceReports)
+      .where(eq(schema.maintenanceReports.reporterId, id)),
+  ]);
+  return {
+    total: totalRows[0]?.value ?? 0,
+    active: activeRows[0]?.value ?? 0,
+    inRepair: inRepairRows[0]?.value ?? 0,
+    done: doneRows[0]?.value ?? 0,
+    mineTotal: mineRows[0]?.value ?? 0,
   };
 }
 
@@ -1236,6 +1557,10 @@ export interface CampusReport {
   readonly description: string;
   readonly occurredAt: Date | null;
   readonly finalPriority: string | null;
+  // Snapshot of the verified impact count (`priority_factors.affectedReporters`).
+  // Null for rows created before the factor existed; the ticket detail renders
+  // the "laporan mendukung" line only when a count is present.
+  readonly reporterCount: number | null;
   readonly reportedAt: Date;
   readonly verifiedAt: Date | null;
   readonly resolvedAt: Date | null;
@@ -1259,6 +1584,23 @@ export interface CampusReportDetail {
   readonly events: schema.ReportEvent[];
   readonly relations: CampusReportRelation[];
   readonly duplicateCandidates: DuplicateCandidate[];
+  // AI classifier confidence (0..1) from the latest analysis row. Non-PII
+  // metadata; null when the report predates AI verification or the analysis
+  // never completed. The detail page hides the confidence meter when null.
+  readonly classificationConfidence: number | null;
+  // Tickets grouped into the same incident via SUPPORTING/RELATED relations
+  // (auto-merged at submit time for a different reporter). Sanitized to the
+  // same public-safe fields as the campus list — never the reporter id.
+  readonly relatedReports: CampusRelatedReport[];
+}
+
+export interface CampusRelatedReport {
+  readonly id: string;
+  readonly ticketNumber: string;
+  readonly description: string;
+  readonly status: string;
+  readonly relationType: string;
+  readonly reportedAt: Date;
 }
 
 function toCampusReport(row: schema.Report): CampusReport {
@@ -1275,6 +1617,7 @@ function toCampusReport(row: schema.Report): CampusReport {
     description: row.description,
     occurredAt: row.occurredAt,
     finalPriority: row.finalPriority,
+    reporterCount: reporterCountOf(row.priorityFactors),
     reportedAt: row.reportedAt,
     verifiedAt: row.verifiedAt,
     resolvedAt: row.resolvedAt,
@@ -1420,7 +1763,8 @@ export async function getMyReportDetail(
 
 // Campus-wide reporter detail (UI No. 5). Another reporter's ticket is a
 // normal 200 sanitized view — never a 404/403 existence oracle. Attachments
-// and duplicate candidates remain owner-only; events use the same reporter
+// are readable by every authenticated reporter (campus transparency), while
+// duplicate candidates remain owner-only; events use the same reporter
 // sanitization as the own-ticket path; relation `created_by` is omitted.
 export async function getCampusReportDetail(
   db: ReportQueryDb,
@@ -1440,19 +1784,73 @@ export async function getCampusReportDetail(
   const isOwn = row.reporterId === viewer;
   const detail = await loadReportDetail(db, row);
   const events = detail.events.map(sanitizeReporterDetailEvent);
+  const relations = detail.relations.map((relation) => ({
+    id: relation.id,
+    sourceReportId: relation.sourceReportId,
+    targetReportId: relation.targetReportId,
+    relationType: relation.relationType,
+    createdAt: relation.createdAt,
+  }));
+
+  // Related tickets for the "laporan pendukung" block: the non-self endpoint
+  // of each relation, read in one batch. Display fields only — descriptions
+  // are already visible through the campus detail endpoint for every
+  // authenticated reporter, and the reporter id never leaves the database.
+  const relatedIds = [
+    ...new Set(
+      detail.relations.map((relation) =>
+        relation.sourceReportId === row.id ? relation.targetReportId : relation.sourceReportId,
+      ),
+    ),
+  ].filter((relatedId) => relatedId !== row.id);
+  const relationTypeById = new Map(
+    detail.relations.map(
+      (relation) =>
+        [
+          relation.sourceReportId === row.id ? relation.targetReportId : relation.sourceReportId,
+          relation.relationType,
+        ] as const,
+    ),
+  );
+  const relatedRows =
+    relatedIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: schema.maintenanceReports.id,
+            ticketNumber: schema.maintenanceReports.ticketNumber,
+            description: schema.maintenanceReports.description,
+            status: schema.maintenanceReports.status,
+            reportedAt: schema.maintenanceReports.reportedAt,
+          })
+          .from(schema.maintenanceReports)
+          .where(inArray(schema.maintenanceReports.id, relatedIds))
+          .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id));
+
+  // Classifier confidence from the latest analysis row (0..1, nullable).
+  const confidenceRows = await db
+    .select({ confidence: schema.aiAnalyses.confidence })
+    .from(schema.aiAnalyses)
+    .where(eq(schema.aiAnalyses.reportId, id))
+    .orderBy(desc(schema.aiAnalyses.createdAt))
+    .limit(1);
+
   return {
     report: toCampusReport(row),
     isOwn,
-    attachments: isOwn ? detail.attachments : [],
+    attachments: detail.attachments,
     events,
-    relations: detail.relations.map((relation) => ({
-      id: relation.id,
-      sourceReportId: relation.sourceReportId,
-      targetReportId: relation.targetReportId,
-      relationType: relation.relationType,
-      createdAt: relation.createdAt,
-    })),
+    relations,
     duplicateCandidates: isOwn ? detail.duplicateCandidates : [],
+    classificationConfidence: confidenceRows[0]?.confidence ?? null,
+    relatedReports: relatedRows.map((related) => ({
+      id: related.id,
+      ticketNumber: related.ticketNumber,
+      description: related.description,
+      status: related.status,
+      relationType: relationTypeById.get(related.id) ?? 'RELATED',
+      reportedAt: related.reportedAt,
+    })),
   };
 }
 

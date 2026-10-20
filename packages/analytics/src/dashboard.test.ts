@@ -21,11 +21,15 @@ import type { AnalyticsDb } from './dashboard.js';
 import {
   getOverviewCards,
   getPriorityQueue,
+  getReportTrend,
+  getReportsByBuilding,
   getReportsByCategory,
   getReportsByLocation,
   getReportsByStatus,
   getResolutionTimeMetrics,
+  getTechnicianCompletions,
   getTechnicianWorkload,
+  getTopAssets,
 } from './dashboard.js';
 import { jakartaDayRange } from './time.js';
 
@@ -86,6 +90,7 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
   let budiId = '';
   let sariId = '';
   let andiId = '';
+  let assetId = '';
 
   const r1Ticket = 'P7-0001';
   const r2Ticket = 'P7-0002';
@@ -218,9 +223,11 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       .returning({ id: technicians.id });
     andiId = andiRows[0]?.id ?? '';
 
-    await d
+    const assetRows = await d
       .insert(facilityAssets)
-      .values({ assetCode: 'P7-AC-01', categoryId: hvacId, locationId: roomId, name: 'AC Ruang 01' });
+      .values({ assetCode: 'P7-AC-01', categoryId: hvacId, locationId: roomId, name: 'AC Ruang 01' })
+      .returning({ id: facilityAssets.id });
+    assetId = assetRows[0]?.id ?? '';
 
     await insertFixtureReport({
       ticketNumber: r1Ticket,
@@ -244,7 +251,7 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       finalCategoryId: hvacId,
       finalPriority: 'MEDIUM',
     });
-    await insertFixtureReport({
+    const r4Id = await insertFixtureReport({
       ticketNumber: r4Ticket,
       status: 'RESOLVED',
       reporterId: reporterBId,
@@ -252,7 +259,7 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       finalCategoryId: electricalId,
       resolvedAt: new Date('2026-10-10T05:00:00.000Z'),
     });
-    await insertFixtureReport({
+    const r5Id = await insertFixtureReport({
       ticketNumber: r5Ticket,
       status: 'CLOSED',
       reporterId: reporterAId,
@@ -297,6 +304,8 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
 
     await d.insert(reportAssignments).values([
       { reportId: r3Id, technicianId: budiId, assignedBy: adminId },
+      { reportId: r4Id, technicianId: budiId, assignedBy: adminId },
+      { reportId: r5Id, technicianId: sariId, assignedBy: adminId },
       {
         reportId: r10Id,
         technicianId: budiId,
@@ -355,6 +364,41 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
     const byLocation = await getReportsByLocation(requireDb(), range);
     expect(byLocation).toEqual([
       { locationId: roomId, locationName: 'Ruang Kuliah 01', count: 7 },
+    ]);
+  });
+
+  it('rolls reported-in-range rows up to their building', async () => {
+    expect(await getReportsByBuilding(requireDb(), range)).toEqual([
+      { buildingCode: 'P7-BLD', buildingName: 'Gedung C', count: 7 },
+    ]);
+  });
+
+  it('builds a Jakarta-day trend of reported volume and resolution duration', async () => {
+    // R7 lands exactly on Jakarta midnight (10-01 00:00 WIB); R8 is one second
+    // earlier and stays out of the range. R4/R5 contribute only resolved days.
+    expect(await getReportTrend(requireDb(), range)).toEqual([
+      { date: '2026-10-01', reports: 2, resolvedCount: 0, resolutionSecondsTotal: 0 },
+      { date: '2026-10-02', reports: 1, resolvedCount: 0, resolutionSecondsTotal: 0 },
+      { date: '2026-10-03', reports: 1, resolvedCount: 0, resolutionSecondsTotal: 0 },
+      { date: '2026-10-04', reports: 1, resolvedCount: 0, resolutionSecondsTotal: 0 },
+      { date: '2026-10-08', reports: 1, resolvedCount: 0, resolutionSecondsTotal: 0 },
+      { date: '2026-10-09', reports: 1, resolvedCount: 0, resolutionSecondsTotal: 0 },
+      { date: '2026-10-10', reports: 0, resolvedCount: 1, resolutionSecondsTotal: 172800 },
+      { date: '2026-10-11', reports: 0, resolvedCount: 1, resolutionSecondsTotal: 172800 },
+    ]);
+    expect(await getReportTrend(requireDb(), zeroRange)).toEqual([]);
+  });
+
+  it('credits resolved-in-range tickets to the assigned technician', async () => {
+    // Budi holds R4 (RESOLVED) and Sari holds R5 (CLOSED); Andi has none.
+    // R3 is still IN_REPAIR and R10's stale Budi assignment was unassigned.
+    expect(await getTechnicianCompletions(requireDb(), range)).toEqual([
+      { technicianId: budiId, technicianName: 'Budi', completedCount: 1 },
+      { technicianId: sariId, technicianName: 'Sari', completedCount: 1 },
+      { technicianId: andiId, technicianName: 'Andi', completedCount: 0 },
+    ]);
+    expect(await getTechnicianCompletions(requireDb(), range, 1)).toEqual([
+      { technicianId: budiId, technicianName: 'Budi', completedCount: 1 },
     ]);
   });
 
@@ -426,6 +470,8 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
     );
     expect(await getReportsByCategory(requireDb(), zeroRange)).toEqual([]);
     expect(await getReportsByLocation(requireDb(), zeroRange)).toEqual([]);
+    expect(await getReportsByBuilding(requireDb(), zeroRange)).toEqual([]);
+    expect(await getTopAssets(requireDb(), zeroRange)).toEqual([]);
   });
 
   it('counts active ASSIGNED..IN_REPAIR reports per active technician', async () => {
@@ -536,5 +582,51 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       to: '2026-10-18',
     });
     expect(list.total).toBe(before.find((item) => item.status === 'REPORTED')?.count);
+  });
+
+  it('ranks asset-level reports and skips assetless tickets', async () => {
+    await requireDb()
+      .insert(maintenanceReports)
+      .values([
+        {
+          ticketNumber: 'P7-ASSET-0001',
+          idempotencyKey: randomUUID(),
+          reporterId: reporterAId,
+          locationId: roomId,
+          assetId,
+          submittedCategoryId: hvacId,
+          description: 'AC mengeluarkan bunyi kasar dan tidak dingin sejak pagi.',
+          status: 'REPORTED' as const,
+          reportedAt: new Date('2026-10-06T02:00:00.000Z'),
+        },
+        {
+          ticketNumber: 'P7-ASSET-0002',
+          idempotencyKey: randomUUID(),
+          reporterId: reporterBId,
+          locationId: roomId,
+          assetId,
+          submittedCategoryId: hvacId,
+          description: 'Filter AC tersumbat dan air menetes ke lantai ruangan.',
+          status: 'VERIFIED' as const,
+          reportedAt: new Date('2026-10-07T02:00:00.000Z'),
+          finalCategoryId: hvacId,
+        },
+      ]);
+
+    const hotspots = await getTopAssets(requireDb(), range);
+    expect(hotspots).toEqual([
+      {
+        assetId,
+        assetName: 'AC Ruang 01',
+        roomName: 'Ruang Kuliah 01',
+        buildingCode: 'P7-BLD',
+        buildingName: 'Gedung C',
+        floorNumber: null,
+        count: 2,
+      },
+    ]);
+    // Reports without asset_id never surface here.
+    const totalReportsWithAssets = hotspots.reduce((sum, item) => sum + item.count, 0);
+    expect(totalReportsWithAssets).toBe(2);
   });
 });

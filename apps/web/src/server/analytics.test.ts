@@ -8,8 +8,12 @@ const dbMocks = vi.hoisted(() => ({
   getReportsByStatus: vi.fn(),
   getReportsByCategory: vi.fn(),
   getReportsByLocation: vi.fn(),
+  getReportsByBuilding: vi.fn(),
   getResolutionTimeMetrics: vi.fn(),
   getTechnicianWorkload: vi.fn(),
+  getTechnicianCompletions: vi.fn(),
+  getTopAssets: vi.fn(),
+  getReportTrend: vi.fn(),
   getPriorityQueue: vi.fn(),
 }));
 
@@ -24,8 +28,12 @@ vi.mock('@silapor/analytics', async (importOriginal) => ({
   getReportsByStatus: dbMocks.getReportsByStatus,
   getReportsByCategory: dbMocks.getReportsByCategory,
   getReportsByLocation: dbMocks.getReportsByLocation,
+  getReportsByBuilding: dbMocks.getReportsByBuilding,
   getResolutionTimeMetrics: dbMocks.getResolutionTimeMetrics,
   getTechnicianWorkload: dbMocks.getTechnicianWorkload,
+  getTechnicianCompletions: dbMocks.getTechnicianCompletions,
+  getTopAssets: dbMocks.getTopAssets,
+  getReportTrend: dbMocks.getReportTrend,
   getPriorityQueue: dbMocks.getPriorityQueue,
 }));
 
@@ -80,6 +88,24 @@ const PRIORITY_QUEUE = [
     reportedAt: new Date('2026-10-02T03:00:00Z'),
   },
 ];
+const BY_BUILDING = [{ buildingCode: 'C', buildingName: 'DEWI SARTIKA', count: 5 }];
+const TECHNICIAN_COMPLETIONS = [
+  { technicianId: TECHNICIAN_ID, technicianName: 'Budi', completedCount: 3 },
+];
+const TOP_ASSETS = [
+  {
+    assetId: '88888888-8888-4888-8888-888888888888',
+    assetName: 'AC Ruang 01',
+    roomName: 'Ruang 101',
+    buildingCode: 'C',
+    buildingName: 'DEWI SARTIKA',
+    floorNumber: 1,
+    count: 4,
+  },
+];
+const TREND = [
+  { date: '2026-10-01', reports: 2, resolvedCount: 1, resolutionSecondsTotal: 7200 },
+];
 
 function request(url: string): Request {
   return new Request(url);
@@ -90,8 +116,12 @@ function mockQueryResults(): void {
   dbMocks.getReportsByStatus.mockResolvedValue(BY_STATUS);
   dbMocks.getReportsByCategory.mockResolvedValue(BY_CATEGORY);
   dbMocks.getReportsByLocation.mockResolvedValue(BY_LOCATION);
+  dbMocks.getReportsByBuilding.mockResolvedValue(BY_BUILDING);
   dbMocks.getResolutionTimeMetrics.mockResolvedValue(RESOLUTION_TIME);
   dbMocks.getTechnicianWorkload.mockResolvedValue(TECHNICIAN_WORKLOAD);
+  dbMocks.getTechnicianCompletions.mockResolvedValue(TECHNICIAN_COMPLETIONS);
+  dbMocks.getTopAssets.mockResolvedValue(TOP_ASSETS);
+  dbMocks.getReportTrend.mockResolvedValue(TREND);
   dbMocks.getPriorityQueue.mockResolvedValue(PRIORITY_QUEUE);
 }
 
@@ -136,7 +166,11 @@ describe('getDashboardOverviewRoute range mapping', () => {
     expect(dbMocks.getReportsByStatus).toHaveBeenCalledWith({}, range);
     expect(dbMocks.getReportsByCategory).toHaveBeenCalledWith({}, range);
     expect(dbMocks.getReportsByLocation).toHaveBeenCalledWith({}, range);
+    expect(dbMocks.getReportsByBuilding).toHaveBeenCalledWith({}, range);
     expect(dbMocks.getResolutionTimeMetrics).toHaveBeenCalledWith({}, range);
+    expect(dbMocks.getTechnicianCompletions).toHaveBeenCalledWith({}, range);
+    expect(dbMocks.getTopAssets).toHaveBeenCalledWith({}, range);
+    expect(dbMocks.getReportTrend).toHaveBeenCalledWith({}, range);
   });
 
   it('treats absent params as unbounded and echoes nulls', async () => {
@@ -182,8 +216,12 @@ describe('getDashboardOverviewRoute assembly', () => {
       byStatus: BY_STATUS,
       byCategory: BY_CATEGORY,
       byLocation: BY_LOCATION,
+      byBuilding: BY_BUILDING,
       resolutionTime: RESOLUTION_TIME,
       technicianWorkload: TECHNICIAN_WORKLOAD,
+      technicianCompletions: TECHNICIAN_COMPLETIONS,
+      topAssets: TOP_ASSETS,
+      trend: TREND,
       priorityQueue: PRIORITY_QUEUE,
     });
     expect(dbMocks.close).toHaveBeenCalledOnce();

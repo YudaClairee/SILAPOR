@@ -1,25 +1,36 @@
-// Reporter layout placeholder (Phase 2 P2-4). Renders <Outlet/> only —
-// full reporter UI lands in Phase 3+.
-//
-// Server enforcement is authoritative (plan principle 2): API routes guard
-// with `../server/auth.ts` require* helpers. `beforeLoad` below is
-// navigation convenience only: it asks GET /api/auth/me (cookie included)
-// and redirects anonymous users to /login and non-reporters away per
-// `redirectForRole`. A failed fetch (e.g. SSR relative-URL fetch, offline)
-// is non-definitive, so it abstains instead of redirecting.
+// Reporter layout for the V2 top-nav shell. The redirect-only guard below is
+// unchanged and authoritative navigation-wise; the component owns the display
+// identity fetch (username + NIM only) and the logout POST.
+import { useCallback, useEffect, useState } from 'react';
 import { Outlet, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { redirectForRole, type GuardUser } from '../server/guard';
-import { AppShell } from '../components/index.js';
+import { NOTIFICATIONS_CHANGED_EVENT } from '../lib/notification-events.js';
+import { ReporterShell } from '../components/index.js';
 
-interface MeResponse {
-  readonly user?: { readonly role?: unknown } | null;
+interface MeUser {
+  readonly username: string;
+  readonly nim: string | null;
+  readonly role: 'ADMIN' | 'REPORTER';
 }
 
-function sanitizeRole(value: unknown): GuardUser | null {
+interface MeResponse {
+  readonly user?: unknown;
+}
+
+function sanitizeUser(value: unknown): MeUser | null {
   if (value !== null && typeof value === 'object') {
-    const role = (value as { readonly role?: unknown }).role;
-    if (role === 'ADMIN' || role === 'REPORTER') {
-      return { role };
+    const record = value as {
+      readonly username?: unknown;
+      readonly nim?: unknown;
+      readonly role?: unknown;
+    };
+    if (record.role === 'ADMIN' || record.role === 'REPORTER') {
+      const username = typeof record.username === 'string' ? record.username : '';
+      return {
+        username: username === '' ? 'Reporter' : username,
+        nim: typeof record.nim === 'string' && record.nim !== '' ? record.nim : null,
+        role: record.role,
+      };
     }
   }
   return null;
@@ -36,7 +47,7 @@ export const Route = createFileRoute('/reporter')({
     let user: GuardUser | null = null;
     if (response.ok) {
       try {
-        user = sanitizeRole(((await response.json()) as MeResponse).user ?? null);
+        user = sanitizeUser(((await response.json()) as MeResponse).user ?? null);
       } catch {
         user = null;
       }
@@ -51,11 +62,70 @@ export const Route = createFileRoute('/reporter')({
 
 function ReporterLayout() {
   const navigate = useNavigate();
+  const [me, setMe] = useState<MeUser | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // Presentational shell adoption (Task D-2): the redirect-only guard above
-  // is unchanged and authoritative navigation-wise; this layout only owns
-  // the logout POST. The route tree guarantees REPORTER here post-guard
-  // (anonymous/non-reporters redirect), so the shell role is static.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [meResponse, notificationResponse] = await Promise.all([
+          fetch('/api/auth/me', { credentials: 'include' }),
+          fetch('/api/notifications', { credentials: 'include' }),
+        ]);
+        if (cancelled) return;
+        if (meResponse.ok) {
+          try {
+            setMe(sanitizeUser(((await meResponse.json()) as MeResponse).user ?? null));
+          } catch {
+            setMe(null);
+          }
+        }
+        if (notificationResponse.ok) {
+          try {
+            const body = (await notificationResponse.json()) as {
+              readonly unreadCount?: unknown;
+            };
+            setUnreadCount(
+              typeof body.unreadCount === 'number' && body.unreadCount >= 0 ? body.unreadCount : 0,
+            );
+          } catch {
+            setUnreadCount(0);
+          }
+        }
+      } catch {
+        // Display-only fetch: the beforeLoad guard already handled auth.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The notification page marks rows read in-place, so refetch the dot count
+  // when it announces a change instead of waiting for the next full reload.
+  const refreshUnreadCount = useCallback((): void => {
+    void (async () => {
+      try {
+        const response = await fetch('/api/notifications', { credentials: 'include' });
+        if (!response.ok) return;
+        const body = (await response.json()) as { readonly unreadCount?: unknown };
+        setUnreadCount(
+          typeof body.unreadCount === 'number' && body.unreadCount >= 0 ? body.unreadCount : 0,
+        );
+      } catch {
+        // Display-only refresh: keep the last known count on failure.
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+    };
+  }, [refreshUnreadCount]);
+
   function handleLogout(): void {
     void (async () => {
       try {
@@ -68,8 +138,12 @@ function ReporterLayout() {
   }
 
   return (
-    <AppShell user={{ role: 'REPORTER' }} onLogout={handleLogout}>
+    <ReporterShell
+      user={{ username: me?.username ?? 'Reporter', nim: me?.nim ?? null }}
+      unreadCount={unreadCount}
+      onLogout={handleLogout}
+    >
       <Outlet />
-    </AppShell>
+    </ReporterShell>
   );
 }

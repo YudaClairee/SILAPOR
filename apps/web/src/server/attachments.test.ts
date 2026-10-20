@@ -471,11 +471,15 @@ describe('download auth + ownership', () => {
     );
   });
 
-  it('rejects reporter downloads via a foreign report with byte-identical 404 bodies', async () => {
+  it('allows a reporter to download an attachment from another reporter’s report', async () => {
     requireUserMock.mockResolvedValue({ ...REPORTER });
     resolveReportIdMock.mockResolvedValue(REPORT_ID);
     getDbMock.mockReturnValue({ db: FAKE_DB, close: fakeClose } as never);
-    getReportHeaderMock.mockResolvedValue({ id: REPORT_ID, reporterId: OTHER_REPORTER_ID, status: 'REPORTED' });
+    getReportHeaderMock.mockResolvedValue({
+      id: REPORT_ID,
+      reporterId: OTHER_REPORTER_ID,
+      status: 'REPORTED',
+    });
     getAttachmentByIdMock.mockResolvedValue({
       id: ATTACHMENT_ID,
       reportId: REPORT_ID,
@@ -489,45 +493,36 @@ describe('download auth + ownership', () => {
       status: 'REPORTED',
     });
     const storage = mockStorage();
+    const bytes = new Uint8Array([7, 8, 9]);
+    storage.get.mockResolvedValue({ bytes, contentType: 'image/png' });
 
-    const foreign = await expectReject(
-      downloadAttachment(new Request('http://localhost/x'), 'foreign', ATTACHMENT_ID, storage),
-      404,
-      'NOT_FOUND',
+    const result = await downloadAttachment(
+      new Request('http://localhost/x'),
+      'foreign',
+      ATTACHMENT_ID,
+      storage,
     );
+    expect(result.bytes).toEqual(bytes);
+    expect(result.contentType).toBe('image/png');
+    // The ref resolves unscoped so campus tickets are readable by anyone.
+    expect(resolveReportIdMock).toHaveBeenCalledWith(FAKE_DB, null, 'foreign');
+    expect(storage.get).toHaveBeenCalledWith('att_x');
+  });
 
+  it('rejects a missing report with 404 Report not found before touching storage', async () => {
+    requireUserMock.mockResolvedValue({ ...REPORTER });
+    resolveReportIdMock.mockResolvedValue(REPORT_ID);
+    getDbMock.mockReturnValue({ db: FAKE_DB, close: fakeClose } as never);
     getReportHeaderMock.mockResolvedValue(null);
+    const storage = mockStorage();
+
     const missing = await expectReject(
       downloadAttachment(new Request('http://localhost/x'), 'missing', ATTACHMENT_ID, storage),
       404,
       'NOT_FOUND',
     );
-
-    expect(foreign.message).toBe('Report not found');
-    expect(JSON.stringify(foreign.body)).toBe(JSON.stringify(missing.body));
+    expect(missing.message).toBe('Report not found');
     expect(storage.get).not.toHaveBeenCalled();
-  });
-
-  it('denies when the attachment join disagrees with the report gate (defense in depth)', async () => {
-    setupReporterOwnReport();
-    getAttachmentByIdMock.mockResolvedValue({
-      id: ATTACHMENT_ID,
-      reportId: REPORT_ID,
-      storageKey: 'att_x',
-      originalFilename: 'a.png',
-      mimeType: 'image/png',
-      sizeBytes: 10,
-      checksum: 'x',
-      createdAt: new Date(),
-      reporterId: OTHER_REPORTER_ID,
-      status: 'REPORTED',
-    });
-    const rejected = await expectReject(
-      downloadAttachment(new Request('http://localhost/x'), 'ref', ATTACHMENT_ID, mockStorage()),
-      404,
-      'NOT_FOUND',
-    );
-    expect(rejected.message).toBe('Report not found');
   });
 
   it('rejects missing attachments with 404 Attachment not found', async () => {
@@ -587,7 +582,7 @@ describe('download auth + ownership', () => {
     expect(storage.get).toHaveBeenCalledWith('att_gone');
   });
 
-  it('returns bytes with the canonical db mimeType for owners and admins', async () => {
+  it('returns bytes with the canonical db mimeType for reporters and admins', async () => {
     setupReporterOwnReport();
     const bytes = new Uint8Array([1, 2, 3, 4]);
     getAttachmentByIdMock.mockResolvedValue({

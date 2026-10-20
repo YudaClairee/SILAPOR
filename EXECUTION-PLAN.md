@@ -290,7 +290,7 @@ Scope ini mengikuti desain yang disetujui (`docs/superpowers/specs/2026-10-14-ai
 
 MVP mencakup:
 
-- verdict validitas laporan dari foto + kecocokan deskripsi terhadap aset (lolos → `VERIFIED`, gagal → ditolak di tempat dengan alasan);
+- verdict validitas laporan dari kecocokan deskripsi terhadap aset dan lokasi (lolos → `VERIFIED`, gagal → ditolak di tempat dengan alasan). **Revisi 2026-10-20:** pemeriksaan foto dihapus — AI menilai teks saja (deskripsi + aset + lokasi); foto tetap wajib dan tersimpan sebagai bukti teknisi, tetapi tidak dikirim ke model;
 - penetapan kategori dan issue type final dari master data (hanya dari daftar yang ada; deskripsi yang menunjuk ke kategori berbeda dari kategori master aset = gagal `wrong-asset`, bukan rekode diam-diam);
 - penetapan `finalPriority` + snapshot skor deterministik sebagai audit;
 - auto-gabung supporting untuk pelapor berbeda (UI No. 7);
@@ -473,7 +473,7 @@ ReportReviewAssistant
     └── versioned prompt
 ```
 
-MVP menggunakan satu structured LLM request sinkron saat submit untuk menghasilkan verdict validitas (foto + kecocokan deskripsi), kategori dan issue type final dari master data, priority final, confidence, serta alasan singkat. Tidak ada agent loop, memory, RAG, tool calling, summary otomatis, atau autonomous action. Scoring service deterministik tetap berjalan dan snapshot-nya disimpan sebagai audit atas `finalPriority` AI.
+MVP menggunakan satu structured LLM request sinkron saat submit untuk menghasilkan verdict validitas (kecocokan deskripsi dengan aset dan lokasi; **revisi 2026-10-20:** foto tidak lagi dikirim atau dinilai), kategori dan issue type final dari master data, priority final, confidence, serta alasan singkat. Tidak ada agent loop, memory, RAG, tool calling, summary otomatis, atau autonomous action. Scoring service deterministik tetap berjalan dan snapshot-nya disimpan sebagai audit atas `finalPriority` AI.
 
 Aturan integrasi:
 

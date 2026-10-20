@@ -142,7 +142,9 @@ describe('parseDuplicateCheckQuery', () => {
 
   it('400s on an invalid UUID combo', () => {
     expect(
-      httpStatusOf(() => parseDuplicateCheckQuery(`${BASE}/x?locationId=nope&categoryId=${UUID_B}`)),
+      httpStatusOf(() =>
+        parseDuplicateCheckQuery(`${BASE}/x?locationId=nope&categoryId=${UUID_B}`),
+      ),
     ).toBe(400);
     expect(
       httpStatusOf(() =>
@@ -197,7 +199,13 @@ describe('parseMyReportsQuery', () => {
   });
 
   it('accepts every binding sort value', () => {
-    for (const sort of ['reported_desc', 'reported_asc', 'ticket_asc', 'ticket_desc']) {
+    for (const sort of [
+      'reported_desc',
+      'reported_asc',
+      'ticket_asc',
+      'ticket_desc',
+      'priority_desc',
+    ]) {
       expect(resolveReportSort(sort)).toBe(sort);
     }
     expect(resolveReportSort(undefined)).toBe('reported_desc');
@@ -217,6 +225,15 @@ describe('parseCampusReportsQuery', () => {
     ).toEqual({ mine: true, status: ['REPORTED'], locationId: UUID_B, limit: 10 });
     expect(parseCampusReportsQuery(`${BASE}/api/reports?mine=true`)).toEqual({ mine: true });
     expect(parseCampusReportsQuery(`${BASE}/api/reports?mine=0`)).toEqual({});
+  });
+
+  it('parses search and the legacy q alias', () => {
+    expect(parseCampusReportsQuery(`${BASE}/api/reports?search=proyektor`)).toEqual({
+      search: 'proyektor',
+    });
+    expect(parseCampusReportsQuery(`${BASE}/api/reports?q=proyektor`)).toEqual({
+      search: 'proyektor',
+    });
   });
 });
 
@@ -1072,11 +1089,10 @@ describe('submitVerifiedReport held fallback', () => {
         storage,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
-    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
-      expect.anything(),
-      SUBMIT_ANALYSIS_ID,
-      { status: 'FAILED', errorCode: 'CONFLICT' },
-    );
+    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(expect.anything(), SUBMIT_ANALYSIS_ID, {
+      status: 'FAILED',
+      errorCode: 'CONFLICT',
+    });
     expect(compensated).toBeGreaterThan(0);
     expect(dbMocks.deleteStagedUploads).toHaveBeenCalled();
     expect(storage.remove).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
@@ -1121,10 +1137,7 @@ describe('submitVerifiedReport held fallback', () => {
       storage: fakeStorage(),
     });
     expect(res.status).toBe(201);
-    const merged = res as Extract<
-      typeof res,
-      { verification: { status: 'MERGED' } }
-    >;
+    const merged = res as Extract<typeof res, { verification: { status: 'MERGED' } }>;
     expect(merged.verification).toEqual({ status: 'MERGED' });
     expect(merged.relation).toEqual({ type: 'SUPPORTING', targetTicket: 'MNT-2026-000001' });
     expect(merged.message).toContain('MNT-2026-000001');
@@ -1173,14 +1186,9 @@ describe('submitVerifiedReport held fallback', () => {
       const opts = aiMocks.verifyReport.mock.calls[0]?.[1] as Record<string, unknown>;
       expect(opts['apiKey']).toBe('test-openrouter-key');
       expect(opts['model']).toBe('test-model');
-      const photos = aiMocks.verifyReport.mock.calls[0]?.[0]?.photos;
-      expect(photos).toEqual([
-        {
-          storageKey: SUBMIT_STAGED_KEY,
-          contentType: 'image/jpeg',
-          dataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
-        },
-      ]);
+      // Text-only verification: no photo keys or bytes ever reach the model.
+      const verifyInput = aiMocks.verifyReport.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(verifyInput['photos']).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
     }
@@ -1267,11 +1275,10 @@ describe('submitVerifiedReport held fallback', () => {
       throw new Error('expected a rejected submit result');
     }
     expect(res.reason.toLowerCase()).toContain('asset');
-    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
-      expect.anything(),
-      SUBMIT_ANALYSIS_ID,
-      { status: 'FAILED', errorCode: 'WRONG_ASSET' },
-    );
+    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(expect.anything(), SUBMIT_ANALYSIS_ID, {
+      status: 'FAILED',
+      errorCode: 'WRONG_ASSET',
+    });
     expect(dbMocks.applyVerification).not.toHaveBeenCalled();
   });
 
@@ -1299,12 +1306,18 @@ describe('submitVerifiedReport AI verification wiring', () => {
     arrangeStagedKeys();
   });
 
-  it('resolves staged photos and passes labels, bytes, and metadata through', async () => {
+  it('passes description, labels, and metadata through without photo bytes', async () => {
     arrangeMasterContext();
     arrangeCreatedReport();
     dbMocks.getLocation.mockImplementation(async (_db: unknown, id: unknown) => {
       if (id === UUID_A) {
-        return { id: UUID_A, type: 'ROOM', name: 'Ruang Rapat', parentId: UUID_FLOOR, tierScore: 12 };
+        return {
+          id: UUID_A,
+          type: 'ROOM',
+          name: 'Ruang Rapat',
+          parentId: UUID_FLOOR,
+          tierScore: 12,
+        };
       }
       if (id === UUID_FLOOR) {
         return { id: UUID_FLOOR, type: 'FLOOR', name: 'Lantai 2', parentId: UUID_BUILDING };
@@ -1365,9 +1378,11 @@ describe('submitVerifiedReport AI verification wiring', () => {
       });
       expect(res.status).toBe(201);
       const verifyInput = aiMocks.verifyReport.mock.calls[0]?.[0] as {
+        description: unknown;
         asset: Record<string, unknown>;
-        photos: unknown;
+        photos?: unknown;
       };
+      expect(verifyInput.description).toBe('Lampu lorong mati total perlu perbaikan segera');
       expect(verifyInput.asset).toEqual({
         name: 'AC Ruang 01',
         category: 'PLUMBING',
@@ -1375,16 +1390,10 @@ describe('submitVerifiedReport AI verification wiring', () => {
         floor: 'Lantai 2',
         building: 'Gedung A',
       });
-      expect(verifyInput.photos).toEqual([
-        {
-          storageKey: SUBMIT_STAGED_KEY,
-          contentType: 'image/jpeg',
-          dataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
-        },
-      ]);
+      expect(verifyInput.photos).toBeUndefined();
       expect(dbMocks.recordAiAnalysis).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ promptVersion: 'v2', schemaVersion: 'v2' }),
+        expect.objectContaining({ promptVersion: 'v4', schemaVersion: 'v2' }),
       );
       expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
         expect.anything(),
@@ -1405,44 +1414,26 @@ describe('submitVerifiedReport AI verification wiring', () => {
     }
   });
 
-  it('holds when the staged object is missing', async () => {
+  it('never loads stored photo bytes before calling the model', async () => {
     arrangeMasterContext();
     arrangeCreatedReport();
     const storage = {
       put: vi.fn(),
+      // A null read used to hold the submit; text-only verification must not
+      // touch storage at all.
       get: vi.fn(async () => null),
       remove: vi.fn(),
     } as unknown as AttachmentStorage;
-    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-missing-1', {
+    aiMocks.verifyReport.mockResolvedValue({ kind: 'DOWN' });
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-noload-1', {
       model: 'test-model',
       timeoutMs: 50,
       apiKey: 'test-openrouter-key',
       storage,
     });
     expect(res.status).toBe(202);
-    expect(storage.get).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
-    expect(aiMocks.verifyReport).not.toHaveBeenCalled();
-    expect(dbMocks.markAiAnalysis).not.toHaveBeenCalled();
-  });
-
-  it('holds when the stored bytes are not decodable', async () => {
-    arrangeMasterContext();
-    arrangeCreatedReport();
-    const storage = {
-      put: vi.fn(),
-      get: vi.fn(async () => ({ bytes: Buffer.from('garbage'), contentType: 'image/jpeg' })),
-      remove: vi.fn(),
-    } as unknown as AttachmentStorage;
-    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-garbage-1', {
-      model: 'test-model',
-      timeoutMs: 50,
-      apiKey: 'test-openrouter-key',
-      storage,
-    });
-    expect(res.status).toBe(202);
-    expect(storage.get).toHaveBeenCalledWith(SUBMIT_STAGED_KEY);
-    expect(aiMocks.verifyReport).not.toHaveBeenCalled();
-    expect(dbMocks.markAiAnalysis).not.toHaveBeenCalled();
+    expect(storage.get).not.toHaveBeenCalled();
+    expect(aiMocks.verifyReport).toHaveBeenCalledTimes(1);
   });
 
   it('persists a FAIL verdict and metadata when the model rejects', async () => {
@@ -1652,9 +1643,9 @@ describe('normalizeVerifiedSubmitBody', () => {
       normalizeVerifiedSubmitBody({ ...submitBody(), photoKeys: ['a', 'b', 'c', 'd'] }),
     ).toThrowError(/photoKeys/);
     const { photoKeys: _dropped, ...withoutKeys } = submitBody();
-    expect(normalizeVerifiedSubmitBody({ ...withoutKeys, photo_keys: ['key-1'] }).photoKeys).toEqual(
-      ['key-1'],
-    );
+    expect(
+      normalizeVerifiedSubmitBody({ ...withoutKeys, photo_keys: ['key-1'] }).photoKeys,
+    ).toEqual(['key-1']);
     expect(_dropped).toEqual([SUBMIT_STAGED_KEY]);
   });
 
@@ -1662,9 +1653,9 @@ describe('normalizeVerifiedSubmitBody', () => {
     expect(() => normalizeVerifiedSubmitBody({ ...submitBody(), locationId: 'nope' })).toThrowError(
       /locationId/,
     );
-    expect(() => normalizeVerifiedSubmitBody({ ...submitBody(), description: 'too short' })).toThrowError(
-      /description/,
-    );
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...submitBody(), description: 'too short' }),
+    ).toThrowError(/description/);
   });
 });
 

@@ -205,14 +205,14 @@ describe('reporter form render', () => {
     fireEvent.change(screen.getByLabelText('Lantai'), { target: { value: FLOOR_1 } });
     fireEvent.change(screen.getByLabelText('Ruangan'), { target: { value: ROOM_101 } });
     fireEvent.change(screen.getByLabelText('Aset'), { target: { value: ASSET_AC } });
-    fireEvent.change(screen.getByLabelText('Deskripsi'), {
+    fireEvent.change(screen.getByLabelText('Deskripsi Kerusakan'), {
       target: { value: 'Dinding ruang retak memanjang dan rembes saat hujan deras.' },
     });
   }
 
   function attachPhoto() {
     const file = new File([new Uint8Array([1, 2, 3])], 'retak.jpg', { type: 'image/jpeg' });
-    fireEvent.change(screen.getByLabelText('Foto'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('Foto Bukti Kerusakan'), { target: { files: [file] } });
   }
 
   afterEach(() => {
@@ -224,9 +224,19 @@ describe('reporter form render', () => {
     stubFetch();
     renderPage();
     const submit = await screen.findByRole('button', { name: /lanjut ke review/i });
+    expect(screen.getByRole('heading', { name: 'Buat Laporan Kerusakan' })).toBeInTheDocument();
+    expect(screen.getByText('Verifikasi Cepat Otomatis')).toBeInTheDocument();
+    expect(screen.getByText(/Tarik & lepaskan foto ke sini/i)).toBeInTheDocument();
     expect(submit).toBeDisabled();
     expect(screen.queryByLabelText(/kategori/i)).not.toBeInTheDocument();
-    for (const label of ['Gedung', 'Lantai', 'Ruangan', 'Aset', 'Deskripsi', 'Foto']) {
+    for (const label of [
+      'Gedung',
+      'Lantai',
+      'Ruangan',
+      'Aset',
+      'Deskripsi Kerusakan',
+      'Foto Bukti Kerusakan',
+    ]) {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
     }
   });
@@ -257,6 +267,11 @@ describe('reporter form render', () => {
       photoKeys: unknown;
     };
     expect(body.photoKeys).toEqual(['staging_testkey']);
+    // Post-submit CTA returns to the V2 monitoring list, not the legacy
+    // "Tiket Kampus" page at /reporter/reports.
+    const mineLink = screen.getByRole('link', { name: 'Laporan Saya' });
+    expect(mineLink.getAttribute('href')?.startsWith('/reporter')).toBe(true);
+    expect(mineLink.getAttribute('href')).not.toContain('/reporter/reports');
   });
 
   it('shows the fail reason with a fresh-report retry', async () => {
