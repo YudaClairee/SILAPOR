@@ -52,7 +52,8 @@ const GROUP_NAV: readonly NavGroup[] = [
     kind: 'group',
     label: 'Fasilitas & Aset',
     items: [
-      { to: '/admin/facilities', label: 'Data Fasilitas' },
+      { to: '/admin/facilities', label: 'Kelola Aset' },
+      { to: '/admin/facilities/history', label: 'Histori Perbaikan Aset' },
       { to: '/admin/locations', label: 'Lokasi Kampus' },
     ],
   },
