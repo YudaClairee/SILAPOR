@@ -233,18 +233,32 @@ test('3 campus visibility: reporter-B opens reporter-A ticket in sanitized form'
     await page.goto(`/reporter/reports/${ticketA}`);
     await expect(page.getByRole('heading', { name: new RegExp(ticketA) })).toBeVisible();
     await expect(page.getByText(descriptionA)).toBeVisible();
-    await expect(page.getByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.')).toBeVisible();
+    // Campus transparency: reporter-B sees reporter-A's photo evidence.
+    await expect(page.getByRole('img', { name: 'bukti.png' })).toBeVisible();
+    await expect(
+      page.getByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.'),
+    ).toHaveCount(0);
     await expect(page.getByText('Laporan tidak ditemukan')).toHaveCount(0);
 
     const foreign = await context.request.get(`${BASE_URL}/api/reports/${ticketA}`);
     expect(foreign.status()).toBe(200);
     const body = (await foreign.json()) as {
       isOwn?: unknown;
-      attachments?: unknown;
+      attachments?: Array<{ id?: unknown }>;
       report?: Record<string, unknown>;
     };
     expect(body.isOwn).toBe(false);
-    expect(body.attachments).toEqual([]);
+    expect(body.attachments).toHaveLength(1);
+
+    // The attachment endpoint is campus-readable too: reporter-B downloads
+    // reporter-A's photo with a 200 image response (not a 404/403).
+    const attachmentId = body.attachments?.[0]?.id;
+    expect(typeof attachmentId).toBe('string');
+    const download = await context.request.get(
+      `${BASE_URL}/api/reports/${ticketA}/attachments/${String(attachmentId)}`,
+    );
+    expect(download.status()).toBe(200);
+    expect(download.headers()['content-type']).toBe('image/png');
     expect(body.report).not.toHaveProperty('reporterId');
     expect(body.report).not.toHaveProperty('idempotencyKey');
 

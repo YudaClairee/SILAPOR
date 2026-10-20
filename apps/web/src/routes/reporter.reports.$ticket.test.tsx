@@ -247,13 +247,17 @@ describe('detail tiket pelapor', () => {
     expect(screen.queryByRole('list', { name: 'Alur status penanganan' })).not.toBeInTheDocument();
   });
 
-  it('hides another reporter’s photos behind the privacy note', async () => {
-    stubFetch({ detailBody: { ...DETAIL, isOwn: false, attachments: [] } });
+  it('shows another reporter’s photos instead of a privacy lock', async () => {
+    stubFetch({ detailBody: { ...DETAIL, isOwn: false } });
     renderPage();
     await screen.findByRole('heading', { name: 'Foto Bukti Kerusakan' });
+    const photo = screen.getByAltText('proyektor.jpg');
+    expect(photo).toBeInTheDocument();
+    expect(photo.getAttribute('src')).toContain(
+      `/api/reports/MNT-2026-000007/attachments/${ATTACHMENT}`,
+    );
     expect(
-      screen.getByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByAltText('proyektor.jpg')).not.toBeInTheDocument();
+      screen.queryByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.'),
+    ).not.toBeInTheDocument();
   });
 });

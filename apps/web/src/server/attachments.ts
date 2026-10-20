@@ -12,13 +12,14 @@
 // Conventions:
 // - `reporterId`/`uploadedBy` ALWAYS come from the session user, NEVER from
 //   the client (same rule as `createMyReport`).
-// - Reporter→foreign and missing report references produce byte-identical
-//   404s via the shared `REPORT_NOT_FOUND_MESSAGE` constant (no existence
-//   oracle for other reporters' tickets).
+// - Upload remains owner-only: reporter→foreign and missing report references
+//   produce byte-identical 404s via the shared `REPORT_NOT_FOUND_MESSAGE`
+//   constant (no existence oracle for other reporters' tickets).
+// - Download is campus-readable: any authenticated reporter may read any
+//   attachment of an existing report; only missing reports/attachments 404.
 // - Upload permission: reporters on own NON-terminal reports only
 //   (`CLOSED`/`REJECTED`/`DUPLICATE` → 409; `RESOLVED` is NOT terminal for
-//   attachments); admins on any report. Download mirrors ownership with no
-//   terminal restriction.
+//   attachments); admins on any report. Download applies no ownership filter.
 // - Fail-closed validation chain per file, in order: presence → size
 //   (`413 FILE_TOO_LARGE`, before any processing) → `validateAttachment`
 //   (400 with its P4-1 code) → `processImage` (corrupt → `400
@@ -208,24 +209,19 @@ export async function downloadAttachment(
   attachmentId: string,
   storageOverride?: AttachmentStorage,
 ): Promise<AttachmentDownload> {
-  const user = await requireUser(req);
-  const isAdmin = user.role === 'ADMIN';
+  await requireUser(req);
   const conn = getDb();
   try {
-    const reportId = await resolveReportId(conn.db, isAdmin ? null : user.id, ref);
-    // Report gate first so missing/foreign UUID reports 404 identically
-    // before any attachment lookup.
+    // Campus-readable: resolve the ref unscoped so any authenticated reporter
+    // can read another reporter's ticket attachment. Unknown refs still 404.
+    const reportId = await resolveReportId(conn.db, null, ref);
     const header = await repoGetReportHeader(conn.db, reportId);
-    if (header === null || (!isAdmin && header.reporterId !== user.id)) {
+    if (header === null) {
       throw notFound(REPORT_NOT_FOUND_MESSAGE);
     }
     const attachment = await repoGetAttachmentById(conn.db, attachmentId);
     if (attachment === null || attachment.reportId !== reportId) {
       throw notFound(ATTACHMENT_NOT_FOUND_MESSAGE);
-    }
-    // Defense in depth: the join must agree with the header gate.
-    if (!isAdmin && attachment.reporterId !== user.id) {
-      throw notFound(REPORT_NOT_FOUND_MESSAGE);
     }
     const storage = storageOverride ?? createAttachmentStorage();
     const data = await storage.get(attachment.storageKey);

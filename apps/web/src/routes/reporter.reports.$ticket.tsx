@@ -643,17 +643,10 @@ function ReportDetailPage() {
                 title="Foto Bukti Kerusakan"
                 titleId="detail-photos-title"
               >
-                {detail.isOwn === false ? (
-                  <p className="flex items-start gap-2 text-sm text-muted">
-                    <LockIcon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    <span>Lampiran hanya dapat dilihat oleh pelapor tiket ini.</span>
-                  </p>
-                ) : (
-                  <PhotoEvidence
-                    ticketRef={report.ticketNumber}
-                    attachments={detail.attachments ?? []}
-                  />
-                )}
+                <PhotoEvidence
+                  ticketRef={report.ticketNumber}
+                  attachments={detail.attachments ?? []}
+                />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted">
                   <p className="flex items-center gap-1.5">
                     <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />

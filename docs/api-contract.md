@@ -147,7 +147,7 @@ flow) — submit tidak lagi menerima multipart langsung.
 | Endpoint | Method | Request | Sukses | Ditolak dengan |
 |---|---|---|---|---|
 | `/api/reports/:id/attachments` | POST | `multipart/form-data`; **1–3 file/laporan, 5 MB/file, hanya JPEG/PNG/WebP** | `200/201` metadata attachment | `TOO_MANY_FILES`, `FILE_TOO_LARGE`, `UNSUPPORTED_TYPE`, `MIME_MISMATCH`, `CORRUPT_IMAGE` |
-| `/api/reports/:id/attachments/:attachmentId` | GET | — | `200` bytes gambar (ownership dicek server) | `404` |
+| `/api/reports/:id/attachments/:attachmentId` | GET | — | `200` bytes gambar (semua pelapor terautentikasi dapat melihat lampiran tiket kampus) | `404` |
 
 Tidak ada public URL untuk file — akses selalu lewat endpoint berotorisasi.
 Flow utama adalah staging pra-submit `POST /api/uploads` + `photo_keys` pada

@@ -850,9 +850,10 @@ export async function applyVerification(
 // an identical 404 for missing vs foreign rows. The campus paths
 // (`listCampusReports`, `getCampusReportDetail`) instead expose every ticket
 // through a sanitized projection (no reporter identity/idempotency/audit
-// fields; attachments/candidates stay owner-only) and 404 only when the
-// ticket itself is missing. Admin paths (`listAllReports`,
-// `getAdminReportDetail`) add reporter/search filters and skip ownership.
+// fields; attachments are campus-readable while duplicate candidates stay
+// owner-only) and 404 only when the ticket itself is missing. Admin paths
+// (`listAllReports`, `getAdminReportDetail`) add reporter/search filters and
+// skip ownership.
 // `linkSupportingReport` is metadata only: no status change, no repair job.
 // `countAffectedReporters` counts DISTINCT reporters over the shared incident
 // predicate above plus one hop of SUPPORTING/RELATED links.
@@ -1595,7 +1596,8 @@ export async function getMyReportDetail(
 
 // Campus-wide reporter detail (UI No. 5). Another reporter's ticket is a
 // normal 200 sanitized view — never a 404/403 existence oracle. Attachments
-// and duplicate candidates remain owner-only; events use the same reporter
+// are readable by every authenticated reporter (campus transparency), while
+// duplicate candidates remain owner-only; events use the same reporter
 // sanitization as the own-ticket path; relation `created_by` is omitted.
 export async function getCampusReportDetail(
   db: ReportQueryDb,
@@ -1669,7 +1671,7 @@ export async function getCampusReportDetail(
   return {
     report: toCampusReport(row),
     isOwn,
-    attachments: isOwn ? detail.attachments : [],
+    attachments: detail.attachments,
     events,
     relations,
     duplicateCandidates: isOwn ? detail.duplicateCandidates : [],

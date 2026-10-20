@@ -1639,10 +1639,10 @@ describe.skipIf(!enabled)('P3-3 report queries + supporting links (requires reac
     expect(mine.items.every((item) => item.isOwn)).toBe(true);
   });
 
-  it('returns sanitized campus detail for another reporter but owner-only attachments/candidates', async () => {
+  it('returns sanitized campus detail with attachments for another reporter but owner-only candidates', async () => {
     const foreign = await getCampusReportDetail(db!, reporterB, a1Id);
     expect(foreign.isOwn).toBe(false);
-    expect(foreign.attachments).toEqual([]);
+    expect(foreign.attachments).toHaveLength(1);
     expect(foreign.duplicateCandidates).toEqual([]);
     expect(Object.keys(foreign.report)).not.toContain('reporterId');
     expect(Object.keys(foreign.report)).not.toContain('idempotencyKey');
