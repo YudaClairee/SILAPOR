@@ -167,6 +167,8 @@ type StagedQueryDb = Parameters<typeof repoGetStagedUploadsByKeys>[0];
 // Resolves submit `photoKeys` to staged metadata: every key must exist, be
 // owned by the caller, unclaimed, and within TTL. One uniform 400 covers
 // missing, foreign, claimed, and expired keys (no existence oracle).
+// `photoKeys` is optional on the submit, so an empty list resolves to an
+// empty list without touching the database.
 export async function resolveStagedPhotoKeys(
   db: StagedQueryDb,
   userId: string,
@@ -177,11 +179,13 @@ export async function resolveStagedPhotoKeys(
   const now = opts?.now ?? new Date();
   if (
     !Array.isArray(keys) ||
-    keys.length < 1 ||
     keys.length > MAX_ATTACHMENTS_PER_REPORT ||
     keys.some((key) => typeof key !== 'string' || !key.startsWith('staging_'))
   ) {
     throw badRequest('Unknown or expired photo. Re-upload the photos.');
+  }
+  if (keys.length === 0) {
+    return [];
   }
   const rows: StagedUpload[] = await repoGetStagedUploadsByKeys(db, keys);
   if (rows.length !== keys.length) {

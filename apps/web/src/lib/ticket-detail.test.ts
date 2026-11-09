@@ -19,6 +19,7 @@ import {
   formatJakartaShort,
   isFlowStatus,
   locationParts,
+  reporterStatusNarrative,
   STATUS_FLOW,
   timelineLabel,
 } from './ticket-detail.js';
@@ -54,7 +55,16 @@ describe('status flow', () => {
     expect(flowIndexOf('REJECTED')).toBe(-1);
     expect(isFlowStatus('DUPLICATE')).toBe(false);
     expect(flowPhaseLine('REJECTED')).toBeNull();
-    expect(flowPhaseLine('IN_REPAIR')).toBe('Tahap 5 dari 7 · Perbaikan Sedang Berlangsung');
+    expect(flowPhaseLine('IN_REPAIR')).toBe('Tahap 5 dari 7 · Dalam Perbaikan');
+  });
+});
+
+describe('reporter status copy', () => {
+  it('explains every visible status in plain Indonesian', () => {
+    expect(reporterStatusNarrative('IN_REPAIR')).toContain('sedang diperbaiki');
+    expect(reporterStatusNarrative('REJECTED')).toContain('ditolak');
+    expect(reporterStatusNarrative('DUPLICATE')).toContain('duplikat');
+    expect(reporterStatusNarrative('UNKNOWN')).toContain('sedang diperbarui');
   });
 });
 
@@ -105,10 +115,9 @@ describe('deriveStatusTimestamps', () => {
   });
 
   it('tolerates a payload that omitted the milestone columns', () => {
-    const stamps = deriveStatusTimestamps(
-      { reportedAt: REPORT.reportedAt },
-      [{ eventType: 'REPORT_CLOSED', createdAt: '2026-10-13T02:00:00.000Z' }],
-    );
+    const stamps = deriveStatusTimestamps({ reportedAt: REPORT.reportedAt }, [
+      { eventType: 'REPORT_CLOSED', createdAt: '2026-10-13T02:00:00.000Z' },
+    ]);
     expect(stamps.VERIFIED).toBeNull();
     expect(stamps.CLOSED).toBe('2026-10-13T02:00:00.000Z');
   });
@@ -174,10 +183,24 @@ describe('classifier confidence', () => {
 
 describe('locationParts', () => {
   const LOCATIONS = [
-    { id: 'b', name: 'Gedung A', type: 'BUILDING', parentId: null, buildingCode: 'A', floorNumber: null },
+    {
+      id: 'b',
+      name: 'Gedung A',
+      type: 'BUILDING',
+      parentId: null,
+      buildingCode: 'A',
+      floorNumber: null,
+    },
     { id: 'f', name: 'Lantai 3', type: 'FLOOR', parentId: 'b', buildingCode: 'A', floorNumber: 3 },
     { id: 'r', name: 'Ruang 302', type: 'ROOM', parentId: 'f', buildingCode: 'A', floorNumber: 3 },
-    { id: 'lobby', name: 'Lobi', type: 'SHARED_AREA', parentId: 'b', buildingCode: 'A', floorNumber: null },
+    {
+      id: 'lobby',
+      name: 'Lobi',
+      type: 'SHARED_AREA',
+      parentId: 'b',
+      buildingCode: 'A',
+      floorNumber: null,
+    },
   ];
 
   it('walks ROOM → FLOOR → BUILDING', () => {

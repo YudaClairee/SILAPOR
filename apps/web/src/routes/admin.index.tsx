@@ -1,6 +1,7 @@
 // Admin dashboard V2 (Figma 150:191): period header, five KPI cards, the
-// volume/duration trend chart, category donut, building ranking, repeated
-// assets and per-technician completions — all fed by
+// volume/duration trend chart, the status pipeline column chart, the category
+// donut, the building ranking, the room bar chart, repeated assets and
+// per-technician completions — all fed by
 // GET /api/admin/analytics/overview. Same SSR-fallback loader pattern as the
 // other admin surfaces; the server sanitizes every number.
 import { useEffect, useState, type ComponentType, type SVGProps } from 'react';
@@ -31,8 +32,10 @@ import {
   ErrorPanel,
   FilterIcon,
   LoadingState,
+  LocationBarChart,
   RankedBarList,
   Select,
+  StatusBarChart,
   TrendChart,
   WrenchIcon,
   buttonBaseClasses,
@@ -249,6 +252,26 @@ const CARD_CLASSES = 'rounded-xl border border-[#e1e5e9] bg-white shadow-sm';
 const CARD_TITLE_CLASSES = 'text-lg font-semibold text-[#202a33]';
 const CARD_SUBTITLE_CLASSES = 'mt-1 text-[13px] text-[#697784]';
 
+type KpiTone = 'accent' | 'info' | 'warning' | 'success' | 'secondary';
+
+// Tones reuse the semantic tint/badge ramps from styles.css so a KPI never
+// introduces a new hue; the icon chip and the share meter share the tone.
+const KPI_ICON_CLASSES: Record<KpiTone, string> = {
+  accent: 'bg-tint-info text-accent',
+  info: 'bg-tint-info text-badge-info',
+  warning: 'bg-tint-warning text-badge-warning',
+  success: 'bg-tint-success text-badge-success',
+  secondary: 'bg-[#dceef3] text-accent',
+};
+
+const KPI_METER_CLASSES: Record<KpiTone, string> = {
+  accent: 'bg-accent',
+  info: 'bg-badge-info',
+  warning: 'bg-warning',
+  success: 'bg-success',
+  secondary: 'bg-accent-secondary',
+};
+
 interface KpiCard {
   readonly key: string;
   readonly label: string;
@@ -256,9 +279,28 @@ interface KpiCard {
   readonly unit: string;
   readonly caption: string;
   readonly Icon: ComponentType<SVGProps<SVGSVGElement>>;
+  readonly tone: KpiTone;
+  /** Share of the period total, 0..1; omitted where a ratio is meaningless. */
+  readonly share?: number;
   /** Drill-down into the report list; omitted for the duration metric. */
   readonly search?: Record<string, string>;
 }
+
+// The API groups tickets by status; the status column chart reads them in
+// workflow order so the pipeline goes left to right instead of by count.
+const WORKFLOW_ORDER = [
+  'REPORTED',
+  'VERIFIED',
+  'ASSIGNED',
+  'INSPECTION',
+  'IN_REPAIR',
+  'RESOLVED',
+  'CLOSED',
+  'REJECTED',
+  'DUPLICATE',
+] as const;
+
+const WORKFLOW_STATUSES = new Set<string>(WORKFLOW_ORDER);
 
 function sumStatus(data: DashboardData, statuses: readonly string[]): number {
   return data.byStatus
@@ -283,17 +325,36 @@ function categorySlices(data: DashboardData): ReadonlyArray<{
   return remainder > 0 ? [...slices, { label: 'Kategori lainnya', value: remainder }] : slices;
 }
 
+function statusBars(data: DashboardData): ReadonlyArray<{
+  readonly status: string;
+  readonly value: number;
+}> {
+  const counts = new Map(data.byStatus.map((entry) => [entry.status, entry.count]));
+  const ordered = WORKFLOW_ORDER.map((status) => ({
+    status,
+    value: counts.get(status) ?? 0,
+  }));
+  const unknown = data.byStatus
+    .filter((entry) => !WORKFLOW_STATUSES.has(entry.status))
+    .map((entry) => ({ status: entry.status, value: entry.count }));
+  return [...ordered, ...unknown];
+}
+
 function kpiCards(data: DashboardData): readonly KpiCard[] {
+  const total = data.cards.totalReports;
   const resolved = sumStatus(data, ['RESOLVED', 'CLOSED']);
   const active = sumStatus(data, ['VERIFIED', 'ASSIGNED', 'INSPECTION']);
+  const median = data.resolutionTime.medianSeconds;
+  const share = (value: number): number => (total === 0 ? 0 : value / total);
   return [
     {
       key: 'total',
       label: 'Total Laporan',
-      value: formatNumberId(data.cards.totalReports),
+      value: formatNumberId(total),
       unit: 'tiket',
       caption: 'Tiket pada periode terpilih',
       Icon: ClipboardIcon,
+      tone: 'accent',
       search: {},
     },
     {
@@ -301,8 +362,12 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       label: 'Laporan Aktif',
       value: formatNumberId(active),
       unit: 'tiket',
-      caption: 'VERIFIED, ASSIGNED, INSPECTION',
+      caption: `${formatPercent(active, total)} dari total periode · ${formatNumberId(
+        data.cards.highPriorityActive,
+      )} prioritas tinggi`,
       Icon: ClipboardIcon,
+      tone: 'info',
+      share: share(active),
       search: {},
     },
     {
@@ -310,8 +375,10 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       label: 'Dalam Perbaikan',
       value: formatNumberId(data.cards.inRepair),
       unit: 'tiket',
-      caption: 'Tiket berstatus IN_REPAIR',
+      caption: `${formatPercent(data.cards.inRepair, total)} dari total periode`,
       Icon: WrenchIcon,
+      tone: 'warning',
+      share: share(data.cards.inRepair),
       search: { status: 'IN_REPAIR' },
     },
     {
@@ -319,8 +386,10 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       label: 'Selesai',
       value: formatNumberId(resolved),
       unit: 'tiket',
-      caption: 'Tiket RESOLVED & CLOSED',
+      caption: `${formatPercent(resolved, total)} dari total periode`,
       Icon: CheckCircleIcon,
+      tone: 'success',
+      share: share(resolved),
       search: { status: 'RESOLVED' },
     },
     {
@@ -328,8 +397,14 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       label: 'Rata-rata Durasi',
       value: formatHours(data.resolutionTime.averageSeconds),
       unit: 'Jam',
-      caption: 'Historis REPORTED ke RESOLVED',
+      caption:
+        median === null
+          ? 'Historis REPORTED ke RESOLVED'
+          : `Median ${formatHours(median)} jam · ${formatNumberId(
+              data.resolutionTime.sampleSize,
+            )} tiket selesai`,
       Icon: ClockIcon,
+      tone: 'secondary',
     },
   ];
 }
@@ -342,7 +417,11 @@ function KpiTile({ card, range }: { readonly card: KpiCard; readonly range: Date
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#697784]">
           {card.label}
         </span>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#ecf4ff] text-accent">
+        <span
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+            KPI_ICON_CLASSES[card.tone]
+          }`}
+        >
           <Icon className="h-4 w-4" />
         </span>
       </span>
@@ -350,7 +429,17 @@ function KpiTile({ card, range }: { readonly card: KpiCard; readonly range: Date
         <span className="text-[32px] font-bold leading-none text-[#202a33]">{card.value}</span>
         <span className="text-xs font-medium text-[#697784]">{card.unit}</span>
       </span>
-      <span className="mt-2 block text-[11px] leading-snug text-[#8a97a3]">{card.caption}</span>
+      {card.share === undefined ? null : (
+        <span aria-hidden="true" className="mt-3 block h-1 overflow-hidden rounded-full bg-[#eef2f5]">
+          <span
+            className={`block h-full rounded-full ${KPI_METER_CLASSES[card.tone]}`}
+            style={{ width: `${Math.round(Math.min(1, Math.max(0, card.share)) * 100)}%` }}
+          />
+        </span>
+      )}
+      <span className="mt-auto block pt-2 text-[11px] leading-snug text-[#8a97a3]">
+        {card.caption}
+      </span>
     </>
   );
   const classes = `${CARD_CLASSES} flex h-full flex-col px-5 py-4`;
@@ -532,6 +621,14 @@ function AdminDashboardPage() {
           </div>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <StatusBarChart
+              title="Alur Status Tiket"
+              subtitle="Sebaran tiket pada setiap tahap penanganan, dari laporan masuk hingga ditutup"
+              titleId="admin-dashboard-status-title"
+              data={statusBars(data)}
+              aside={<StatusLegend />}
+              emptyMessage="Belum ada tiket pada periode ini."
+            />
             <CategoryDonut
               title="Kerusakan per Kategori Fasilitas"
               subtitle={`Distribusi ${formatNumberId(
@@ -541,6 +638,9 @@ function AdminDashboardPage() {
               titleId="admin-dashboard-category-title"
               data={categorySlices(data)}
             />
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <RankedBarList
               title="Lokasi Rawan Gangguan"
               subtitle="Peringkat akumulasi frekuensi insiden berdasarkan area gedung kampus"
@@ -556,6 +656,17 @@ function AdminDashboardPage() {
                 )})`,
               }))}
               emptyMessage="Belum ada laporan per gedung pada periode ini."
+            />
+            <LocationBarChart
+              title="Ruang Paling Sering Dilaporkan"
+              subtitle="Enam ruang dengan laporan terbanyak pada periode terpilih"
+              titleId="admin-dashboard-room-title"
+              items={(data.byLocation ?? []).slice(0, 6).map((location) => ({
+                id: location.locationId,
+                label: location.locationName,
+                value: location.count,
+              }))}
+              emptyMessage="Belum ada laporan per ruang pada periode ini."
             />
           </div>
 
@@ -587,6 +698,32 @@ function AdminDashboardPage() {
         </>
       ) : null}
     </section>
+  );
+}
+
+// Legend for the status columns: the tones group the nine statuses into the
+// four states an admin actually scans for. Each column also prints its own
+// Indonesian status label, so this is reinforcement, not the sole encoding.
+const STATUS_LEGEND: ReadonlyArray<{ readonly label: string; readonly swatch: string }> = [
+  { label: 'Dalam proses', swatch: 'bg-accent' },
+  { label: 'Selesai / ditutup', swatch: 'bg-success' },
+  { label: 'Ditolak', swatch: 'bg-danger' },
+  { label: 'Duplikat', swatch: 'bg-muted' },
+];
+
+function StatusLegend() {
+  return (
+    <ul
+      aria-label="Legenda alur status"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#3f4c57]"
+    >
+      {STATUS_LEGEND.map((item) => (
+        <li key={item.label} className="flex items-center gap-2">
+          <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-sm ${item.swatch}`} />
+          {item.label}
+        </li>
+      ))}
+    </ul>
   );
 }
 

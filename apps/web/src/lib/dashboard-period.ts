@@ -275,6 +275,40 @@ export function formatHours(seconds: number | null): string {
   return (seconds / 3600).toLocaleString('id-ID', { maximumFractionDigits: 1 });
 }
 
+/**
+ * Round a chart peak up to a friendly axis maximum (1/2/2.5/5 × power of ten).
+ * Shared by the trend line and every bar chart so all axes breathe alike.
+ */
+export function niceAxisMax(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 1;
+  }
+  const exponent = 10 ** Math.floor(Math.log10(value));
+  for (const step of [1, 2, 2.5, 5, 10]) {
+    const candidate = step * exponent;
+    if (value <= candidate) {
+      return candidate;
+    }
+  }
+  return 10 * exponent;
+}
+
+/** Compact axis tick label: 2.5 → "2,5", 20 → "20". */
+export function formatAxisTick(value: number): string {
+  return value.toLocaleString('id-ID', { maximumFractionDigits: 1 });
+}
+
+/**
+ * Integer-friendly axis maximum for count bars: the peak is split into `ticks`
+ * whole-number steps, so a ticket axis never prints "6,25".
+ */
+export function niceCountAxisMax(peak: number, ticks = 4): number {
+  if (!Number.isFinite(peak) || peak <= 0) {
+    return ticks;
+  }
+  return Math.max(ticks, Math.ceil(peak / ticks) * ticks);
+}
+
 /** Percentage with one decimal, as the design prints it: "33,3%", "25,0%". */
 export function formatPercent(part: number, total: number): string {
   if (total <= 0) {

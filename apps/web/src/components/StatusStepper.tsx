@@ -1,19 +1,13 @@
-// StatusStepper (Reporter Detail V2). Seven-step rail for the reporter-facing
-// normal path: completed steps are teal with a check, the current step is
-// amber with a wrench and an "Aktif Sekarang" pill, upcoming steps are an
-// empty outlined dot with the step number. State is never colour-alone: every
-// dot carries an icon/number and the label + timestamp are always text.
+// StatusStepper (Reporter Detail V2). Seven-step rail matching the admin/domain
+// flow, including admin/UMPER's English status names (REPORTED, VERIFIED, …):
+// horizontal on desktop, a vertical rail on mobile so labels never crowd.
 //
+// State is never colour-alone: every dot carries an icon/number, the current
+// step exposes aria-current="step", and every step has a text label and date.
 // Off-path statuses (REJECTED/DUPLICATE) render the rail neutral plus an
 // explanatory line — a rejected ticket must not look "in progress".
 import { CheckIcon, WrenchIcon } from './Icon';
-import {
-  FLOW_PHASE_LABELS,
-  flowIndexOf,
-  formatJakartaShort,
-  isFlowStatus,
-  STATUS_FLOW,
-} from '../lib/ticket-detail';
+import { formatJakartaShort, flowIndexOf, isFlowStatus, STATUS_FLOW } from '../lib/ticket-detail';
 import type { FlowTimestamps } from '../lib/ticket-detail';
 import { statusLabel } from '../lib/admin-reports';
 
@@ -44,65 +38,69 @@ export function StatusStepper({ status, timestamps, className }: StatusStepperPr
         </p>
       ) : null}
 
-      <div className="overflow-x-auto pb-1">
-        <ol
-          aria-label="Alur status penanganan"
-          className="grid min-w-[720px] grid-cols-7 gap-0"
-        >
-          {STATUS_FLOW.map((step, index) => {
-            const state: StepState =
-              currentIndex < 0 || index > currentIndex
-                ? 'upcoming'
-                : index === currentIndex
-                  ? 'current'
-                  : 'done';
-            const reachedAt = timestamps[step];
-            const isCurrent = state === 'current';
-            return (
-              <li
-                key={step}
-                aria-current={isCurrent ? 'step' : undefined}
-                className="relative flex flex-col items-center px-1 text-center"
-              >
-                {index === 0 ? null : (
-                  <span
-                    aria-hidden="true"
-                    className={`absolute right-1/2 top-4 h-0.5 w-full -translate-y-1/2 ${
-                      index <= currentIndex ? 'bg-accent-secondary' : 'bg-border'
-                    }`}
-                  />
-                )}
+      <ol aria-label="Alur status penanganan" className="grid gap-0 lg:grid-cols-7">
+        {STATUS_FLOW.map((step, index) => {
+          const state: StepState =
+            offPath || index > currentIndex
+              ? 'upcoming'
+              : index === currentIndex
+                ? 'current'
+                : 'done';
+          const reachedAt = offPath || index > currentIndex ? null : timestamps[step];
+          const isCurrent = state === 'current';
+          return (
+            <li
+              key={step}
+              aria-current={isCurrent ? 'step' : undefined}
+              className="relative flex gap-3 pb-6 last:pb-0 lg:flex-col lg:items-center lg:gap-0 lg:px-1 lg:pb-0 lg:text-center"
+            >
+              {index < STATUS_FLOW.length - 1 ? (
                 <span
                   aria-hidden="true"
-                  className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold ${stepClasses(
-                    state,
-                  )}`}
-                >
-                  {state === 'done' ? (
-                    <CheckIcon className="h-3.5 w-3.5" />
-                  ) : isCurrent ? (
-                    <WrenchIcon className="h-3.5 w-3.5" />
-                  ) : (
-                    <span>{index + 1}</span>
-                  )}
-                </span>
-                <span className="mt-2 block font-mono text-[11px] font-semibold uppercase tracking-wide text-text">
+                  className={`absolute top-8 left-4 h-[calc(100%-2rem)] w-0.5 -translate-x-1/2 lg:hidden ${
+                    index < currentIndex ? 'bg-accent-secondary' : 'bg-border'
+                  }`}
+                />
+              ) : null}
+              {index === 0 ? null : (
+                <span
+                  aria-hidden="true"
+                  className={`absolute top-4 right-1/2 hidden h-0.5 w-full -translate-y-1/2 lg:block ${
+                    index <= currentIndex ? 'bg-accent-secondary' : 'bg-border'
+                  }`}
+                />
+              )}
+              <span
+                aria-hidden="true"
+                className={`relative z-10 mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold lg:mt-0 ${stepClasses(
+                  state,
+                )}`}
+              >
+                {state === 'done' ? (
+                  <CheckIcon className="h-3.5 w-3.5" />
+                ) : isCurrent ? (
+                  <WrenchIcon className="h-3.5 w-3.5" />
+                ) : (
+                  <span>{index + 1}</span>
+                )}
+              </span>
+              <div className="min-w-0 pt-0.5 lg:pt-0">
+                <span className="block font-mono text-[11px] font-semibold tracking-wide text-text uppercase">
                   {step}
                 </span>
                 <span className="mt-0.5 block font-mono text-[11px] text-muted">
                   {reachedAt === null ? 'Menunggu' : formatJakartaShort(reachedAt)}
                 </span>
                 {isCurrent ? (
-                  <span className="mt-1.5 inline-flex rounded-full bg-tint-warning px-2 py-0.5 text-[10px] font-semibold text-badge-warning">
-                    Aktif Sekarang
+                  <span className="mt-1 inline-block text-[10px] font-semibold text-badge-warning">
+                    Tahap saat ini
                   </span>
                 ) : null}
-                <span className="sr-only">{FLOW_PHASE_LABELS[step]}</span>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

@@ -1,12 +1,14 @@
 // New-report form for the AI verification flow: full chain
 // gedung → lantai → ruangan → aset (all required) plus description and
-// 1-3 photos, then a blocking wait for the inline verdict.
+// an optional 0-3 photos, then a blocking wait for the inline verdict.
 // Verification is text-only (description + asset + location): the photos are
 // evidence for the technician and are never sent to the model.
 //
 // Photo-first: picked photos stage to /api/uploads before the submit, and
 // the submit carries the returned storage keys. The server links staged
 // photos into attachments on VERIFIED and HELD, and removes them on FAIL.
+// Photos are optional, so a submit with no picked files carries no keys and
+// creates the report without attachments.
 //
 // Indonesian copy, accessible labels on every input, role=alert errors,
 // role=status loading, disabled-until-valid submit, real buttons, no
@@ -105,7 +107,8 @@ export function assetsForRoom<T extends RoomAsset>(assets: readonly T[], roomId:
 }
 
 // Fast client feedback only: required chain, description 10-2000 trimmed,
-// 1-3 valid photos. The server validators stay authoritative.
+// and up to 3 optional photos (0 allowed). The server validators stay
+// authoritative.
 export function validateNewReportForm(
   values: NewReportValues,
   photoFiles: readonly ClientFileLike[],
@@ -134,9 +137,9 @@ export function validateNewReportForm(
   } else if (trimmed.length > 2000) {
     errors.description = 'Deskripsi maksimal 2000 karakter.';
   }
-  if (photoFiles.length === 0) {
-    errors.photos = 'Tambahkan minimal 1 foto.';
-  } else {
+  if (photoFiles.length > 0) {
+    // Photos are optional: only format/size/count limits apply when the
+    // reporter chose to attach evidence.
     const photoError = validateAttachmentFiles(photoFiles)[0];
     if (photoError !== undefined) {
       errors.photos = photoError;
@@ -459,11 +462,13 @@ function NewReportPage() {
 
   async function submitReport(): Promise<void> {
     setPhase('waiting');
-    setWaitingStep('staging');
+    // Photos are optional: without files there is nothing to stage, so the
+    // wait screen starts on the verdict step instead of a fake upload step.
+    setWaitingStep(photoFiles.length > 0 ? 'staging' : 'verdict');
     setSubmitError(null);
     // Photo-first: the validated files stage before the submit, and the
     // submit carries the returned keys. A staged batch whose submit never
-    // arrives expires via the staged TTL.
+    // arrives expires via the staged TTL. No files means no staging call.
     let photoKeys: string[];
     try {
       photoKeys = await stageReportPhotos(photoFiles);
@@ -573,7 +578,9 @@ function NewReportPage() {
 
   function photoCountLine(): ReactNode {
     if (photoFiles.length === 0) {
-      return null;
+      return (
+        <p className="mt-2 text-sm text-muted">Tanpa foto bukti (opsional).</p>
+      );
     }
     return <p className="mt-2 text-sm text-muted">{photoFiles.length} foto terlampir.</p>;
   }
@@ -878,7 +885,8 @@ function NewReportPage() {
             Buat Laporan Kerusakan
           </h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
-            Lokasi, deskripsi kondisi fisik, dan foto bukti diperlukan untuk memeriksa serta memproses laporan penanganan sarana prasarana kampus.
+            Lokasi dan deskripsi kondisi fisik wajib diisi; foto bukti boleh ditambahkan bila ada
+            untuk memeriksa serta memproses laporan penanganan sarana prasarana kampus.
           </p>
         </div>
         <div className="inline-flex w-fit items-center gap-2 rounded-full bg-[#e7f7fb] px-3 py-2 text-[11px] font-semibold tracking-[0.02em] text-[#0a3947]">
@@ -1060,7 +1068,9 @@ function NewReportPage() {
               <label htmlFor="report-photos" className="text-xs font-semibold tracking-[0.02em] text-[#202a33]">
                 Foto Bukti Kerusakan
               </label>
-              <span className="text-[11px] text-muted">{photoFiles.length} / 3 foto terlampir</span>
+              <span className="text-[11px] text-muted">
+                Opsional · {photoFiles.length} / 3 foto terlampir
+              </span>
             </div>
             <div
               className={`rounded-lg border border-dashed px-4 py-7 text-center transition-colors ${
@@ -1084,7 +1094,9 @@ function NewReportPage() {
               >
                 Pilih Foto
               </label>
-              <p className="mt-2 text-[11px] text-muted">Dukungan: JPG, PNG, WebP (Maks. 5 MB)</p>
+              <p className="mt-2 text-[11px] text-muted">
+                Opsional · Dukungan: JPG, PNG, WebP (Maks. 5 MB)
+              </p>
             </div>
             <Input
               id="report-photos"
@@ -1096,7 +1108,7 @@ function NewReportPage() {
               aria-describedby={shownPhotoError ? 'report-photos-error' : 'report-photos-hint'}
             />
             <p id="report-photos-hint" className="sr-only">
-              Wajib 1 sampai 3 foto, masing-masing tidak lebih dari 5 MB (JPG, PNG, WebP).
+              Opsional, maksimal 3 foto, masing-masing tidak lebih dari 5 MB (JPG, PNG, WebP).
             </p>
             <FieldError id="report-photos-error" message={shownPhotoError ?? undefined} />
             {photoFiles.length > 0 ? (

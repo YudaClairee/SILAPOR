@@ -274,11 +274,31 @@ describe('admin dashboard', () => {
     expect(screen.getByText('Total: 36 Perbaikan Selesai')).toBeInTheDocument();
   });
 
+  it('renders the status pipeline and room charts from the same overview payload', async () => {
+    stubFetch(overviewResponse());
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Alur Status Tiket' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Alur Status Tiket' })).toBeInTheDocument();
+    // REPORTED is zero in the fixture, so its column is omitted from the plot.
+    expect(screen.queryByText('Dilaporkan')).not.toBeInTheDocument();
+    expect(screen.getByText('Selesai / ditutup')).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('heading', { name: 'Ruang Paling Sering Dilaporkan' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Ruang Kuliah 01')).toBeInTheDocument();
+  });
+
   it('shows every panel empty state when the period has no data', async () => {
     stubFetch(emptyResponse());
     renderPage();
 
     expect(await screen.findByRole('link', { name: /Total Laporan/ })).toHaveTextContent('0');
+    expect(screen.getByText('Belum ada tiket pada periode ini.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Belum ada laporan per ruang pada periode ini.'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Belum ada laporan per gedung pada periode ini.')).toBeInTheDocument();
     expect(
       screen.getByText('Belum ada laporan berbasis aset pada periode ini.'),
@@ -295,7 +315,10 @@ describe('admin dashboard', () => {
 
     const picker = await screen.findByLabelText(/Periode laporan/);
     expect(picker).toHaveValue('2026-10');
-    expect(screen.getByRole('option', { name: 'Oktober 2026 (Bulan Ini)' })).toBeInTheDocument();
+    // The picker rolls with the real clock: pin the selected month instead of
+    // assuming "today" is October (the fixture's range is).
+    expect(screen.getByRole('option', { name: /^Oktober 2026/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: /\(Bulan Ini\)/ })).toHaveLength(1);
     expect(screen.getByRole('option', { name: 'Semua periode' })).toBeInTheDocument();
   });
 

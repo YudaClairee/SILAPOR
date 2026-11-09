@@ -220,6 +220,15 @@ describe('resolveStagedPhotoKeys', () => {
     };
   }
 
+  it('treats no keys as an empty list (photos are optional)', async () => {
+    const resolved = await resolveStagedPhotoKeys(FAKE_DB as never, requireUserFake.id, [], {
+      now: NOW,
+    });
+    expect(resolved).toEqual([]);
+    // No keys means no database round-trip at all.
+    expect(getStagedUploadsByKeysMock).not.toHaveBeenCalled();
+  });
+
   it('resolves owned unclaimed fresh keys to metadata', async () => {
     getStagedUploadsByKeysMock.mockResolvedValue([stagedRow('staging_k1'), stagedRow('staging_k2')]);
     const resolved = await resolveStagedPhotoKeys(FAKE_DB as never, requireUserFake.id, [

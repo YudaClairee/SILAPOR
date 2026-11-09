@@ -67,7 +67,11 @@ export function stagedUploadsUrl(): string {
 
 // Stages validated files before the report exists and returns opaque
 // storage keys for the verified submit. Throws Indonesian Errors.
+// Photos are optional: no files means no staging round-trip and no keys.
 export async function stageReportPhotos(files: readonly File[]): Promise<string[]> {
+  if (files.length === 0) {
+    return [];
+  }
   const form = new FormData();
   for (const file of files) {
     form.append('files', file);

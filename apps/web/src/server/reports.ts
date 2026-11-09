@@ -696,8 +696,9 @@ const CLASSIFICATION_FIELDS = [
   'occurred_at',
 ] as const;
 
-// New submit shape: location + asset required, description 10-2000, photo
-// storage-key references min 1 max 3. NEVER copies a client-supplied
+// New submit shape: location + asset required, description 10-2000, and
+// OPTIONAL photo storage-key references (0-3; omitted or empty means the
+// report is created without attachments). NEVER copies a client-supplied
 // reporter id — the caller sets it from the session.
 export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   if (!isRecord(body)) {
@@ -723,14 +724,13 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   if (description.trim().length > 2000) {
     throw badRequest('description must be at most 2000 characters');
   }
-  const photoKeys = body['photoKeys'] ?? body['photo_keys'];
+  const photoKeys = body['photoKeys'] ?? body['photo_keys'] ?? [];
   if (
     !Array.isArray(photoKeys) ||
-    photoKeys.length < 1 ||
     photoKeys.length > 3 ||
     photoKeys.some((key) => typeof key !== 'string' || key.trim() === '')
   ) {
-    throw badRequest('photoKeys must include 1 to 3 photos');
+    throw badRequest('photoKeys must include at most 3 photos');
   }
   return {
     locationId,
@@ -746,21 +746,27 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
 
 const REPORTER_REASONS: Record<string, string> = {
   INVALID_INPUT:
-    'We could not verify this report. Please check the description and the selected location, then try again.',
+    'Laporan belum bisa diverifikasi. Periksa kembali deskripsi dan lokasi yang dipilih, lalu coba lagi.',
   UNKNOWN_MODEL:
-    'Verification is unavailable right now. Your report was not saved. Please try again later.',
+    'Verifikasi sedang tidak tersedia. Laporan Anda belum tersimpan. Silakan coba lagi nanti.',
   UPSTREAM_REJECTED:
-    'The verification service could not process this report. It was not saved. Please try again later.',
+    'Layanan verifikasi tidak dapat memproses laporan ini. Laporan belum tersimpan. Silakan coba lagi nanti.',
   UNCLEAR_EVIDENCE:
-    'The description was not clear enough to verify. Please add more detail about the damage and the location, then try again.',
+    'Deskripsi belum cukup jelas untuk diverifikasi. Tambahkan detail kerusakan dan lokasinya, lalu coba lagi.',
   WRONG_ASSET:
-    'The description does not seem to match the selected asset or location. Please check both, then try again.',
-  UNKNOWN_CODE: 'We could not classify this report. Please try again with a clearer description.',
+    'Deskripsi sepertinya tidak sesuai dengan aset atau lokasi yang dipilih. Periksa keduanya, lalu coba lagi.',
+  UNKNOWN_CODE: 'Laporan belum bisa diklasifikasikan. Coba lagi dengan deskripsi yang lebih jelas.',
+  // Model-authored verdict failures (free text reason) collapse onto this
+  // fixed copy: the reporter always gets actionable guidance in Indonesian.
+  MODEL_VERDICT_FAIL:
+    'Deskripsi belum cukup jelas atau tidak sesuai dengan aset/lokasi yang dipilih. Periksa kembali aset, ruangan, dan detail kerusakannya.',
 };
 
 // Machine codes never reach the reporter — FAIL bodies carry plain language only.
 export function toReporterReason(code: string): string {
-  return REPORTER_REASONS[code] ?? 'We could not verify this report. Please try again later.';
+  return (
+    REPORTER_REASONS[code] ?? 'Laporan belum bisa diverifikasi saat ini. Silakan coba lagi nanti.'
+  );
 }
 
 export interface SubmitVerifyInput {
@@ -956,6 +962,13 @@ function logVerifyFailCode(reason: string): string {
   return VERIFY_FAIL_CODES.has(reason) ? reason : 'MODEL_VERDICT_FAIL';
 }
 
+// Reporter-facing twin of `logVerifyFailCode`: a model-authored FAIL reason is
+// free text (see `packages/ai` `verify.ts`), so it must never reach the
+// reporter. Non-machine reasons collapse onto the fixed MODEL_VERDICT_FAIL copy.
+function submitFailReason(reason: string): string {
+  return toReporterReason(VERIFY_FAIL_CODES.has(reason) ? reason : 'MODEL_VERDICT_FAIL');
+}
+
 type SubmitDb = Parameters<typeof repoCreateReport>[0];
 
 // Removes a just-created submit and its submit-time side effects (events,
@@ -1103,8 +1116,12 @@ export async function submitVerifiedReport(
     }
     // A link conflict means another submit claimed the same keys first:
     // drop this report (the keys belong to the winning report, so staged
-    // rows stay untouched) and surface the 409.
+    // rows stay untouched) and surface the 409. Photos are optional, so an
+    // empty staged list is a no-op rather than a bad request.
     async function linkPhotosOrCompensate(reportId: string): Promise<void> {
+      if (staged.length === 0) {
+        return;
+      }
       try {
         await repoLinkStagedUploads(conn.db, {
           reportId,
@@ -1201,7 +1218,7 @@ export async function submitVerifiedReport(
       });
       await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
-      return { status: 422, reason: toReporterReason(outcome.reason) };
+      return { status: 422, reason: submitFailReason(outcome.reason) };
     }
     const mapped = mapAiVerdict({
       impliedCategory: outcome.category,

@@ -171,6 +171,13 @@ describe('stageReportPhotos', () => {
     expect(body.getAll('files')).toHaveLength(2);
   });
 
+  it('skips the staging round-trip when no photos are picked', async () => {
+    const { calls } = stubFetch(201, { keys: [] });
+    const result = await stageReportPhotos([]);
+    expect(result).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
   it('maps failures and malformed keys to Indonesian messages', async () => {
     stubFetch(401, { error: { message: 'Unauthorized' } });
     await expect(stageReportPhotos([realFile()])).rejects.toThrow(

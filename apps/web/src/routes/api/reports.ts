@@ -4,8 +4,8 @@
 //
 // Reporter-only: `requireUser` inside the try (401 anonymous); the service
 // layer re-guards on the same request. POST takes location + asset +
-// description + 1-3 photo keys as the body with the idempotency key in the
-// `x-idempotency-key` header (400 when missing/empty): 201 on verified
+// description + optional 0-3 photo keys as the body with the idempotency key
+// in the `x-idempotency-key` header (400 when missing/empty): 201 on verified
 // create, 202 when the AI is down (held REPORTED + ticket + waiting notice),
 // 422 `{ reason }` when verification fails (no row, no ticket), 409 with
 // the active ticket ref on a same-reporter duplicate block. Failures map via

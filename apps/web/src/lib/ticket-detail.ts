@@ -28,15 +28,15 @@ export function isFlowStatus(value: string): value is FlowStatus {
   return FLOW_SET.has(value);
 }
 
-/** Step copy for the "Tahap n dari 7 · …" line. */
+/** Human-readable step copy for the "Tahap n dari 7 · …" line. */
 export const FLOW_PHASE_LABELS: Record<FlowStatus, string> = {
-  REPORTED: 'Laporan Diterima',
-  VERIFIED: 'Verifikasi Selesai',
+  REPORTED: 'Dilaporkan',
+  VERIFIED: 'Terverifikasi',
   ASSIGNED: 'Teknisi Ditugaskan',
-  INSPECTION: 'Inspeksi Lapangan',
-  IN_REPAIR: 'Perbaikan Sedang Berlangsung',
-  RESOLVED: 'Menunggu Penutupan',
-  CLOSED: 'Finalisasi',
+  INSPECTION: 'Inspeksi',
+  IN_REPAIR: 'Dalam Perbaikan',
+  RESOLVED: 'Selesai',
+  CLOSED: 'Ditutup',
 };
 
 export interface FlowEventLike {
@@ -123,12 +123,29 @@ export function flowIndexOf(status: string): number {
   return STATUS_FLOW.indexOf(status as FlowStatus);
 }
 
-/** "Tahap 5 dari 7 · Perbaikan Sedang Berlangsung"; null off the normal path. */
+/** "Tahap 5 dari 7 · Dalam Perbaikan"; null off the normal path. */
 export function flowPhaseLine(status: string): string | null {
   const index = flowIndexOf(status);
   if (index < 0) return null;
   const label = FLOW_PHASE_LABELS[status as FlowStatus];
   return `Tahap ${index + 1} dari ${STATUS_FLOW.length} · ${label}`;
+}
+
+const STATUS_NARRATIVES: Readonly<Record<string, string>> = {
+  REPORTED: 'Laporan sudah diterima dan sedang menunggu verifikasi admin.',
+  VERIFIED: 'Laporan sudah diverifikasi dan sedang menunggu penugasan teknisi.',
+  ASSIGNED: 'Teknisi sudah ditugaskan dan akan melakukan pemeriksaan di lokasi.',
+  INSPECTION: 'Teknisi sedang memeriksa fasilitas di lokasi untuk menentukan perbaikan.',
+  IN_REPAIR: 'Fasilitas sedang diperbaiki oleh teknisi.',
+  RESOLVED: 'Perbaikan sudah selesai dan laporan sedang menunggu penutupan.',
+  CLOSED: 'Laporan sudah selesai ditangani dan ditutup.',
+  REJECTED: 'Laporan ditolak. Periksa riwayat penanganan untuk melihat alasannya.',
+  DUPLICATE: 'Laporan ini digabungkan sebagai duplikat dari laporan lain.',
+};
+
+/** Plain-language explanation of the current status for the reporter. */
+export function reporterStatusNarrative(status: string): string {
+  return STATUS_NARRATIVES[status] ?? 'Status penanganan laporan sedang diperbarui.';
 }
 
 const JAKARTA = 'Asia/Jakarta';
@@ -301,4 +318,3 @@ export function locationParts(
   }
   return parts;
 }
-

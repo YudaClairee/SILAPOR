@@ -59,7 +59,7 @@ export interface AdminTicketV2Related {
 export function adminV2Related(detail: AdminTicketV2Detail): AdminTicketV2Related[] {
   const byKey = new Map<string, AdminTicketV2Related>();
   for (const raw of detail.events) {
-    const entry = raw as Record<string, unknown>;
+    const entry = raw as unknown as Record<string, unknown>;
     const payload =
       entry['detail'] !== null && typeof entry['detail'] === 'object'
         ? (entry['detail'] as Record<string, unknown>)

@@ -854,6 +854,78 @@ describe('submitVerifiedReport held fallback', () => {
     );
   });
 
+  it('creates a verified ticket with no photos when photoKeys is empty', async () => {
+    arrangeMasterContext();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: async () => [
+                { id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000007', version: 3 },
+              ],
+            }),
+          }),
+        }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    dbMocks.applyVerification.mockResolvedValue({
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000007',
+      status: 'VERIFIED',
+      version: 2,
+    });
+    const verify = vi.fn().mockResolvedValue({
+      kind: 'PASS',
+      category: 'PLUMBING',
+      issueType: 'LEAKING',
+      priority: 'MEDIUM',
+      confidence: 0.9,
+      reasons: ['description names the leaking pipe under the sink'],
+      model: 'test-model',
+      promptVersion: 'v1',
+      schemaVersion: 'v1',
+    });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      { ...submitBody(), photoKeys: [] },
+      'key-nophoto-1',
+      { verify, model: 'test-model', timeoutMs: 50, storage: fakeStorage() },
+    );
+    expect(res.status).toBe(201);
+    if (res.status !== 201) {
+      throw new Error('expected a verified submit result');
+    }
+    expect(res.ticketNumber).toBe('MNT-2026-000007');
+    expect(verify).toHaveBeenCalledTimes(1);
+    // No staged keys means no lookup and no attachment claim.
+    expect(dbMocks.getStagedUploadsByKeys).not.toHaveBeenCalled();
+    expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
+    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
+      expect.anything(),
+      SUBMIT_ANALYSIS_ID,
+      expect.objectContaining({ status: 'SUCCEEDED', verdict: 'PASS' }),
+    );
+  });
+
   it('floors a DANGEROUS verdict to HIGH', async () => {
     arrangeMasterContext();
     dbMocks.listIssueTypes.mockResolvedValue([
@@ -985,6 +1057,47 @@ describe('submitVerifiedReport held fallback', () => {
       [SUBMIT_STAGED_KEY],
     );
     expect(dbMocks.linkStagedUploads).not.toHaveBeenCalled();
+  });
+
+  it('maps a model free-text FAIL reason onto fixed Indonesian copy', async () => {
+    arrangeMasterContext();
+    dbMocks.getDb.mockReturnValue({
+      db: {
+        transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+          cb({ delete: () => ({ where: async () => [] }) }),
+      },
+      close: async () => undefined,
+    });
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000007',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: UUID_B,
+        locationId: UUID_A,
+        submittedCategoryId: SUBMIT_CATEGORY_ID,
+      },
+      duplicateCandidates: [],
+      relation: null,
+      idempotentReplay: false,
+    });
+    dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+    const res = await submitVerifiedReport(submitRequest(), submitBody(), 'key-fail-freetext-1', {
+      // A model verdict failure carries the model's own sentence.
+      verify: async () => ({ kind: 'FAIL', reason: 'Blurry photo, please retake' }),
+      model: 'test-model',
+      timeoutMs: 50,
+      storage: fakeStorage(),
+    });
+    expect(res.status).toBe(422);
+    if (res.status !== 422) {
+      throw new Error('expected a rejected submit result');
+    }
+    expect(res.reason).toBe(
+      'Deskripsi belum cukup jelas atau tidak sesuai dengan aset/lokasi yang dipilih. Periksa kembali aset, ruangan, dan detail kerusakannya.',
+    );
+    expect(res.reason).not.toContain('Blurry');
   });
 
   it('keeps keys claimed by another submit when the AI fails', async () => {
@@ -1274,7 +1387,7 @@ describe('submitVerifiedReport held fallback', () => {
     if (res.status !== 422) {
       throw new Error('expected a rejected submit result');
     }
-    expect(res.reason.toLowerCase()).toContain('asset');
+    expect(res.reason.toLowerCase()).toContain('tidak sesuai dengan aset');
     expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(expect.anything(), SUBMIT_ANALYSIS_ID, {
       status: 'FAILED',
       errorCode: 'WRONG_ASSET',
@@ -1635,17 +1748,24 @@ describe('normalizeVerifiedSubmitBody', () => {
     }
   });
 
-  it('requires 1 to 3 photo keys', () => {
-    expect(() => normalizeVerifiedSubmitBody({ ...submitBody(), photoKeys: [] })).toThrowError(
-      /photoKeys/,
-    );
-    expect(() =>
-      normalizeVerifiedSubmitBody({ ...submitBody(), photoKeys: ['a', 'b', 'c', 'd'] }),
-    ).toThrowError(/photoKeys/);
+  it('allows 0 to 3 photo keys (photos are optional)', () => {
+    expect(normalizeVerifiedSubmitBody({ ...submitBody(), photoKeys: [] }).photoKeys).toEqual([]);
     const { photoKeys: _dropped, ...withoutKeys } = submitBody();
+    // Omitted keys mean "no photos" rather than a bad request.
+    expect(normalizeVerifiedSubmitBody(withoutKeys).photoKeys).toEqual([]);
     expect(
       normalizeVerifiedSubmitBody({ ...withoutKeys, photo_keys: ['key-1'] }).photoKeys,
     ).toEqual(['key-1']);
+    expect(
+      normalizeVerifiedSubmitBody({ ...submitBody(), photoKeys: ['key-1', 'key-2', 'key-3'] })
+        .photoKeys,
+    ).toEqual(['key-1', 'key-2', 'key-3']);
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...submitBody(), photoKeys: ['a', 'b', 'c', 'd'] }),
+    ).toThrowError(/photoKeys/);
+    expect(() => normalizeVerifiedSubmitBody({ ...submitBody(), photoKeys: [''] })).toThrowError(
+      /photoKeys/,
+    );
     expect(_dropped).toEqual([SUBMIT_STAGED_KEY]);
   });
 
@@ -1718,5 +1838,12 @@ describe('toReporterReason', () => {
       expect(reason).not.toContain(code);
     }
     expect(toReporterReason('SOMETHING_NEW')).not.toContain('SOMETHING_NEW');
+  });
+
+  it('explains model verdict failures without exposing model free text', () => {
+    expect(toReporterReason('MODEL_VERDICT_FAIL')).toBe(
+      'Deskripsi belum cukup jelas atau tidak sesuai dengan aset/lokasi yang dipilih. Periksa kembali aset, ruangan, dan detail kerusakannya.',
+    );
+    expect(toReporterReason('Blurry photo, please retake')).not.toContain('Blurry photo');
   });
 });

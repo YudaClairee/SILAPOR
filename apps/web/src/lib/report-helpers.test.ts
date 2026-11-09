@@ -298,6 +298,7 @@ describe('eventLabel (timeline safe subset)', () => {
     expect(eventLabel('STATUS_CHANGED')).toBe('Status berubah');
     expect(eventLabel('PRIORITY_CHANGED')).toBe('Prioritas berubah');
     expect(eventLabel('ASSIGNMENT_CHANGED')).toBe('Penugasan berubah');
+    expect(eventLabel('ATTACHMENT_ADDED')).toBe('Foto bukti ditambahkan');
     expect(eventLabel('PROGRESS_NOTE_ADDED')).toBe('Catatan progres ditambahkan');
     expect(eventLabel('PUBLIC_UPDATE_ADDED')).toBe('Catatan progres ditambahkan');
     expect(eventLabel('INTERNAL_NOTE_ADDED')).toBe('Catatan progres ditambahkan');

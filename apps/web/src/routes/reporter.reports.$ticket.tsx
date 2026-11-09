@@ -1,13 +1,12 @@
 // Report detail (Phase 3 P3-5 + UI No. 5 + Figma "Detail Tiket" 90-1706): a
-// sanitized campus ticket by UUID or MNT- ticket. Two-column layout — flow
-// stepper, location/asset, description + supporting reports, classification,
-// photo evidence on the left; status facts and the progress timeline on the
-// right.
+// sanitized campus ticket by UUID or MNT- ticket. One vertical reading flow —
+// report detail (description, location/asset, photos), current status, history,
+// then supporting information. The exact status remains in the header badge
+// while the rail shows the same seven domain steps as admin in plain Indonesian.
 //
 // Another reporter's ticket is a normal 200 sanitized view; only a truly
 // missing ticket renders "Laporan tidak ditemukan". Indonesian copy.
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
 import { Link, createFileRoute, redirect, useNavigate, useRouter } from '@tanstack/react-router';
 import { eventLabel } from '../lib/report-helpers.js';
 import {
@@ -15,9 +14,9 @@ import {
   confidenceBand,
   confidencePercent,
   deriveStatusTimestamps,
-  flowPhaseLine,
   formatJakartaDateTime,
   locationParts,
+  reporterStatusNarrative,
 } from '../lib/ticket-detail.js';
 import type { DuplicateCandidate } from '@silapor/database';
 import type { FormOptions } from '../server/reports.js';
@@ -40,7 +39,6 @@ import {
   PhotoEvidence,
   SectionCard,
   ShieldCheckIcon,
-  SparkleIcon,
   StatusBadge,
   StatusStepper,
   TicketMono,
@@ -50,7 +48,7 @@ import {
   buttonVariantClasses,
   priorityBadgeClassesFor,
 } from '../components/index.js';
-import { priorityLabel } from '../lib/admin-reports.js';
+import { priorityLabel, statusLabel } from '../lib/admin-reports.js';
 
 interface ReportRow {
   readonly ticketNumber: string;
@@ -195,7 +193,7 @@ export const Route = createFileRoute('/reporter/reports/$ticket')({
 
 function DetailPending() {
   return (
-    <section aria-labelledby="report-detail-title" className="max-w-6xl">
+    <section aria-labelledby="report-detail-title" className="mx-auto w-full max-w-5xl">
       <h1 id="report-detail-title" className="text-2xl font-semibold text-text">
         Detail Laporan
       </h1>
@@ -229,12 +227,12 @@ function noteTextFrom(value: unknown): string | null {
 
 function timelineDescription(entry: TimelineRow): string | undefined {
   const note = noteTextFrom(entry.metadata);
-  if (note !== null) {
+  if (note !== null && note.trim() !== '') {
     return note;
   }
   if (typeof entry.detail === 'object' && entry.detail !== null && !Array.isArray(entry.detail)) {
     const message = (entry.detail as Record<string, unknown>)['message'];
-    return typeof message === 'string' && message !== '' ? message : undefined;
+    return typeof message === 'string' && message.trim() !== '' ? message : undefined;
   }
   return undefined;
 }
@@ -247,6 +245,21 @@ function timelineTimestamp(entry: TimelineRow): string {
     return entry.at;
   }
   return '';
+}
+
+/** Most recent sanitized entry; '' when the timeline has no usable timestamp. */
+function latestTimelineTimestamp(entries: readonly TimelineRow[]): string {
+  let latest = '';
+  for (const entry of entries) {
+    const at = timelineTimestamp(entry);
+    if (at === '') continue;
+    const current = new Date(at).getTime();
+    const previous = latest === '' ? Number.NEGATIVE_INFINITY : new Date(latest).getTime();
+    if (Number.isFinite(current) && current >= previous) {
+      latest = at;
+    }
+  }
+  return latest;
 }
 
 // Sanitized timeline entries (`kind`/`label`/`at`) render through the same
@@ -282,15 +295,6 @@ function timelineStatus(entry: TimelineRow): string | null {
   if (type === 'REPORT_CLOSED') return 'CLOSED';
   if (type === 'STATUS_CHANGED' && typeof entry.toValue === 'string') return entry.toValue;
   return null;
-}
-
-function DetailRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
-      <dt className="text-sm text-muted">{label}</dt>
-      <dd className="text-right text-sm font-medium text-text">{children}</dd>
-    </div>
-  );
 }
 
 function ReportDetailPage() {
@@ -360,19 +364,45 @@ function ReportDetailPage() {
   const priority = report?.finalPriority ?? null;
   const parts = locationParts(report?.locationId ?? null, options?.locations ?? []);
   const asset = report?.assetId == null ? null : (assetsById.get(report.assetId) ?? null);
-  const categoryId = report === null ? null : (report.finalCategoryId ?? report.submittedCategoryId);
-  const issueTypeId = report === null ? null : (report.finalIssueTypeId ?? report.submittedIssueTypeId);
+  const categoryId =
+    report === null ? null : (report.finalCategoryId ?? report.submittedCategoryId);
+  const issueTypeId =
+    report === null ? null : (report.finalIssueTypeId ?? report.submittedIssueTypeId);
   const categoryName = categoryId == null ? '—' : (categoryNames.get(categoryId) ?? '—');
   const issueTypeName =
     issueTypeId == null || issueTypeId === undefined
       ? '—'
       : (issueTypeNames.get(issueTypeId) ?? '—');
-  const timestamps =
-    report === null ? null : deriveStatusTimestamps(report, detail?.events ?? []);
-  const phaseLine = report === null ? null : flowPhaseLine(report.status);
+  const timestamps = report === null ? null : deriveStatusTimestamps(report, detail?.events ?? []);
+  const lastUpdatedAt =
+    report === null ? null : latestTimelineTimestamp(detail?.events ?? []) || report.reportedAt;
+  const currentStatus = report === null ? null : statusLabel(report.status);
+  const statusNarrative = report === null ? null : reporterStatusNarrative(report.status);
+  const timelineItems = (detail?.events ?? [])
+    .slice()
+    .reverse()
+    .map((entry, index) => {
+      const rawTimestamp = timelineTimestamp(entry);
+      const note = timelineDescription(entry);
+      const badgeStatus = timelineStatus(entry);
+      return {
+        id: `${rawTimestamp}-${String(index)}`,
+        timestamp: formatJakartaDateTime(rawTimestamp === '' ? null : rawTimestamp),
+        label: timelineItemLabel(entry),
+        badge: badgeStatus === null ? undefined : <StatusBadge status={badgeStatus} />,
+        actor: actorLabel(entry),
+        latest: index === 0,
+        description:
+          note === undefined || note.trim() === '' ? undefined : (
+            <span className="mt-1.5 block rounded-md bg-background px-3 py-2 text-sm text-pretty break-words text-text">
+              {note}
+            </span>
+          ),
+      };
+    });
 
   return (
-    <section aria-labelledby="report-detail-title" className="max-w-6xl">
+    <section aria-labelledby="report-detail-title" className="mx-auto w-full max-w-5xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <nav aria-label="Breadcrumb" className="text-xs text-muted">
@@ -405,7 +435,9 @@ function ReportDetailPage() {
             <p className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-muted">
               <ClipboardIcon className="h-4 w-4" aria-hidden="true" />
               Dilaporkan pada:{' '}
-              <TicketMono className="text-text">{formatJakartaDateTime(report.reportedAt)}</TicketMono>
+              <TicketMono className="text-text">
+                {formatJakartaDateTime(report.reportedAt)}
+              </TicketMono>
             </p>
           )}
         </div>
@@ -451,286 +483,270 @@ function ReportDetailPage() {
       ) : null}
 
       {!clientPending && !notFound && loadError === null && detail !== null && report !== null ? (
-        <>
+        <div className="mt-6 flex flex-col gap-4">
           <SectionCard
-            icon={<ActivityIcon className="h-4 w-4" />}
-            title="Alur Status Penanganan Fasilitas"
-            titleId="detail-flow-title"
-            className="mt-6"
-            aside={
-              <span className="inline-flex rounded-full bg-tint-info px-3 py-1 text-xs font-medium text-badge-info">
-                {phaseLine ?? `Status: ${report.status}`}
-              </span>
-            }
+            icon={<FileTextIcon className="h-4 w-4" />}
+            title="Detail Laporan"
+            subtitle="Ringkasan masalah, lokasi, dan bukti yang dilaporkan"
+            titleId="detail-report-title"
           >
-            {timestamps === null ? null : (
-              <StatusStepper status={report.status} timestamps={timestamps} />
-            )}
-          </SectionCard>
-
-          <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.35fr_1fr]">
-            <div className="flex min-w-0 flex-col gap-4">
-              <SectionCard
-                icon={<MapPinIcon className="h-4 w-4" />}
-                title="Lokasi dan Aset"
-                subtitle="Rincian inventaris dan penempatan fasilitas perkuliahan"
-                titleId="detail-location-title"
-                bodyClassName="px-0 py-0"
-              >
-                <dl className="divide-y divide-border">
-                  <DetailRow label="Nama Aset">
-                    <span className="flex flex-wrap items-center justify-end gap-1.5">
-                      <BuildingIcon className="h-4 w-4 text-muted" aria-hidden="true" />
-                      {asset?.name ?? 'Tidak tercatat'}
-                    </span>
-                  </DetailRow>
-                  <DetailRow label="Gedung">{parts.building ?? '—'}</DetailRow>
-                  <DetailRow label="Lantai">{parts.floor ?? '—'}</DetailRow>
-                  <DetailRow label="Ruangan">{parts.room ?? '—'}</DetailRow>
-                </dl>
-                <p className="flex items-start gap-2 border-t border-border px-5 py-3 text-xs text-muted">
-                  <ShieldCheckIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span>Terdaftar dalam Inventaris Resmi UMPER UPI Kampus Tasikmalaya</span>
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  Deskripsi Masalah
                 </p>
-              </SectionCard>
+                <p className="font-mono text-[11px] text-muted">Laporan Awal</p>
+              </div>
+              <blockquote className="mt-2 rounded-md border-l-4 border-accent bg-background p-4 text-sm text-pretty break-words whitespace-pre-wrap text-text">
+                “{report.description}”
+              </blockquote>
+            </div>
 
-              <SectionCard
-                icon={<FileTextIcon className="h-4 w-4" />}
-                title="Deskripsi Laporan & Dukungan Pelapor"
-                titleId="detail-description-title"
+            <div className="mt-6 border-t border-border pt-5">
+              <h3
+                id="detail-location-title"
+                className="flex items-center gap-2 text-sm font-semibold text-text"
               >
-                <div className="rounded-md border-l-4 border-accent bg-background p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                      Deskripsi Laporan Utama
-                    </p>
-                    <p className="font-mono text-[11px] text-muted">Laporan Awal</p>
-                  </div>
-                  <p className="mt-2 text-sm text-pretty break-words whitespace-pre-wrap text-text">
-                    “{report.description}”
-                  </p>
+                <MapPinIcon className="h-4 w-4 text-muted" aria-hidden="true" />
+                Lokasi dan Aset
+              </h3>
+              <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-muted">Nama Aset</dt>
+                  <dd className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-text">
+                    <BuildingIcon className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+                    {asset?.name ?? 'Tidak tercatat'}
+                  </dd>
                 </div>
-
-                <div className="mt-4">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-text">
-                      <UsersIcon className="h-4 w-4 text-muted" aria-hidden="true" />
-                      {relatedCount === 0
-                        ? 'Laporan pendukung'
-                        : `${relatedCount} laporan mendukung tiket ini`}
-                    </p>
-                    <p className="text-xs text-muted">
-                      (Dikelompokkan otomatis berdasarkan kesamaan sarana &amp; lokasi)
-                    </p>
-                  </div>
-                  {relatedCount === 0 ? (
-                    <p className="mt-2 text-sm text-muted">
-                      Belum ada laporan pendukung yang dikelompokkan.
-                    </p>
-                  ) : (
-                    <ul className="mt-3 grid gap-3 sm:grid-cols-3">
-                      {related.map((item, index) => (
-                        <li
-                          key={item.id}
-                          className="flex flex-col rounded-md border border-border bg-surface p-3"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="flex items-center gap-1.5 text-[11px] font-semibold text-muted">
-                              <UsersIcon className="h-3 w-3" aria-hidden="true" />
-                              Laporan Pendukung #{index + 1}
-                            </p>
-                            <StatusBadge status={item.status} />
-                          </div>
-                          <p className="mt-2 line-clamp-4 text-sm text-pretty break-words text-text">
-                            “{item.description}”
-                          </p>
-                          <Link
-                            to="/reporter/reports/$ticket"
-                            params={{ ticket: item.ticketNumber }}
-                            className="mt-2 inline-block text-xs text-accent hover:underline"
-                          >
-                            <TicketMono>{item.ticketNumber}</TicketMono>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                <div>
+                  <dt className="text-xs text-muted">Gedung</dt>
+                  <dd className="mt-0.5 text-sm font-medium text-text">{parts.building ?? '—'}</dd>
                 </div>
+                <div>
+                  <dt className="text-xs text-muted">Lantai</dt>
+                  <dd className="mt-0.5 text-sm font-medium text-text">{parts.floor ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Ruangan</dt>
+                  <dd className="mt-0.5 text-sm font-medium text-text">{parts.room ?? '—'}</dd>
+                </div>
+              </dl>
+              <p className="mt-3 flex items-start gap-2 text-xs text-muted">
+                <ShieldCheckIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>Terdaftar dalam Inventaris Resmi UMPER UPI Kampus Tasikmalaya</span>
+              </p>
+            </div>
 
-                {detail.duplicateCandidates.length === 0 ? null : (
-                  <div className="mt-4 rounded-md border border-warning bg-tint-warning p-3">
-                    <p className="text-sm font-semibold text-text">Laporan serupa ditemukan</p>
-                    <p className="mt-1 text-sm text-text">
-                      Laporan berikut tampak mirip dengan laporan ini.
-                    </p>
-                    <ul className="mt-2 flex flex-wrap gap-2">
-                      {detail.duplicateCandidates.map((candidate) => (
-                        <li key={candidate.id}>
-                          <Link
-                            to="/reporter/reports/$ticket"
-                            params={{ ticket: candidate.ticketNumber }}
-                            className="text-accent underline underline-offset-2"
-                          >
-                            <TicketMono>{candidate.ticketNumber}</TicketMono>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </SectionCard>
-
-              <SectionCard
-                icon={<SparkleIcon className="h-4 w-4" />}
-                title="Klasifikasi Laporan"
-                subtitle="Standardisasi kategori terotomasi cerdas SCMS"
-                titleId="detail-classification-title"
-                aside={
-                  <span className="inline-flex rounded-full bg-tint-muted px-2.5 py-1 text-xs font-medium text-badge-muted">
-                    Read-Only
-                  </span>
-                }
+            <div className="mt-6 border-t border-border pt-5">
+              <h3
+                id="detail-photos-title"
+                className="flex items-center gap-2 text-sm font-semibold text-text"
               >
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-md border border-border bg-background p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                      Kategori Fasilitas
-                    </p>
-                    <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-text">
-                      <BuildingIcon className="h-4 w-4 text-muted" aria-hidden="true" />
-                      {categoryName}
-                    </p>
-                  </div>
-                  <div className="rounded-md border border-border bg-background p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                      Jenis Masalah
-                    </p>
-                    <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-text">
-                      <ActivityIcon className="h-4 w-4 text-muted" aria-hidden="true" />
-                      {issueTypeName}
-                    </p>
-                  </div>
-                  <div className="rounded-md border border-border bg-background p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                        Tingkat Keyakinan
-                      </p>
-                      <p className="font-mono text-[11px] font-semibold text-text">
-                        {confidence === null
-                          ? 'Belum dinilai'
-                          : `${confidence}% (${confidenceBand(confidence)})`}
-                      </p>
-                    </div>
-                    <div className="mt-2 h-1.5 w-full rounded-full bg-tint-muted">
-                      <div
-                        className="h-1.5 rounded-full bg-accent-secondary"
-                        style={{ width: `${confidence ?? 0}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <p className="mt-3 flex items-start gap-2 text-xs text-muted">
-                  <InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span>
-                    Label standar dihasilkan otomatis dari analisis deskripsi laporan untuk
-                    mempercepat triase dan perbaikan sarana. Hasil bersifat read-only.
-                  </span>
-                </p>
-              </SectionCard>
-
-              <SectionCard
-                icon={<ImageIcon className="h-4 w-4" />}
-                title="Foto Bukti Kerusakan"
-                titleId="detail-photos-title"
-              >
+                <ImageIcon className="h-4 w-4 text-muted" aria-hidden="true" />
+                Foto Bukti Kerusakan
+              </h3>
+              <div className="mt-3">
                 <PhotoEvidence
                   ticketRef={report.ticketNumber}
                   attachments={detail.attachments ?? []}
                 />
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted">
-                  <p className="flex items-center gap-1.5">
-                    <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                    Klik untuk memperbesar pratinjau
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted">
+                <p className="flex items-center gap-1.5">
+                  <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                  Klik untuk memperbesar pratinjau
+                </p>
+                <p>Hanya menampilkan foto bukti dari pelapor</p>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            icon={<ActivityIcon className="h-4 w-4" />}
+            title="Status Penanganan"
+            subtitle="Perkembangan laporan saat ini"
+            titleId="detail-status-title"
+          >
+            <div className="rounded-lg bg-tint-info p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-badge-info">
+                Status saat ini
+              </p>
+              <p className="mt-1 text-lg font-semibold text-text">{currentStatus}</p>
+              <p className="mt-1 text-sm text-text">{statusNarrative}</p>
+              <p className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-badge-info/20 pt-3 text-xs text-muted">
+                <HistoryIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                Pembaruan terakhir:
+                <time dateTime={lastUpdatedAt ?? undefined} className="font-mono text-text">
+                  {formatJakartaDateTime(lastUpdatedAt)}
+                </time>
+              </p>
+            </div>
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold text-text">Tahapan Penanganan</h3>
+              {timestamps === null ? null : (
+                <StatusStepper status={report.status} timestamps={timestamps} className="mt-3" />
+              )}
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            icon={<HistoryIcon className="h-4 w-4" />}
+            title="Riwayat Penanganan"
+            subtitle="Pembaruan terbaru muncul paling atas"
+            titleId="detail-timeline-title"
+          >
+            {timelineItems.length === 0 ? (
+              <p className="text-sm text-muted">Belum ada riwayat penanganan untuk laporan ini.</p>
+            ) : (
+              <Timeline items={timelineItems} />
+            )}
+            <p className="mt-3 flex items-start gap-2 border-t border-border pt-3 text-xs text-muted">
+              <InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>Seluruh waktu ditampilkan dalam Waktu Indonesia Barat (WIB).</span>
+            </p>
+          </SectionCard>
+
+          <SectionCard
+            icon={<InfoIcon className="h-4 w-4" />}
+            title="Informasi Tambahan"
+            subtitle="Laporan pendukung, klasifikasi otomatis, dan privasi"
+            titleId="detail-additional-title"
+          >
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 id="detail-support-title" className="text-sm font-semibold text-text">
+                  Laporan Pendukung
+                </h3>
+                <p className="inline-flex items-center gap-1.5 text-xs text-muted">
+                  <UsersIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                  {reporterCount !== null
+                    ? `${reporterCount} pelapor terdampak`
+                    : relatedCount > 0
+                      ? `${relatedCount + 1} laporan terkait`
+                      : 'Hanya laporan ini'}
+                </p>
+              </div>
+              <p className="mt-1 text-sm text-muted">
+                {relatedCount === 0
+                  ? 'Belum ada laporan pendukung yang dikelompokkan.'
+                  : `${relatedCount} laporan mendukung tiket ini`}
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                Dikelompokkan otomatis berdasarkan kesamaan sarana dan lokasi.
+              </p>
+              {relatedCount === 0 ? null : (
+                <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {related.map((item, index) => (
+                    <li
+                      key={item.id}
+                      className="flex flex-col rounded-md border border-border bg-surface p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="flex items-center gap-1.5 text-[11px] font-semibold text-muted">
+                          <UsersIcon className="h-3 w-3" aria-hidden="true" />
+                          Laporan Pendukung #{index + 1}
+                        </p>
+                        <StatusBadge status={item.status} />
+                      </div>
+                      <p className="mt-2 line-clamp-4 text-sm text-pretty break-words text-text">
+                        “{item.description}”
+                      </p>
+                      <Link
+                        to="/reporter/reports/$ticket"
+                        params={{ ticket: item.ticketNumber }}
+                        className="mt-2 inline-block text-xs text-accent hover:underline"
+                      >
+                        <TicketMono>{item.ticketNumber}</TicketMono>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {detail.duplicateCandidates.length === 0 ? null : (
+                <div className="mt-4 rounded-md border border-warning bg-tint-warning p-3">
+                  <p className="text-sm font-semibold text-text">Laporan serupa ditemukan</p>
+                  <p className="mt-1 text-sm text-text">
+                    Laporan berikut tampak mirip dengan laporan ini.
                   </p>
-                  <p>Hanya menampilkan foto bukti dari pelapor</p>
+                  <ul className="mt-2 flex flex-wrap gap-2">
+                    {detail.duplicateCandidates.map((candidate) => (
+                      <li key={candidate.id}>
+                        <Link
+                          to="/reporter/reports/$ticket"
+                          params={{ ticket: candidate.ticketNumber }}
+                          className="text-accent underline underline-offset-2"
+                        >
+                          <TicketMono>{candidate.ticketNumber}</TicketMono>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </SectionCard>
+              )}
             </div>
 
-            <div className="flex min-w-0 flex-col gap-4">
-              <SectionCard
-                icon={<ClipboardIcon className="h-4 w-4" />}
-                title="Status Laporan"
-                subtitle="Klasifikasi proses dan penanganan pengaduan"
-                titleId="detail-status-title"
-                bodyClassName="px-0 py-0"
-              >
-                <dl className="divide-y divide-border">
-                  <DetailRow label="Status Saat Ini">
-                    <StatusBadge status={report.status} />
-                  </DetailRow>
-                  <DetailRow label="Prioritas">
-                    <StatusBadge priority={priority} />
-                  </DetailRow>
-                  <DetailRow label="Jumlah Pelapor">
-                    <span className="flex flex-wrap items-center justify-end gap-1.5">
-                      <UsersIcon className="h-4 w-4 text-muted" aria-hidden="true" />
-                      {reporterCount !== null
-                        ? `${reporterCount} pelapor terdampak`
-                        : relatedCount > 0
-                          ? `${relatedCount + 1} laporan terkait`
-                          : 'Hanya laporan ini'}
-                    </span>
-                  </DetailRow>
-                  <DetailRow label="Metode Pelaporan">Portal SCMS Mahasiswa</DetailRow>
-                </dl>
-                <p className="flex items-start gap-2 border-t border-border px-5 py-3 text-xs text-muted">
-                  <LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span>
-                    <span className="font-semibold text-text">Privasi Pelapor:</span> Identitas
-                    pelapor lain dirahasiakan sepenuhnya untuk perlindungan data pribadi.
-                  </span>
-                </p>
-              </SectionCard>
-
-              <SectionCard
-                icon={<HistoryIcon className="h-4 w-4" />}
-                title="Linimasa Penanganan"
-                subtitle="Riwayat aktivitas dan pembaruan status tiket"
-                titleId="detail-timeline-title"
-              >
-                <Timeline
-                  items={(detail.events ?? [])
-                    .slice()
-                    .reverse()
-                    .map((entry, index) => {
-                      const rawTimestamp = timelineTimestamp(entry);
-                      const note = timelineDescription(entry);
-                      const badgeStatus = timelineStatus(entry);
-                      return {
-                        id: `${rawTimestamp}-${String(index)}`,
-                        timestamp: formatJakartaDateTime(rawTimestamp === '' ? null : rawTimestamp),
-                        label: timelineItemLabel(entry),
-                        badge:
-                          badgeStatus === null ? undefined : <StatusBadge status={badgeStatus} />,
-                        actor: actorLabel(entry),
-                        description:
-                          note === null ? undefined : (
-                            <span className="mt-1.5 block rounded-md bg-background px-3 py-2 text-sm text-pretty break-words text-text">
-                              {note}
-                            </span>
-                          ),
-                      };
-                    })}
-                />
-                <p className="mt-3 flex items-start gap-2 border-t border-border pt-3 text-xs text-muted">
-                  <InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span>Seluruh waktu ditampilkan dalam Waktu Indonesia Barat (WIB).</span>
-                </p>
-              </SectionCard>
+            <div className="mt-6 border-t border-border pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 id="detail-classification-title" className="text-sm font-semibold text-text">
+                  Klasifikasi Laporan
+                </h3>
+                <span className="inline-flex rounded-full bg-tint-muted px-2.5 py-1 text-[11px] font-medium text-badge-muted">
+                  Read-Only
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                Label standar dihasilkan otomatis dari analisis deskripsi laporan.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    Kategori Fasilitas
+                  </p>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-text">
+                    <BuildingIcon className="h-4 w-4 text-muted" aria-hidden="true" />
+                    {categoryName}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    Jenis Masalah
+                  </p>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-text">
+                    <ActivityIcon className="h-4 w-4 text-muted" aria-hidden="true" />
+                    {issueTypeName}
+                  </p>
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                      Tingkat Keyakinan
+                    </p>
+                    <p className="font-mono text-[11px] font-semibold text-text">
+                      {confidence === null
+                        ? 'Belum dinilai'
+                        : `${confidence}% (${confidenceBand(confidence)})`}
+                    </p>
+                  </div>
+                  <div className="mt-2 h-1.5 w-full rounded-full bg-tint-muted">
+                    <div
+                      className="h-1.5 rounded-full bg-accent-secondary"
+                      style={{ width: `${confidence ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </>
+
+            <p className="mt-6 flex items-start gap-2 border-t border-border pt-4 text-xs text-muted">
+              <LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                <span className="font-semibold text-text">Privasi Pelapor:</span> Identitas pelapor
+                lain dirahasiakan sepenuhnya untuk perlindungan data pribadi.
+              </span>
+            </p>
+          </SectionCard>
+        </div>
       ) : null}
     </section>
   );

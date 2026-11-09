@@ -2,7 +2,9 @@
 // Reporter ticket detail page (Figma "Detail Tiket" 90-1706). The route reads
 // its payload through the loader, so the tests mount the real route in a
 // memory router with a stubbed fetch — that keeps the loader, the client-side
-// fallback and the rendering contract under test together.
+// fallback and the rendering contract under test together. The page keeps one
+// vertical reading order and groups the seven domain statuses into four visible
+// phases.
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import {
@@ -61,9 +63,7 @@ const FORM_OPTIONS = {
   ],
   categories: [{ id: CATEGORY, code: 'ELEC', name: 'Elektronik', weight: 3 }],
   issueTypes: [{ id: ISSUE, code: 'BROKEN', name: 'Rusak Total', weight: 3 }],
-  assets: [
-    { id: ASSET, assetCode: 'PRJ-302', name: 'Proyektor Epson EB-X400', locationId: ROOM },
-  ],
+  assets: [{ id: ASSET, assetCode: 'PRJ-302', name: 'Proyektor Epson EB-X400', locationId: ROOM }],
 };
 
 const DETAIL = {
@@ -187,13 +187,38 @@ describe('detail tiket pelapor', () => {
     expect(crumb.getAttribute('href')).not.toContain('/reporter/reports');
   });
 
-  it('drives the stepper from the report status and events', async () => {
+  it('renders one vertical reading order from report detail through additional information', async () => {
+    stubFetch();
+    renderPage();
+    await screen.findByRole('heading', { name: 'Detail Laporan' });
+    const headings = screen
+      .getAllByRole('heading', { level: 2 })
+      .map((heading) => heading.textContent);
+    expect(headings).toEqual([
+      'Detail Laporan',
+      'Status Penanganan',
+      'Riwayat Penanganan',
+      'Informasi Tambahan',
+    ]);
+    expect(screen.queryByRole('heading', { name: 'Status Laporan' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Alur Status Penanganan Fasilitas' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('drives the seven-step rail from the report status and events', async () => {
     stubFetch();
     renderPage();
     const rail = await screen.findByRole('list', { name: 'Alur status penanganan' });
     expect(within(rail).getAllByRole('listitem')).toHaveLength(7);
-    expect(rail.querySelector('[aria-current="step"]')).toHaveTextContent('IN_REPAIR');
-    expect(screen.getByText('Tahap 5 dari 7 · Perbaikan Sedang Berlangsung')).toBeInTheDocument();
+    const current = rail.querySelector('[aria-current="step"]');
+    expect(current).toHaveTextContent('IN_REPAIR');
+    expect(current).toHaveTextContent('Tahap saat ini');
+    const statusRegion = screen.getByRole('region', { name: 'Status Penanganan' });
+    expect(
+      within(statusRegion).getByText('Fasilitas sedang diperbaiki oleh teknisi.'),
+    ).toBeInTheDocument();
+    expect(within(statusRegion).getByText('12 Okt 2026, 12:00 WIB')).toBeInTheDocument();
   });
 
   it('renders the location hierarchy, asset, classification, and confidence', async () => {
@@ -212,7 +237,7 @@ describe('detail tiket pelapor', () => {
   it('lists supporting reports as links and keeps reporter identity hidden', async () => {
     stubFetch();
     renderPage();
-    await screen.findByRole('heading', { name: 'Deskripsi Laporan & Dukungan Pelapor' });
+    await screen.findByRole('heading', { name: 'Laporan Pendukung' });
     expect(screen.getByText('1 laporan mendukung tiket ini')).toBeInTheDocument();
     expect(screen.getByText('“Proyektor ruang sebelah juga mati.”')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'MNT-2026-000008' })).toHaveAttribute(
@@ -223,7 +248,7 @@ describe('detail tiket pelapor', () => {
     expect(screen.getByText(/Identitas pelapor lain dirahasiakan/)).toBeInTheDocument();
   });
 
-  it('renders the evidence photo and the newest-first timeline', async () => {
+  it('renders the evidence photo and the newest-first timeline with a latest marker', async () => {
     stubFetch();
     renderPage();
     const photo = await screen.findByAltText('proyektor.jpg');
@@ -232,12 +257,19 @@ describe('detail tiket pelapor', () => {
     );
     expect(screen.getByText('1–1 dari 1 foto ditampilkan')).toBeInTheDocument();
 
-    const timeline = screen.getByRole('region', { name: 'Linimasa Penanganan' });
+    const timeline = screen.getByRole('region', { name: 'Riwayat Penanganan' });
     const rows = within(timeline).getAllByRole('listitem');
     expect(rows).toHaveLength(4);
+    expect(rows[0]).toHaveTextContent('Pembaruan terbaru');
     expect(rows[0]).toHaveTextContent('Lampu proyektor sedang diganti teknisi.');
     expect(rows[0]).toHaveTextContent('Catatan Admin/UMPER');
     expect(rows[3]).toHaveTextContent('Sistem SCMS');
+
+    // Only the progress note has a description; events without a note must not
+    // render an empty tinted box that reads as a stray margin in the timeline.
+    const noteBlocks = timeline.querySelectorAll('li p.mt-1');
+    expect(noteBlocks).toHaveLength(1);
+    expect(noteBlocks[0]).toHaveTextContent('Lampu proyektor sedang diganti teknisi.');
   });
 
   it('shows the not-found state for a missing ticket', async () => {

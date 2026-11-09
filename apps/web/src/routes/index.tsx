@@ -1,7 +1,5 @@
-// Root dispatcher: first open always resolves by session.
-// Anonymous -> /login; ADMIN -> /admin; REPORTER -> /reporter.
-// The beforeLoad fetch is navigation-only; API routes enforce auth.
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { useEffect } from 'react';
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { LoadingState } from '../components/index.js';
 import { redirectForRole, type GuardUser } from '../server/guard';
 
@@ -39,6 +37,34 @@ export const Route = createFileRoute('/')({
 });
 
 function RootDispatcher() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      let user: GuardUser | null = null;
+      try {
+        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        if (response.ok) {
+          try {
+            user = sanitizeRole(((await response.json()) as MeResponse).user ?? null);
+          } catch {
+            user = null;
+          }
+        }
+      } catch {
+        return;
+      }
+      const target = redirectForRole('/', user);
+      if (!cancelled && target !== null) {
+        await navigate({ to: target });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
   return (
     <section aria-labelledby="root-dispatcher-title">
       <h1 id="root-dispatcher-title" className="sr-only">

@@ -4,11 +4,26 @@
 // routes/admin.tsx, so every /admin/* page shares one header.
 //
 // Two nav entries expose a small dropdown ("Fasilitas & Aset", "Data Master &
-// Parameter") built on native <details> — keyboard operable without extra
-// state. The bell is decorative for now: the notification centre is
-// reporter-only, so there is no admin unread count to show yet.
-import { useState, type ComponentType, type ReactNode, type SVGProps } from 'react';
-import { Link } from '@tanstack/react-router';
+// Parameter") built on native <details>, so the summary keeps its button/expand
+// semantics for keyboard and screen readers. Native <details> alone never
+// closes itself, though: after picking an item the panel stayed open until the
+// summary was pressed again. NavGroupMenu adds the menu behaviour on top — it
+// closes after an item is clicked (even when the item points at the current
+// route), on any navigation incl. back/forward, on an outside click, and on
+// Escape. Each summary also takes the active accent pill while one of its own
+// descendants is the current page. The bell is decorative for now: the
+// notification centre is reporter-only, so there is no admin unread count to
+// show yet.
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+  type SVGProps,
+} from 'react';
+import { Link, useLocation } from '@tanstack/react-router';
 import { BellIcon, ChevronDownIcon, GridIcon, LogoMark, MenuIcon } from './Icon';
 
 export interface AdminShellUser {
@@ -87,8 +102,15 @@ function initialsOf(username: string): string {
 const NAV_LINK_CLASSES =
   'inline-flex min-h-[40px] items-center justify-center gap-2 rounded-[10px] px-4 text-sm font-medium text-[#202a33] transition-colors hover:bg-white/70 data-[status=active]:bg-accent data-[status=active]:text-white data-[status=active]:shadow-sm';
 
-const GROUP_SUMMARY_CLASSES =
-  'inline-flex min-h-[40px] cursor-pointer list-none items-center gap-2 rounded-[10px] px-4 text-sm font-medium text-[#202a33] transition-colors hover:bg-white/70 [&::-webkit-details-marker]:hidden';
+const GROUP_SUMMARY_BASE_CLASSES =
+  'inline-flex min-h-[40px] cursor-pointer list-none items-center gap-2 rounded-[10px] px-4 text-sm font-medium transition-colors [&::-webkit-details-marker]:hidden';
+
+// Resting vs. active tone are separate strings (not `data-[status=active]`
+// utilities) so the active pill never fights the resting `hover:bg-white/70`.
+const GROUP_SUMMARY_CLASSES = `${GROUP_SUMMARY_BASE_CLASSES} text-[#202a33] hover:bg-white/70`;
+
+/** Same accent pill as an active nav link; the chevron inherits `currentColor`. */
+const GROUP_SUMMARY_ACTIVE_CLASSES = `${GROUP_SUMMARY_BASE_CLASSES} bg-accent text-white shadow-sm hover:bg-accent`;
 
 const GROUP_PANEL_CLASSES =
   'absolute left-0 top-[calc(100%+8px)] z-30 min-w-[220px] rounded-xl border border-[#e1e5e9] bg-white p-1.5 shadow-lg';
@@ -113,14 +135,89 @@ function linkFor(item: NavLink, mobile: boolean, onNavigate?: () => void): React
   );
 }
 
-function groupFor(group: NavGroup, mobile: boolean, onNavigate?: () => void): ReactNode {
+interface NavGroupMenuProps {
+  readonly group: NavGroup;
+  readonly mobile: boolean;
+  readonly onNavigate?: (() => void) | undefined;
+}
+
+/** `to` itself or anything below it (`/admin/facilities/MNT-…`, `/…/history`). */
+function isPathWithin(pathname: string, to: string): boolean {
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+/**
+ * One nav dropdown. The markup stays native <details>; the effects below only
+ * remove the "panel lingers until you press it again" behaviour.
+ */
+function NavGroupMenu({ group, mobile, onNavigate }: NavGroupMenuProps): ReactNode {
+  const detailsRef = useRef<HTMLDetailsElement | null>(null);
+  // Subscribing to the pathname covers navigations that never touch the links
+  // below — browser back/forward and programmatic redirects.
+  const pathname = useLocation({ select: (location) => location.pathname });
+
+  const close = useCallback((): void => {
+    const details = detailsRef.current;
+    if (details !== null) {
+      details.open = false;
+    }
+  }, []);
+
+  // The group pill mirrors the nav links: it is active while any of its
+  // descendants is the current page (including detail/history sub-paths).
+  const groupActive = group.items.some((item) => isPathWithin(pathname, item.to));
+  const summaryTone = groupActive ? GROUP_SUMMARY_ACTIVE_CLASSES : GROUP_SUMMARY_CLASSES;
+  const summaryClassName = mobile ? `${summaryTone} w-full justify-between` : summaryTone;
+
+  useEffect(() => {
+    close();
+  }, [pathname, close]);
+
+  useEffect(() => {
+    function handleOutsidePress(event: Event): void {
+      const details = detailsRef.current;
+      if (details === null || !details.open) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Node && details.contains(target)) {
+        return;
+      }
+      details.open = false;
+    }
+    function handleKeydown(event: KeyboardEvent): void {
+      const details = detailsRef.current;
+      if (event.key !== 'Escape' || details === null || !details.open) {
+        return;
+      }
+      details.open = false;
+      details.querySelector('summary')?.focus();
+    }
+    // `pointerdown` fires before the click and covers mouse/touch/pen;
+    // `mousedown` keeps the same behaviour where pointer events are missing.
+    document.addEventListener('pointerdown', handleOutsidePress);
+    document.addEventListener('mousedown', handleOutsidePress);
+    document.addEventListener('keydown', handleKeydown);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePress);
+      document.removeEventListener('mousedown', handleOutsidePress);
+      document.removeEventListener('keydown', handleKeydown);
+    };
+  }, []);
+
+  function handleItemClick(): void {
+    // Close right away: an item for the page we are already on does not change
+    // the pathname, so the effect above would never run.
+    close();
+    onNavigate?.();
+  }
+
   return (
-    <div key={group.label} className={mobile ? '' : 'relative'}>
-      <details className="group">
+    <div className={mobile ? '' : 'relative'}>
+      <details ref={detailsRef} className="group">
         <summary
-          className={
-            mobile ? `${GROUP_SUMMARY_CLASSES} w-full justify-between` : GROUP_SUMMARY_CLASSES
-          }
+          className={summaryClassName}
+          aria-current={groupActive ? 'true' : undefined}
         >
           {group.label}
           <ChevronDownIcon className="h-4 w-4 transition-transform group-open:rotate-180" />
@@ -138,7 +235,7 @@ function groupFor(group: NavGroup, mobile: boolean, onNavigate?: () => void): Re
               to={item.to}
               className={GROUP_ITEM_CLASSES}
               activeProps={{ 'aria-current': 'page' }}
-              onClick={onNavigate}
+              onClick={handleItemClick}
             >
               {item.label}
             </Link>
@@ -149,10 +246,12 @@ function groupFor(group: NavGroup, mobile: boolean, onNavigate?: () => void): Re
   );
 }
 
-function navEntries(mobile: boolean, onNavigate?: () => void): ReactNode[] {
+function navEntries(mobile: boolean, onNavigate?: (() => void) | undefined): ReactNode[] {
   return [
     ...PRIMARY_NAV.map((item) => linkFor(item, mobile, onNavigate)),
-    ...GROUP_NAV.map((group) => groupFor(group, mobile, onNavigate)),
+    ...GROUP_NAV.map((group) => (
+      <NavGroupMenu key={group.label} group={group} mobile={mobile} onNavigate={onNavigate} />
+    )),
   ];
 }
 

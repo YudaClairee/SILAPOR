@@ -5,6 +5,7 @@ import {
   buildTrendBuckets,
   composeLocationLabel,
   defaultGranularity,
+  formatAxisTick,
   formatHours,
   formatNumberId,
   formatPercent,
@@ -12,6 +13,8 @@ import {
   monthLabel,
   monthOptions,
   monthRange,
+  niceAxisMax,
+  niceCountAxisMax,
   rangeLabel,
   selectedMonthKey,
   shiftMonthKey,
@@ -153,6 +156,28 @@ describe('buildTrendBuckets', () => {
   it('returns no buckets without data or bounds', () => {
     expect(buildTrendBuckets([], 'week', { from: '', to: '' })).toEqual([]);
     expect(buildTrendBuckets([], 'week', { from: '2026-10-31', to: '2026-10-01' })).toEqual([]);
+  });
+});
+
+describe('chart axis helpers', () => {
+  it('rounds a peak up to a friendly axis maximum', () => {
+    expect(niceAxisMax(0)).toBe(1);
+    expect(niceAxisMax(-4)).toBe(1);
+    expect(niceAxisMax(3)).toBe(5);
+    expect(niceAxisMax(24)).toBe(25);
+  });
+
+  it('rounds count peaks to whole tick steps', () => {
+    expect(niceCountAxisMax(0)).toBe(4);
+    expect(niceCountAxisMax(3)).toBe(4);
+    expect(niceCountAxisMax(24)).toBe(24);
+    expect(niceCountAxisMax(25)).toBe(28);
+    expect(niceCountAxisMax(22, 2)).toBe(22);
+  });
+
+  it('formats axis ticks with Indonesian decimals', () => {
+    expect(formatAxisTick(2.5)).toBe('2,5');
+    expect(formatAxisTick(20)).toBe('20');
   });
 });
 

@@ -59,11 +59,12 @@ const VALID_VALUES: NewReportValues = {
 };
 
 describe('new-flow submit gate', () => {
-  it('gates submit on the full chain, description, and photos', () => {
-    expect(isNewReportSubmittable(VALID_VALUES, [], true)).toBe(false);
+  it('gates submit on the full chain and description (photos optional)', () => {
+    expect(isNewReportSubmittable(VALID_VALUES, [], true)).toBe(true);
     expect(isNewReportSubmittable({ ...VALID_VALUES, buildingId: '' }, [photo()], true)).toBe(
       false,
     );
+    expect(isNewReportSubmittable({ ...VALID_VALUES, buildingId: '' }, [], true)).toBe(false);
     expect(isNewReportSubmittable({ ...VALID_VALUES, floorId: '' }, [photo()], true)).toBe(false);
     expect(isNewReportSubmittable({ ...VALID_VALUES, locationId: '' }, [photo()], true)).toBe(
       false,
@@ -87,8 +88,11 @@ describe('new-flow submit gate', () => {
     expect(validateNewReportForm(flat, [photo()], true).floorId).toBe('Pilih lantai terlebih dahulu.');
   });
 
-  it('rejects short, long, and non-uuid input with Indonesian messages', () => {
-    expect(validateNewReportForm(VALID_VALUES, [], true).photos).toBe('Tambahkan minimal 1 foto.');
+  it('treats photos as optional but still enforces count, format, and size', () => {
+    expect(validateNewReportForm(VALID_VALUES, [], true)).toEqual({});
+    expect(validateNewReportForm(VALID_VALUES, [photo(), photo('b.jpg'), photo('c.jpg')], true)).toEqual(
+      {},
+    );
     expect(validateNewReportForm(VALID_VALUES, [photo(), photo('b.jpg'), photo('c.jpg'), photo('d.jpg')], true).photos).toBe(
       'Maksimal 3 foto per laporan.',
     );
@@ -98,8 +102,14 @@ describe('new-flow submit gate', () => {
     expect(validateNewReportForm(VALID_VALUES, [photo('big.png', 'image/png', 6_000_000)], true).photos).toBe(
       'Ukuran "big.png" melebihi 5 MB.',
     );
+  });
+
+  it('rejects short, long, and non-uuid input with Indonesian messages', () => {
     expect(validateNewReportForm({ ...VALID_VALUES, description: '  pendek  ' }, [photo()], true).description).toBe(
       'Deskripsi minimal 10 karakter.',
+    );
+    expect(validateNewReportForm({ ...VALID_VALUES, description: 'x'.repeat(2001) }, [photo()], true).description).toBe(
+      'Deskripsi maksimal 2000 karakter.',
     );
     expect(validateNewReportForm({ ...VALID_VALUES, locationId: 'bukan-uuid' }, [photo()], true).locationId).toBe(
       'Ruangan tidak valid.',
@@ -220,13 +230,14 @@ describe('reporter form render', () => {
     vi.unstubAllGlobals();
   });
 
-  it('disables submit with no photo and requires the full asset chain', async () => {
+  it('requires the full asset chain but not a photo', async () => {
     stubFetch();
     renderPage();
     const submit = await screen.findByRole('button', { name: /lanjut ke review/i });
     expect(screen.getByRole('heading', { name: 'Buat Laporan Kerusakan' })).toBeInTheDocument();
     expect(screen.getByText('Verifikasi Cepat Otomatis')).toBeInTheDocument();
     expect(screen.getByText(/Tarik & lepaskan foto ke sini/i)).toBeInTheDocument();
+    expect(screen.getByText(/Opsional · 0 \/ 3 foto terlampir/i)).toBeInTheDocument();
     expect(submit).toBeDisabled();
     expect(screen.queryByLabelText(/kategori/i)).not.toBeInTheDocument();
     for (const label of [
@@ -241,14 +252,32 @@ describe('reporter form render', () => {
     }
   });
 
-  it('keeps submit disabled until the chain and a photo are complete', async () => {
+  it('enables submit once the chain is complete without any photo', async () => {
     stubFetch();
     renderPage();
     await screen.findByRole('button', { name: /lanjut ke review/i });
     fillChain();
-    expect(screen.getByRole('button', { name: /lanjut ke review/i })).toBeDisabled();
-    attachPhoto();
     expect(screen.getByRole('button', { name: /lanjut ke review/i })).toBeEnabled();
+  });
+
+  it('submits with an empty photoKeys list when no photo is attached', async () => {
+    const fetchMock = stubFetch();
+    renderPage();
+    await screen.findByRole('button', { name: /lanjut ke review/i });
+    fillChain();
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    expect(await screen.findByText('Tanpa foto bukti (opsional).')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
+    expect(await screen.findByText('MNT-2026-000007')).toBeInTheDocument();
+    // No staging round-trip: `/api/uploads` is never called without files.
+    const uploads = fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/uploads'));
+    expect(uploads).toHaveLength(0);
+    const submits = fetchMock.mock.calls.filter(([url]) => url === '/api/reports');
+    expect(submits).toHaveLength(1);
+    const body = JSON.parse(String(submits[0]?.[1]?.body)) as unknown as {
+      photoKeys: unknown;
+    };
+    expect(body.photoKeys).toEqual([]);
   });
 
   it('stages photos first and shows the verified ticket', async () => {

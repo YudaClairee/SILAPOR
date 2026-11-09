@@ -17,6 +17,22 @@ export interface AdminTicketHeaderProps {
   readonly breadcrumb?: ReactNode | null;
 }
 
+// `/admin/reports` validates a full search object (mirrors its own
+// DEFAULT_SEARCH: priority score desc), so the breadcrumb carries every
+// default instead of a bare path the router would reject.
+const REPORT_LIST_DEFAULTS = {
+  search: '',
+  status: '',
+  categoryId: '',
+  locationId: '',
+  priority: '',
+  reporterId: '',
+  from: '',
+  to: '',
+  sort: 'priority_desc',
+  offset: 0,
+} as const;
+
 export function AdminTicketHeader(props: AdminTicketHeaderProps) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -24,7 +40,11 @@ export function AdminTicketHeader(props: AdminTicketHeaderProps) {
         <p className="text-xs text-muted">
           {props.breadcrumb === undefined ? (
             <>
-              <Link to="/admin/reports" className="underline underline-offset-2 hover:text-text">
+              <Link
+                to="/admin/reports"
+                search={REPORT_LIST_DEFAULTS}
+                className="underline underline-offset-2 hover:text-text"
+              >
                 Kelola Laporan
               </Link>{' '}
               › Detail Tiket

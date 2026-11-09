@@ -32,7 +32,7 @@ export function AdminTicketV2Content(props: {
   const categoryNames = new Map((options?.categories ?? []).map((c) => [c.id, c.name] as const));
   const issueTypeNames = new Map((options?.issueTypes ?? []).map((i) => [i.id, i.name] as const));
   const assetNames = new Map((options?.assets ?? []).map((a) => [a.id, a.name] as const));
-  const assetCodes = new Map((options?.assets ?? []).map((a) => [a.id, a.code] as const));
+  const assetCodes = new Map((options?.assets ?? []).map((a) => [a.id, a.assetCode] as const));
   const locationNames = new Map((options?.locations ?? []).map((l) => [l.id, l.name] as const));
   const related = adminV2Related(detail);
   const quotes = buildAdminReporterQuotes(

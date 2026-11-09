@@ -63,6 +63,16 @@ export type { RankedBarItem, RankedBarListProps } from './RankedBarList';
 export { TrendChart } from './TrendChart';
 export type { TrendChartDatum, TrendChartProps } from './TrendChart';
 
+export { StatusBarChart, statusBarTone } from './StatusBarChart';
+export type {
+  StatusBarChartProps,
+  StatusBarDatum,
+  StatusBarTone,
+} from './StatusBarChart';
+
+export { LocationBarChart } from './LocationBarChart';
+export type { LocationBarChartProps, LocationBarItem } from './LocationBarChart';
+
 export { AttachmentGallery } from './AttachmentGallery';
 export type { AttachmentGalleryProps, GalleryAttachment } from './AttachmentGallery';
 

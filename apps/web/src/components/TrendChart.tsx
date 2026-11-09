@@ -6,7 +6,7 @@
 // passes the legend tabs through `aside`. The SVG is decorative; a screen
 // reader gets the same numbers from the visually hidden table.
 import type { ReactNode } from 'react';
-import { formatHours } from '../lib/dashboard-period.js';
+import { formatAxisTick, formatHours, niceAxisMax } from '../lib/dashboard-period.js';
 
 export interface TrendChartDatum {
   readonly key: string;
@@ -32,26 +32,6 @@ const PLOT_WIDTH = WIDTH - PAD.left - PAD.right;
 const PLOT_HEIGHT = HEIGHT - PAD.top - PAD.bottom;
 const LINE_COLOR = '#0a3947';
 const DURATION_COLOR = '#3d6d7a';
-
-/** Round a peak up to a friendly axis maximum (1/2/2.5/5 × power of ten). */
-function niceMax(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    return 1;
-  }
-  const exponent = 10 ** Math.floor(Math.log10(value));
-  for (const step of [1, 2, 2.5, 5, 10]) {
-    const candidate = step * exponent;
-    if (value <= candidate) {
-      return candidate;
-    }
-  }
-  return 10 * exponent;
-}
-
-/** Compact tick label: 2.5 → "2,5", 20 → "20". */
-function tickLabel(value: number): string {
-  return value.toLocaleString('id-ID', { maximumFractionDigits: 1 });
-}
 
 export function TrendChart({
   title,
@@ -93,8 +73,8 @@ interface TrendChartPlotProps {
 }
 
 function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
-  const reportsMax = niceMax(Math.max(...data.map((datum) => datum.reports), 0));
-  const durationMax = niceMax(
+  const reportsMax = niceAxisMax(Math.max(...data.map((datum) => datum.reports), 0));
+  const durationMax = niceAxisMax(
     Math.max(...data.map((datum) => (datum.averageSeconds ?? 0) / 3600), 0),
   );
   const step = data.length > 1 ? PLOT_WIDTH / (data.length - 1) : 0;
@@ -164,10 +144,10 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
                 strokeDasharray="4 5"
               />
               <text x={PAD.left - 10} y={y + 3} textAnchor="end" fill="#8a97a3" fontSize="10">
-                {tickLabel((reportsMax / 4) * tick)}
+                {formatAxisTick((reportsMax / 4) * tick)}
               </text>
               <text x={PAD.left + PLOT_WIDTH + 10} y={y + 3} fill="#8a97a3" fontSize="10">
-                {`${tickLabel((durationMax / 4) * tick)}j`}
+                {`${formatAxisTick((durationMax / 4) * tick)}j`}
               </text>
             </g>
           );

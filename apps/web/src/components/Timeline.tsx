@@ -20,6 +20,8 @@ export interface TimelineItem {
   readonly badge?: ReactNode;
   /** Sanitized actor label, e.g. "Catatan Admin/UMPER" or "Sistem SCMS". */
   readonly actor?: string;
+  /** Marks the newest reporter-facing update (rendered first in the meta row). */
+  readonly latest?: boolean;
 }
 
 export interface TimelineProps {
@@ -39,6 +41,11 @@ export function Timeline({ items }: TimelineProps) {
             />
             {hasMeta ? (
               <div className="mb-1 flex flex-wrap items-center gap-2">
+                {item.latest === true ? (
+                  <span className="inline-flex rounded-full bg-tint-info px-2 py-0.5 text-[10px] font-semibold text-badge-info">
+                    Pembaruan terbaru
+                  </span>
+                ) : null}
                 <span className="font-mono text-xs text-muted">{item.timestamp}</span>
                 {item.badge}
                 {item.actor === undefined || item.actor === '' ? null : (
@@ -64,4 +71,3 @@ export function Timeline({ items }: TimelineProps) {
     </ol>
   );
 }
-
