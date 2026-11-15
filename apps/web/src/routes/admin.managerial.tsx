@@ -120,6 +120,7 @@ function DashboardContent({ model }: { readonly model: ManagerialDashboardViewMo
         <MetricCard label="Keluhan aktif" value={model.cards.activeReports} detail={`${model.cards.inRepair} sedang diperbaiki`} />
         <MetricCard label="Prioritas tinggi" value={model.cards.highPriorityActive} detail="Masih aktif" />
         <MetricCard label="Selesai bulan ini" value={model.cards.resolvedThisMonth} detail="Metrik bulan berjalan" />
+        <MetricCard label="Rata-rata penyelesaian" value={model.resolutionTime.average} detail={`${model.resolutionTime.sampleSize} laporan selesai`} />
         <MetricCard label="Median penyelesaian" value={model.resolutionTime.median} detail={`${model.resolutionTime.sampleSize} laporan selesai`} />
       </div>
 
@@ -246,6 +247,8 @@ function Page() {
     void navigate({ to: '/admin/managerial', search: { from, to } });
   }
 
+  const hasReports = data !== null && data.cards.totalReports > 0;
+
   return (
     <section aria-labelledby="managerial-title">
       <h1 id="managerial-title" className="text-2xl font-semibold text-text">Dashboard Manajerial</h1>
@@ -265,7 +268,7 @@ function Page() {
       {pending ? <div className="mt-5"><LoadingState message="Memuat dashboard manajerial…" /></div>
         : loadError !== null ? <div className="mt-5"><ErrorPanel message={loadError} retry={<Button type="button" variant="secondary" onClick={apply}>Coba lagi</Button>} /></div>
           : forbidden ? <div className="mt-5"><ErrorPanel title="Akses ditolak" message="Dashboard ini hanya untuk admin." /></div>
-            : data === null ? <div className="mt-5"><EmptyState title="Belum ada data" description="Belum ada laporan pada rentang ini." /></div>
+            : data === null || !hasReports ? <div className="mt-5"><EmptyState title="Belum ada data" description="Belum ada data pada rentang ini." /></div>
               : <DashboardContent model={buildManagerialDashboardViewModel(data)} />}
     </section>
   );

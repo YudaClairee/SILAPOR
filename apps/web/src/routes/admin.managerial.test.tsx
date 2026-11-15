@@ -74,6 +74,8 @@ describe('dashboard manajerial', () => {
     expect(screen.getByText('Gedung A')).toBeInTheDocument();
     expect(screen.getAllByText('AC Ruang 101')).not.toHaveLength(0);
     expect(screen.getAllByText('Tren laporan harian')).not.toHaveLength(0);
+    expect(screen.getByText('Rata-rata penyelesaian')).toBeInTheDocument();
+    expect(screen.getByText('1 hari 1 jam')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /MNT-2026-000001/ })).toHaveAttribute(
       'href',
       '/admin/reports/MNT-2026-000001',
@@ -96,6 +98,31 @@ describe('dashboard manajerial', () => {
     expect(await screen.findByText('Belum ada lokasi pada periode ini.')).toBeInTheDocument();
     expect(screen.getAllByText('Belum ada aset pada periode ini.')).not.toHaveLength(0);
     expect(screen.getByText('Belum ada tren pada periode ini.')).toBeInTheDocument();
+  });
+
+  it('renders a page-level empty state when analytics has no reports', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        ...response,
+        cards: { totalReports: 0, activeReports: 0, inRepair: 0, highPriorityActive: 0, resolvedThisMonth: 0 },
+        byStatus: [],
+        byCategory: [],
+        byLocation: [],
+        byBuilding: [],
+        resolutionTime: { sampleSize: 0, averageSeconds: null, medianSeconds: null },
+        technicianWorkload: [],
+        technicianCompletions: [],
+        topAssets: [],
+        trend: [],
+        priorityQueue: [],
+      }),
+    })));
+
+    renderPage();
+
+    expect(await screen.findByText('Belum ada data pada rentang ini.')).toBeInTheDocument();
   });
 
   it('renders forbidden and retryable error states', async () => {
