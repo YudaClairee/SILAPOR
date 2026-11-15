@@ -21,6 +21,17 @@ describe('MockSsoProvider', () => {
     });
   });
 
+  it('resolves manajerial to an active MANAGERIAL identity', async () => {
+    const identity = await new MockSsoProvider().resolve('manajerial');
+    expect(identity).toEqual({
+      externalUserId: 'manajerial',
+      username: 'manajerial',
+      nim: null,
+      role: 'MANAGERIAL',
+      isActive: true,
+    });
+  });
+
   it('resolves 230001/230002 to active REPORTERs with nim=username', async () => {
     for (const username of ['230001', '230002']) {
       const identity = await new MockSsoProvider().resolve(username);

@@ -11,7 +11,7 @@
 
 import { forbidden } from '@silapor/shared';
 
-export type Role = 'ADMIN' | 'REPORTER';
+export type Role = 'ADMIN' | 'REPORTER' | 'MANAGERIAL';
 
 export interface AuthUser {
   readonly id: string;
@@ -58,10 +58,13 @@ export function canPerform(user: AuthUser | null, capability: string): boolean {
     return false;
   }
   if (ADMIN_ONLY_CAPABILITIES.has(capability)) {
-    return user.role === 'ADMIN';
+    return (
+      user.role === 'ADMIN' ||
+      (user.role === 'MANAGERIAL' && capability === 'viewAnalytics')
+    );
   }
   if (ACTIVE_USER_CAPABILITIES.has(capability)) {
-    return true;
+    return user.role === 'ADMIN' || user.role === 'REPORTER';
   }
   return false;
 }
