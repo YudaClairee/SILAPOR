@@ -19,6 +19,7 @@ import { Route as AdminAnalyticsRouteImport } from './routes/admin.analytics'
 import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
 import { Route as AdminLocationsRouteImport } from './routes/admin.locations'
 import { Route as AdminMaintenanceReportRouteImport } from './routes/admin.maintenance-report'
+import { Route as AdminManagerialRouteImport } from './routes/admin.managerial'
 import { Route as AdminMasterDataRouteImport } from './routes/admin.master-data'
 import { Route as AdminScoringRouteImport } from './routes/admin.scoring'
 import { Route as AdminTechniciansRouteImport } from './routes/admin.technicians'
@@ -117,6 +118,11 @@ const AdminLocationsRoute = AdminLocationsRouteImport.update({
 const AdminMaintenanceReportRoute = AdminMaintenanceReportRouteImport.update({
   id: '/maintenance-report',
   path: '/maintenance-report',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminManagerialRoute = AdminManagerialRouteImport.update({
+  id: '/managerial',
+  path: '/managerial',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminMasterDataRoute = AdminMasterDataRouteImport.update({
@@ -381,6 +387,7 @@ export interface FileRoutesByFullPath {
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
+  '/admin/managerial': typeof AdminManagerialRoute
   '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
@@ -440,6 +447,7 @@ export interface FileRoutesByTo {
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
+  '/admin/managerial': typeof AdminManagerialRoute
   '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
@@ -502,6 +510,7 @@ export interface FileRoutesById {
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
+  '/admin/managerial': typeof AdminManagerialRoute
   '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
@@ -565,6 +574,7 @@ export interface FileRouteTypes {
     | '/admin/categories'
     | '/admin/locations'
     | '/admin/maintenance-report'
+    | '/admin/managerial'
     | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
@@ -624,6 +634,7 @@ export interface FileRouteTypes {
     | '/admin/categories'
     | '/admin/locations'
     | '/admin/maintenance-report'
+    | '/admin/managerial'
     | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
@@ -685,6 +696,7 @@ export interface FileRouteTypes {
     | '/admin/categories'
     | '/admin/locations'
     | '/admin/maintenance-report'
+    | '/admin/managerial'
     | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
@@ -830,6 +842,13 @@ declare module '@tanstack/react-router' {
       path: '/maintenance-report'
       fullPath: '/admin/maintenance-report'
       preLoaderRoute: typeof AdminMaintenanceReportRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/managerial': {
+      id: '/admin/managerial'
+      path: '/managerial'
+      fullPath: '/admin/managerial'
+      preLoaderRoute: typeof AdminManagerialRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/master-data': {
@@ -1183,6 +1202,7 @@ interface AdminRouteChildren {
   AdminCategoriesRoute: typeof AdminCategoriesRoute
   AdminLocationsRoute: typeof AdminLocationsRoute
   AdminMaintenanceReportRoute: typeof AdminMaintenanceReportRoute
+  AdminManagerialRoute: typeof AdminManagerialRoute
   AdminMasterDataRoute: typeof AdminMasterDataRoute
   AdminScoringRoute: typeof AdminScoringRoute
   AdminTechniciansRoute: typeof AdminTechniciansRoute
@@ -1199,6 +1219,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminCategoriesRoute: AdminCategoriesRoute,
   AdminLocationsRoute: AdminLocationsRoute,
   AdminMaintenanceReportRoute: AdminMaintenanceReportRoute,
+  AdminManagerialRoute: AdminManagerialRoute,
   AdminMasterDataRoute: AdminMasterDataRoute,
   AdminScoringRoute: AdminScoringRoute,
   AdminTechniciansRoute: AdminTechniciansRoute,

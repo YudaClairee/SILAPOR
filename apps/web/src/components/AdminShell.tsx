@@ -59,6 +59,7 @@ interface NavGroup {
 
 const PRIMARY_NAV: readonly NavLink[] = [
   { kind: 'link', to: '/admin', label: 'Dashboard', Icon: GridIcon, exact: true },
+  { kind: 'link', to: '/admin/managerial', label: 'Dashboard Manajerial', Icon: GridIcon },
   { kind: 'link', to: '/admin/reports', label: 'Kelola Laporan', Icon: GridIcon },
 ];
 
