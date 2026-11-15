@@ -28,6 +28,7 @@ const ADMIN_PATHS = [
   '/admin/scoring',
   '/admin/maintenance-report',
   '/admin/analytics',
+  '/admin/managerial',
 ] as const;
 
 async function renderShell(initialPath: string) {
@@ -68,6 +69,16 @@ function groupDetails(label: string, index = 0): HTMLDetailsElement {
 afterEach(cleanup);
 
 describe('AdminShell nav group', () => {
+  it('menampilkan tautan Dashboard Manajerial pada navigasi utama', async () => {
+    await renderShell('/admin/managerial');
+
+    expect(screen.getAllByRole('link', { name: 'Dashboard Manajerial' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Dashboard Manajerial' })[0]).toHaveAttribute(
+      'href',
+      '/admin/managerial',
+    );
+  });
+
   it('menutup panel grup setelah itemnya diklik, walau tetap di halaman yang sama', async () => {
     await renderShell('/admin/facilities');
     const details = groupDetails('Fasilitas & Aset');
