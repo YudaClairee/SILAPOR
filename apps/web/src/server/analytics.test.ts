@@ -38,13 +38,13 @@ vi.mock('@silapor/analytics', async (importOriginal) => ({
 }));
 
 vi.mock('./auth', () => ({
-  requireAdmin: vi.fn(),
+  requireAnalyticsViewer: vi.fn(),
 }));
 
-import { requireAdmin } from './auth.js';
+import { requireAnalyticsViewer } from './auth.js';
 import { getDashboardOverviewRoute } from './analytics.js';
 
-const requireAdminMock = vi.mocked(requireAdmin);
+const requireAnalyticsViewerMock = vi.mocked(requireAnalyticsViewer);
 
 const userId = '11111111-1111-1111-1111-111111111111';
 const CATEGORY_ID = '33333333-3333-3333-3333-333333333333';
@@ -129,12 +129,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   dbMocks.close.mockResolvedValue(undefined);
   dbMocks.getDb.mockReturnValue({ db: {}, close: dbMocks.close });
-  requireAdminMock.mockResolvedValue({ id: userId, username: 'rudi', role: 'ADMIN' });
+  requireAnalyticsViewerMock.mockResolvedValue({ id: userId, username: 'rudi', role: 'ADMIN' });
 });
 
-describe('getDashboardOverviewRoute requireAdmin guard', () => {
-  it('propagates a 401 from requireAdmin without opening the database', async () => {
-    requireAdminMock.mockRejectedValue(unauthorized('Belum login'));
+describe('getDashboardOverviewRoute analytics viewer guard', () => {
+  it('propagates a 401 from requireAnalyticsViewer without opening the database', async () => {
+    requireAnalyticsViewerMock.mockRejectedValue(unauthorized('Belum login'));
     const url = 'http://x/api/admin/analytics/overview';
     await expect(getDashboardOverviewRoute(request(url), url)).rejects.toMatchObject({
       status: 401,
@@ -142,13 +142,26 @@ describe('getDashboardOverviewRoute requireAdmin guard', () => {
     expect(dbMocks.getDb).not.toHaveBeenCalled();
   });
 
-  it('propagates a 403 for non-admin callers without opening the database', async () => {
-    requireAdminMock.mockRejectedValue(forbidden('Akses ditolak'));
+  it('propagates a 403 for non-viewer callers without opening the database', async () => {
+    requireAnalyticsViewerMock.mockRejectedValue(forbidden('Akses ditolak'));
     const url = 'http://x/api/admin/analytics/overview';
     await expect(getDashboardOverviewRoute(request(url), url)).rejects.toMatchObject({
       status: 403,
     });
     expect(dbMocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it('allows the managerial role to read analytics', async () => {
+    mockQueryResults();
+    requireAnalyticsViewerMock.mockResolvedValue({
+      id: userId,
+      username: 'manajerial',
+      role: 'MANAGERIAL',
+    });
+    const url = 'http://x/api/admin/analytics/overview';
+    await expect(getDashboardOverviewRoute(request(url), url)).resolves.toMatchObject({
+      cards: CARDS,
+    });
   });
 });
 

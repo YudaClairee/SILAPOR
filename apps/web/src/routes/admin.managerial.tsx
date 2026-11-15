@@ -24,12 +24,12 @@ interface LoaderData {
   readonly needsClientLoad: boolean;
 }
 
-type Bundle =
+export type Bundle =
   | { readonly data: DashboardOverviewResponse | null; readonly loadError: string | null; readonly forbidden: boolean }
   | 'unauthorized'
   | 'unavailable';
 
-function queryOf(search: Search): string {
+export function queryOf(search: Search): string {
   const params = new URLSearchParams();
   if (search.from !== '') params.set('from', search.from);
   if (search.to !== '') params.set('to', search.to);
@@ -37,7 +37,7 @@ function queryOf(search: Search): string {
   return query === '' ? '' : `?${query}`;
 }
 
-async function fetchBundle(search: Search): Promise<Bundle> {
+export async function fetchBundle(search: Search): Promise<Bundle> {
   let response: Response;
   try {
     response = await fetch(`/api/admin/analytics/overview${queryOf(search)}`, { credentials: 'include' });
@@ -112,7 +112,13 @@ function trendData(model: ManagerialDashboardViewModel) {
   }));
 }
 
-function DashboardContent({ model }: { readonly model: ManagerialDashboardViewModel }) {
+export function DashboardContent({
+  model,
+  readOnly = false,
+}: {
+  readonly model: ManagerialDashboardViewModel;
+  readonly readOnly?: boolean;
+}) {
   return (
     <>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -165,9 +171,13 @@ function DashboardContent({ model }: { readonly model: ManagerialDashboardViewMo
             {model.topAssets.map((asset) => (
               <li key={asset.assetId} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                 <div>
-                  <Link to="/admin/facilities/$assetId" params={{ assetId: asset.assetId }} className="font-medium text-accent hover:underline">
-                    {asset.assetName}
-                  </Link>
+                  {readOnly ? (
+                    <span className="font-medium text-text">{asset.assetName}</span>
+                  ) : (
+                    <Link to="/admin/facilities/$assetId" params={{ assetId: asset.assetId }} className="font-medium text-accent hover:underline">
+                      {asset.assetName}
+                    </Link>
+                  )}
                   <p className="text-sm text-muted">{asset.locationLabel}</p>
                 </div>
                 <span className="text-sm font-semibold text-text">{asset.count} laporan</span>
@@ -186,9 +196,13 @@ function DashboardContent({ model }: { readonly model: ManagerialDashboardViewMo
           <ul className="mt-4 divide-y divide-border">
             {model.priorityQueue.map((item) => (
               <li key={item.reportId} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <Link to="/admin/reports/$ticket" params={{ ticket: item.ticketNumber }} className="font-medium text-accent hover:underline">
-                  {item.ticketNumber}
-                </Link>
+                {readOnly ? (
+                  <span className="font-medium text-text">{item.ticketNumber}</span>
+                ) : (
+                  <Link to="/admin/reports/$ticket" params={{ ticket: item.ticketNumber }} className="font-medium text-accent hover:underline">
+                    {item.ticketNumber}
+                  </Link>
+                )}
                 <span className="text-sm text-muted">{item.finalPriority ?? 'Belum ditentukan'} · {item.status}</span>
               </li>
             ))}

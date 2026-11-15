@@ -23,7 +23,7 @@ import {
   type Role,
 } from '@silapor/auth';
 import { findSessionByTokenHash, getDb, users } from '@silapor/database';
-import { unauthorized } from '@silapor/shared';
+import { forbidden, unauthorized } from '@silapor/shared';
 
 // Minimal public identity handed to route handlers — no external IDs, NIMs,
 // or hashes (matches GET /api/auth/me).
@@ -98,6 +98,20 @@ export async function requireUser(req: Request): Promise<SessionUser> {
 export async function requireAdmin(req: Request): Promise<SessionUser> {
   const user = await requireUser(req);
   requirePolicyRole(toAuthUser(user), 'ADMIN');
+  return user;
+}
+
+export async function requireManagerial(req: Request): Promise<SessionUser> {
+  const user = await requireUser(req);
+  requirePolicyRole(toAuthUser(user), 'MANAGERIAL');
+  return user;
+}
+
+export async function requireAnalyticsViewer(req: Request): Promise<SessionUser> {
+  const user = await requireUser(req);
+  if (user.role !== 'ADMIN' && user.role !== 'MANAGERIAL') {
+    throw forbidden('Akses ditolak');
+  }
   return user;
 }
 

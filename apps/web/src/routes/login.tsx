@@ -12,7 +12,7 @@ export const Route = createFileRoute('/login')({
         try {
           const data = (await response.json()) as { readonly user?: unknown };
           const role = (data.user as { readonly role?: unknown } | null)?.role;
-          if (role === 'ADMIN' || role === 'REPORTER') user = { role };
+          if (role === 'ADMIN' || role === 'REPORTER' || role === 'MANAGERIAL') user = { role };
         } catch {
           user = null;
         }
@@ -137,7 +137,7 @@ function LoginPage() {
       try {
         const data = (await response.json()) as { readonly user?: unknown };
         const raw = (data.user as { readonly role?: unknown } | null)?.role;
-        if (raw === 'ADMIN' || raw === 'REPORTER') role = raw;
+        if (raw === 'ADMIN' || raw === 'REPORTER' || raw === 'MANAGERIAL') role = raw;
       } catch {
         role = null;
       }

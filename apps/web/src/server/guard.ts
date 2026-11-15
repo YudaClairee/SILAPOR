@@ -16,14 +16,17 @@
 //   (allowed).
 // - Everything else passes (null = no redirect).
 export interface GuardUser {
-  readonly role: 'ADMIN' | 'REPORTER';
+  readonly role: 'ADMIN' | 'REPORTER' | 'MANAGERIAL';
 }
 
 export const ADMIN_HOME = '/admin' as const;
 export const REPORTER_HOME = '/reporter' as const;
+export const MANAGERIAL_HOME = '/managerial' as const;
 
 export function homeForRole(role: GuardUser['role']): string {
-  return role === 'ADMIN' ? ADMIN_HOME : REPORTER_HOME;
+  if (role === 'ADMIN') return ADMIN_HOME;
+  if (role === 'MANAGERIAL') return MANAGERIAL_HOME;
+  return REPORTER_HOME;
 }
 
 const PUBLIC_PATHS: readonly string[] = ['/login', '/kebijakan-privasi'];
@@ -37,6 +40,11 @@ export function redirectForRole(pathname: string, user: GuardUser | null): strin
     return '/login';
   }
   if (user.role === 'REPORTER' && isPathUnder(pathname, '/admin')) return REPORTER_HOME;
+  if (user.role === 'REPORTER' && isPathUnder(pathname, '/managerial')) return REPORTER_HOME;
+  if (user.role === 'ADMIN' && isPathUnder(pathname, '/managerial')) return ADMIN_HOME;
+  if (user.role === 'MANAGERIAL' && !isPathUnder(pathname, '/managerial')) {
+    return MANAGERIAL_HOME;
+  }
   return null;
 }
 
