@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import type { DashboardOverviewResponse } from '../server/analytics';
 import {
   Button,
@@ -9,7 +9,7 @@ import {
   LoadingState,
   RankedBarList,
   TrendChart,
-} from '../components/index.js';
+} from './index.js';
 import { buildManagerialDashboardViewModel, type ManagerialDashboardViewModel } from '../lib/managerial-dashboard.js';
 
 interface Search {
@@ -58,33 +58,6 @@ export async function fetchBundle(search: Search): Promise<Bundle> {
   } catch {
     return { data: null, loadError: 'Respons dashboard manajerial tidak valid.', forbidden: false };
   }
-}
-
-export const Route = createFileRoute('/admin/managerial')({
-  validateSearch: (search: Record<string, unknown>): Search => ({
-    from: typeof search.from === 'string' ? search.from : '',
-    to: typeof search.to === 'string' ? search.to : '',
-  }),
-  loaderDeps: ({ search }) => ({ from: search.from, to: search.to }),
-  loader: async ({ deps }): Promise<LoaderData> => {
-    const bundle = await fetchBundle(deps as Search);
-    if (bundle === 'unauthorized') throw redirect({ to: '/login' });
-    if (bundle === 'unavailable') {
-      return { data: null, loadError: null, forbidden: false, needsClientLoad: true };
-    }
-    return { ...bundle, needsClientLoad: false };
-  },
-  pendingComponent: Pending,
-  component: Page,
-});
-
-function Pending() {
-  return (
-    <section aria-labelledby="managerial-title">
-      <h1 id="managerial-title" className="text-2xl font-semibold text-text">Dashboard Manajerial</h1>
-      <div className="mt-4"><LoadingState message="Memuat dashboard manajerial…" /></div>
-    </section>
-  );
 }
 
 function MetricCard({ label, value, detail }: { readonly label: string; readonly value: string | number; readonly detail: string }) {
@@ -213,9 +186,22 @@ export function DashboardContent({
   );
 }
 
-function Page() {
-  const loader = Route.useLoaderData() as LoaderData;
-  const search = Route.useSearch() as Search;
+/**
+ * Seluruh halaman dashboard manajerial (judul, filter periode, state, dan isi).
+ * Dipakai oleh route /managerial (akun manajerial).
+ * `readOnly` menghilangkan tautan drill-down ke halaman admin.
+ */
+export function ManagerialDashboardScreen({
+  loader,
+  search,
+  readOnly = false,
+  onApply,
+}: {
+  readonly loader: LoaderData;
+  readonly search: Search;
+  readonly readOnly?: boolean;
+  readonly onApply: (range: Search) => void;
+}) {
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardOverviewResponse | null>(loader.needsClientLoad ? null : loader.data);
   const [pending, setPending] = useState(loader.needsClientLoad);
@@ -258,7 +244,7 @@ function Page() {
   }, [loader, navigate, search]);
 
   function apply(): void {
-    void navigate({ to: '/admin/managerial', search: { from, to } });
+    onApply({ from, to });
   }
 
   const hasReports = data !== null && data.cards.totalReports > 0;
@@ -281,9 +267,10 @@ function Page() {
 
       {pending ? <div className="mt-5"><LoadingState message="Memuat dashboard manajerial…" /></div>
         : loadError !== null ? <div className="mt-5"><ErrorPanel message={loadError} retry={<Button type="button" variant="secondary" onClick={apply}>Coba lagi</Button>} /></div>
-          : forbidden ? <div className="mt-5"><ErrorPanel title="Akses ditolak" message="Dashboard ini hanya untuk admin." /></div>
+          : forbidden ? <div className="mt-5"><ErrorPanel title="Akses ditolak" message="Akun ini tidak memiliki akses ke dashboard manajerial." /></div>
             : data === null || !hasReports ? <div className="mt-5"><EmptyState title="Belum ada data" description="Belum ada data pada rentang ini." /></div>
-              : <DashboardContent model={buildManagerialDashboardViewModel(data)} />}
+              : <DashboardContent model={buildManagerialDashboardViewModel(data)} readOnly={readOnly} />}
     </section>
   );
 }
+

@@ -8,7 +8,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Route } from './admin.managerial';
+import { ManagerialDashboardScreen } from './ManagerialDashboard';
 
 const response = {
   range: { from: '2026-10-01', to: '2026-10-31' },
@@ -39,16 +39,19 @@ const response = {
   }],
 };
 
+// Konstanta di luar render agar identitas props stabil dan efek tidak berulang.
+const CLIENT_LOAD = { data: null, loadError: null, forbidden: false, needsClientLoad: true } as const;
+const SEARCH = { from: '', to: '' } as const;
+
 function renderPage(): void {
-  const rootRoute = createRootRoute();
-  const testRoute = Route.update({
-    id: '/admin/managerial',
-    path: '/admin/managerial',
-    getParentRoute: () => rootRoute,
-  } as never);
+  const rootRoute = createRootRoute({
+    component: () => (
+      <ManagerialDashboardScreen loader={CLIENT_LOAD} search={SEARCH} onApply={() => {}} />
+    ),
+  });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([testRoute]),
-    history: createMemoryHistory({ initialEntries: ['/admin/managerial'] }),
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ['/'] }),
   });
   render(<RouterProvider router={router} />);
 }

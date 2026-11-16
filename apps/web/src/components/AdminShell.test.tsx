@@ -28,7 +28,6 @@ const ADMIN_PATHS = [
   '/admin/scoring',
   '/admin/maintenance-report',
   '/admin/analytics',
-  '/admin/managerial',
 ] as const;
 
 async function renderShell(initialPath: string) {
@@ -69,14 +68,10 @@ function groupDetails(label: string, index = 0): HTMLDetailsElement {
 afterEach(cleanup);
 
 describe('AdminShell nav group', () => {
-  it('menampilkan tautan Dashboard Manajerial pada navigasi utama', async () => {
-    await renderShell('/admin/managerial');
+  it('tidak menampilkan tautan Dashboard Manajerial di navigasi admin', async () => {
+    await renderShell('/admin/reports');
 
-    expect(screen.getAllByRole('link', { name: 'Dashboard Manajerial' })).toHaveLength(2);
-    expect(screen.getAllByRole('link', { name: 'Dashboard Manajerial' })[0]).toHaveAttribute(
-      'href',
-      '/admin/managerial',
-    );
+    expect(screen.queryByRole('link', { name: 'Dashboard Manajerial' })).not.toBeInTheDocument();
   });
 
   it('menutup panel grup setelah itemnya diklik, walau tetap di halaman yang sama', async () => {
@@ -179,5 +174,50 @@ describe('AdminShell nav group active', () => {
 
     await waitFor(() => expect(groupSummary('Data Master & Parameter')).toHaveClass('bg-accent'));
     expect(groupSummary('Fasilitas & Aset')).not.toHaveClass('bg-accent');
+  });
+});
+
+// Varian manajerial: header yang sama, tetapi hanya dashboard sendiri yang
+// terlihat dan brand mengarah ke /managerial (bukan /admin).
+describe('AdminShell variant managerial', () => {
+  async function renderManagerialShell() {
+    const rootRoute = createRootRoute({
+      component: () => (
+        <AdminShell user={{ username: 'manajerial', nip: null }} onLogout={() => {}} variant="managerial">
+          <p>konten manajerial</p>
+        </AdminShell>
+      ),
+    });
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([
+        createRoute({ getParentRoute: () => rootRoute, path: '/managerial', component: () => null }),
+      ]),
+      history: createMemoryHistory({ initialEntries: ['/managerial'] }),
+    });
+    render(<RouterProvider router={router} />);
+    await screen.findAllByRole('link', { name: 'Dashboard Manajerial' });
+  }
+
+  it('hanya menampilkan tautan Dashboard Manajerial tanpa grup admin', async () => {
+    await renderManagerialShell();
+
+    expect(screen.queryByText('Fasilitas & Aset')).not.toBeInTheDocument();
+    expect(screen.queryByText('Data Master & Parameter')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Kelola Laporan' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /admin/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Dashboard Manajerial' })[0]).toHaveAttribute(
+      'href',
+      '/managerial',
+    );
+  });
+
+  it('menautkan brand ke /managerial dan menampilkan identitas akun manajerial', async () => {
+    await renderManagerialShell();
+
+    expect(screen.getByRole('link', { name: /UNIVERSITAS PENDIDIKAN INDONESIA/ }).getAttribute('href')).toMatch(
+      /^\/managerial(\?|$)/,
+    );
+    expect(screen.getAllByText('manajerial').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Akun manajerial').length).toBeGreaterThan(0);
   });
 });

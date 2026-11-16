@@ -32,10 +32,18 @@ export interface AdminShellUser {
   readonly nip: string | null;
 }
 
+/**
+ * `admin` (default) shows the full admin navigation. `managerial` keeps the same
+ * header design for the read-only manajerial account: only its own dashboard
+ * entry, no admin groups, and the brand links to /managerial.
+ */
+export type AdminShellVariant = 'admin' | 'managerial';
+
 export interface AdminShellProps {
   readonly user: AdminShellUser;
   readonly onLogout: () => void;
   readonly children: ReactNode;
+  readonly variant?: AdminShellVariant;
 }
 
 interface NavGroupItem {
@@ -57,9 +65,12 @@ interface NavGroup {
   readonly items: readonly NavGroupItem[];
 }
 
+const MANAGERIAL_PRIMARY_NAV: readonly NavLink[] = [
+  { kind: 'link', to: '/managerial', label: 'Dashboard Manajerial', Icon: GridIcon, exact: true },
+];
+
 const PRIMARY_NAV: readonly NavLink[] = [
   { kind: 'link', to: '/admin', label: 'Dashboard', Icon: GridIcon, exact: true },
-  { kind: 'link', to: '/admin/managerial', label: 'Dashboard Manajerial', Icon: GridIcon },
   { kind: 'link', to: '/admin/reports', label: 'Kelola Laporan', Icon: GridIcon },
 ];
 
@@ -247,7 +258,14 @@ function NavGroupMenu({ group, mobile, onNavigate }: NavGroupMenuProps): ReactNo
   );
 }
 
-function navEntries(mobile: boolean, onNavigate?: (() => void) | undefined): ReactNode[] {
+function navEntries(
+  variant: AdminShellVariant,
+  mobile: boolean,
+  onNavigate?: (() => void) | undefined,
+): ReactNode[] {
+  if (variant === 'managerial') {
+    return MANAGERIAL_PRIMARY_NAV.map((item) => linkFor(item, mobile, onNavigate));
+  }
   return [
     ...PRIMARY_NAV.map((item) => linkFor(item, mobile, onNavigate)),
     ...GROUP_NAV.map((group) => (
@@ -256,42 +274,60 @@ function navEntries(mobile: boolean, onNavigate?: (() => void) | undefined): Rea
   ];
 }
 
-export function AdminShell({ user, onLogout, children }: AdminShellProps) {
+export function AdminShell({ user, onLogout, children, variant = 'admin' }: AdminShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const identity = user.nip === null ? 'Administrator' : `NIP ${user.nip}`;
+  const isManagerial = variant === 'managerial';
+  const identity =
+    user.nip === null ? (isManagerial ? 'Akun manajerial' : 'Administrator') : `NIP ${user.nip}`;
+
+  const brandContent = (
+    <>
+      <LogoMark className="h-9 w-9 shrink-0" />
+      <span className="min-w-0 border-l border-[#e1e5e9] pl-3">
+        <span className="block truncate text-[11px] font-bold tracking-[0.3px] text-[#202a33]">
+          UNIVERSITAS PENDIDIKAN INDONESIA
+        </span>
+        <span className="block truncate text-[11px] text-[#697784]">Kampus Tasikmalaya</span>
+        <span className="mt-1 inline-block rounded bg-[#eef2f5] px-1.5 py-px text-[9px] font-semibold tracking-[0.08em] text-[#3f4c57]">
+          UMPER
+        </span>
+      </span>
+    </>
+  );
 
   return (
     <div className="min-h-screen bg-[#f7f9ff] text-text">
       <header className="sticky top-0 z-20 border-b border-[#e1e5e9] bg-white" data-print="hide">
         <div className="mx-auto flex min-h-[64px] w-full max-w-[1600px] items-center justify-between gap-4 px-4 md:px-8">
-          <Link
-            to="/admin"
-            search={{ from: '', to: '', month: '' }}
-            className="flex min-w-0 items-center gap-3"
-          >
-            <LogoMark className="h-9 w-9 shrink-0" />
-            <span className="min-w-0 border-l border-[#e1e5e9] pl-3">
-              <span className="block truncate text-[11px] font-bold tracking-[0.3px] text-[#202a33]">
-                UNIVERSITAS PENDIDIKAN INDONESIA
-              </span>
-              <span className="block truncate text-[11px] text-[#697784]">Kampus Tasikmalaya</span>
-              <span className="mt-1 inline-block rounded bg-[#eef2f5] px-1.5 py-px text-[9px] font-semibold tracking-[0.08em] text-[#3f4c57]">
-                UMPER
-              </span>
-            </span>
-          </Link>
+          {isManagerial ? (
+            <Link
+              to="/managerial"
+              search={{ from: '', to: '' }}
+              className="flex min-w-0 items-center gap-3"
+            >
+              {brandContent}
+            </Link>
+          ) : (
+            <Link
+              to="/admin"
+              search={{ from: '', to: '', month: '' }}
+              className="flex min-w-0 items-center gap-3"
+            >
+              {brandContent}
+            </Link>
+          )}
 
           <nav
             aria-label="Navigasi utama"
             className="hidden items-center gap-1 rounded-xl bg-[#ecf4ff] p-1 lg:flex"
           >
-            {navEntries(false)}
+            {navEntries(variant, false)}
           </nav>
 
           <div className="flex items-center gap-3">
             <span
               aria-hidden="true"
-              title="Pusat notifikasi admin belum tersedia"
+              title={isManagerial ? 'Pusat notifikasi belum tersedia' : 'Pusat notifikasi admin belum tersedia'}
               className="hidden h-9 w-9 items-center justify-center rounded-full text-[#3f4c57] sm:flex"
             >
               <BellIcon className="h-5 w-5" />
@@ -333,7 +369,7 @@ export function AdminShell({ user, onLogout, children }: AdminShellProps) {
               <p className="text-sm font-semibold text-[#202a33]">{user.username}</p>
               <p className="text-[11px] text-[#697784]">{identity}</p>
             </div>
-            {navEntries(true, () => setMenuOpen(false))}
+            {navEntries(variant, true, () => setMenuOpen(false))}
             <button
               type="button"
               onClick={() => {
