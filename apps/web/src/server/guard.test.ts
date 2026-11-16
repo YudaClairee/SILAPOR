@@ -14,8 +14,10 @@ describe('redirectForRole', () => {
   it('mendispatch "/" dan "/login" ke home sesuai role', () => {
     expect(redirectForRole('/', { role: 'ADMIN' })).toBe('/admin');
     expect(redirectForRole('/', { role: 'REPORTER' })).toBe('/reporter');
+    expect(redirectForRole('/', { role: 'MANAGERIAL' })).toBe('/managerial');
     expect(redirectForRole('/login', { role: 'ADMIN' })).toBe('/admin');
     expect(redirectForRole('/login', { role: 'REPORTER' })).toBe('/reporter');
+    expect(redirectForRole('/login', { role: 'MANAGERIAL' })).toBe('/managerial');
   });
 
   it('menolak reporter di /admin* dan mengizinkan admin di mana saja', () => {
@@ -24,10 +26,14 @@ describe('redirectForRole', () => {
     expect(redirectForRole('/admin', { role: 'ADMIN' })).toBe(null);
     expect(redirectForRole('/reporter', { role: 'ADMIN' })).toBe(null);
     expect(redirectForRole('/reporter', { role: 'REPORTER' })).toBe(null);
+    expect(redirectForRole('/managerial', { role: 'MANAGERIAL' })).toBe(null);
+    expect(redirectForRole('/admin', { role: 'MANAGERIAL' })).toBe('/managerial');
+    expect(redirectForRole('/reporter', { role: 'MANAGERIAL' })).toBe('/managerial');
   });
 
   it('homeForRole memetakan peran ke home yang benar', () => {
     expect(homeForRole('ADMIN')).toBe('/admin');
     expect(homeForRole('REPORTER')).toBe('/reporter');
+    expect(homeForRole('MANAGERIAL')).toBe('/managerial');
   });
 });

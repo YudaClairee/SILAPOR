@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as KebijakanPrivasiRouteImport } from './routes/kebijakan-privasi'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ManagerialRouteImport } from './routes/managerial'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAnalyticsRouteImport } from './routes/admin.analytics'
@@ -88,6 +89,11 @@ const KebijakanPrivasiRoute = KebijakanPrivasiRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ManagerialRoute = ManagerialRouteImport.update({
+  id: '/managerial',
+  path: '/managerial',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReporterRoute = ReporterRouteImport.update({
@@ -382,6 +388,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
+  '/managerial': typeof ManagerialRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/categories': typeof AdminCategoriesRoute
@@ -443,6 +450,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
+  '/managerial': typeof ManagerialRoute
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
@@ -505,6 +513,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
+  '/managerial': typeof ManagerialRoute
   '/reporter': typeof ReporterRouteWithChildren
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/categories': typeof AdminCategoriesRoute
@@ -569,6 +578,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/kebijakan-privasi'
     | '/login'
+    | '/managerial'
     | '/reporter'
     | '/admin/analytics'
     | '/admin/categories'
@@ -630,6 +640,7 @@ export interface FileRouteTypes {
     | '/'
     | '/kebijakan-privasi'
     | '/login'
+    | '/managerial'
     | '/admin/analytics'
     | '/admin/categories'
     | '/admin/locations'
@@ -691,6 +702,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/kebijakan-privasi'
     | '/login'
+    | '/managerial'
     | '/reporter'
     | '/admin/analytics'
     | '/admin/categories'
@@ -754,6 +766,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   KebijakanPrivasiRoute: typeof KebijakanPrivasiRoute
   LoginRoute: typeof LoginRoute
+  ManagerialRoute: typeof ManagerialRoute
   ReporterRoute: typeof ReporterRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRoute
   ApiNotificationsRoute: typeof ApiNotificationsRouteWithChildren
@@ -800,6 +813,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/managerial': {
+      id: '/managerial'
+      path: '/managerial'
+      fullPath: '/managerial'
+      preLoaderRoute: typeof ManagerialRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reporter': {
@@ -1416,6 +1436,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   KebijakanPrivasiRoute: KebijakanPrivasiRoute,
   LoginRoute: LoginRoute,
+  ManagerialRoute: ManagerialRoute,
   ReporterRoute: ReporterRouteWithChildren,
   ApiHealthRoute: ApiHealthRoute,
   ApiNotificationsRoute: ApiNotificationsRouteWithChildren,

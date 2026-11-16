@@ -14,7 +14,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 
-export type AppShellRole = 'ADMIN' | 'REPORTER';
+export type AppShellRole = 'ADMIN' | 'REPORTER' | 'MANAGERIAL';
 
 export interface AppShellUser {
   readonly role: AppShellRole;
@@ -42,6 +42,9 @@ export function navItemsForRole(role: AppShellRole): readonly AppShellNavItem[] 
       { to: '/admin/scoring', label: 'Scoring' },
       { to: '/admin/maintenance-report', label: 'Laporan Maintenance' },
     ];
+  }
+  if (role === 'MANAGERIAL') {
+    return [{ to: '/managerial', label: 'Dashboard Manajerial' }];
   }
   return [
     { to: '/reporter', label: 'Ringkasan' },

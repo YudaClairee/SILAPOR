@@ -12,7 +12,7 @@
 
 import { badRequest, unavailable } from '@silapor/shared';
 
-export type SsoRole = 'ADMIN' | 'REPORTER';
+export type SsoRole = 'ADMIN' | 'REPORTER' | 'MANAGERIAL';
 
 export interface SsoIdentity {
   readonly externalUserId: string;
@@ -44,6 +44,15 @@ export class MockSsoProvider implements SsoProvider {
         username: 'admin',
         nim: null,
         role: 'ADMIN',
+        isActive: true,
+      };
+    }
+    if (trimmed === 'manajerial') {
+      return {
+        externalUserId: 'manajerial',
+        username: 'manajerial',
+        nim: null,
+        role: 'MANAGERIAL',
         isActive: true,
       };
     }

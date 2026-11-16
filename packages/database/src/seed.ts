@@ -34,13 +34,14 @@ import {
 
 interface SeedUser {
   readonly username: string;
-  readonly role: 'ADMIN' | 'REPORTER';
+  readonly role: 'ADMIN' | 'REPORTER' | 'MANAGERIAL';
   readonly nim: string | null;
   readonly externalUserId: string;
 }
 
-const SEED_USERS: readonly SeedUser[] = [
+export const SEED_USERS: readonly SeedUser[] = [
   { username: 'admin', role: 'ADMIN', nim: null, externalUserId: 'admin' },
+  { username: 'manajerial', role: 'MANAGERIAL', nim: null, externalUserId: 'manajerial' },
   { username: '230001', role: 'REPORTER', nim: '230001', externalUserId: '230001' },
   { username: '230002', role: 'REPORTER', nim: '230002', externalUserId: '230002' },
 ];

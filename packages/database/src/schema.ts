@@ -22,7 +22,7 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
-export const userRoleEnum = pgEnum('user_role', ['REPORTER', 'ADMIN']);
+export const userRoleEnum = pgEnum('user_role', ['REPORTER', 'ADMIN', 'MANAGERIAL']);
 
 export const outboxStatusEnum = pgEnum('outbox_status', ['PENDING', 'DISPATCHED', 'FAILED']);
 

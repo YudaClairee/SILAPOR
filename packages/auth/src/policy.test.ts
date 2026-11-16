@@ -28,6 +28,12 @@ const reporter: AuthUser = {
   role: 'REPORTER',
   isActive: true,
 };
+const managerial: AuthUser = {
+  id: 'u-managerial',
+  username: 'manajerial',
+  role: 'MANAGERIAL',
+  isActive: true,
+};
 const inactiveAdmin: AuthUser = { ...admin, isActive: false };
 const inactiveReporter: AuthUser = { ...reporter, isActive: false };
 
@@ -54,6 +60,18 @@ describe('canPerform', () => {
     expect(canPerform(reporter, 'submitReport')).toBe(true);
     for (const capability of ACTIVE_CAPABILITIES) {
       expect(canPerform(reporter, capability)).toBe(true);
+    }
+  });
+
+  it('allows managerial analytics without granting admin capabilities', () => {
+    expect(canPerform(managerial, 'viewAnalytics')).toBe(true);
+    for (const capability of ADMIN_CAPABILITIES.filter(
+      (capability) => capability !== 'viewAnalytics',
+    )) {
+      expect(canPerform(managerial, capability)).toBe(false);
+    }
+    for (const capability of ACTIVE_CAPABILITIES) {
+      expect(canPerform(managerial, capability)).toBe(false);
     }
   });
 
@@ -89,6 +107,7 @@ describe('requireRole', () => {
   it('returns the user when the role matches', () => {
     expect(requireRole(admin, 'ADMIN')).toBe(admin);
     expect(requireRole(reporter, 'REPORTER')).toBe(reporter);
+    expect(requireRole(managerial, 'MANAGERIAL')).toBe(managerial);
   });
 
   it('throws FORBIDDEN 403 for wrong roles, null, and inactive users', () => {

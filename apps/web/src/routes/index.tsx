@@ -10,7 +10,7 @@ interface MeResponse {
 function sanitizeRole(value: unknown): GuardUser | null {
   if (value !== null && typeof value === 'object') {
     const role = (value as { readonly role?: unknown }).role;
-    if (role === 'ADMIN' || role === 'REPORTER') return { role };
+    if (role === 'ADMIN' || role === 'REPORTER' || role === 'MANAGERIAL') return { role };
   }
   return null;
 }

@@ -31,7 +31,7 @@ import {
 } from '@silapor/analytics';
 import { getDb } from '@silapor/database';
 import { badRequest } from '@silapor/shared';
-import { requireAdmin } from './auth';
+import { requireAnalyticsViewer } from './auth';
 
 export interface DashboardOverviewResponse {
   readonly range: { readonly from: string | null; readonly to: string | null };
@@ -70,7 +70,7 @@ export async function getDashboardOverviewRoute(
   request: Request,
   url: string,
 ): Promise<DashboardOverviewResponse> {
-  await requireAdmin(request);
+  await requireAnalyticsViewer(request);
   const params = searchParamsOf(url);
   const from = queryParam(params, ['from']);
   const to = queryParam(params, ['to']);
