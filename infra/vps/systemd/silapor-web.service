@@ -1,0 +1,28 @@
+[Unit]
+Description=SILAPOR web (TanStack Start, srvx)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=silapor
+Group=silapor
+WorkingDirectory=/opt/silapor
+EnvironmentFile=/etc/silapor/silapor.env
+ExecStart=/usr/local/bin/pnpm --filter @silapor/web run start
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+MemoryMax=700M
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/silapor
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
