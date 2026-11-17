@@ -1,0 +1,10 @@
+# Salin ke /etc/cloudflared/config.yml lalu ganti placeholder.
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:3000
+    originRequest:
+      connectTimeout: 10s
+  - service: http_status:404
