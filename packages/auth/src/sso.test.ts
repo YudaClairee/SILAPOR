@@ -3,7 +3,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { isAppError } from '@silapor/shared';
-import { MockSsoProvider, UpiSsoProvider, getSsoProvider, type SsoProvider } from './sso.js';
+import {
+  LocalSsoProvider,
+  MockSsoProvider,
+  UpiSsoProvider,
+  getSsoProvider,
+  type SsoProvider,
+} from './sso.js';
+import { hashPassword } from './password.js';
 
 describe('MockSsoProvider', () => {
   it('has name mock', () => {
@@ -62,6 +69,82 @@ describe('MockSsoProvider', () => {
   });
 });
 
+describe('LocalSsoProvider', () => {
+  const adminHash = hashPassword('sandi-admin');
+  const managerialHash = hashPassword('sandi-manajer');
+  const make = (): LocalSsoProvider =>
+    new LocalSsoProvider({ adminPasswordHash: adminHash, managerialPasswordHash: managerialHash });
+
+  it('has name local', () => {
+    expect(make().name).toBe('local');
+  });
+
+  it('resolves reporter 230001 with pelapor1', async () => {
+    expect(await make().resolve('230001', 'pelapor1')).toEqual({
+      externalUserId: '230001',
+      username: '230001',
+      nim: '230001',
+      role: 'REPORTER',
+      isActive: true,
+    });
+  });
+
+  it('accepts every reporter 230001..230020 with pelapor<n> (no leading zeros)', async () => {
+    for (let n = 1; n <= 20; n += 1) {
+      const nim = `2300${String(n).padStart(2, '0')}`;
+      const identity = await make().resolve(nim, `pelapor${n}`);
+      expect(identity?.role).toBe('REPORTER');
+      expect(identity?.nim).toBe(nim);
+    }
+  });
+
+  it('rejects reporter with a wrong password', async () => {
+    expect(await make().resolve('230001', 'pelapor2')).toBeNull();
+    expect(await make().resolve('230001', 'pelapor01')).toBeNull();
+    expect(await make().resolve('230001', '')).toBeNull();
+    expect(await make().resolve('230001', undefined)).toBeNull();
+  });
+
+  it('rejects NIMs outside 230001..230020', async () => {
+    expect(await make().resolve('230000', 'pelapor0')).toBeNull();
+    expect(await make().resolve('230021', 'pelapor21')).toBeNull();
+    expect(await make().resolve('mahasiswa', 'pelapor1')).toBeNull();
+  });
+
+  it('resolves admin and manajerial only with their own password', async () => {
+    expect((await make().resolve('admin', 'sandi-admin'))?.role).toBe('ADMIN');
+    expect((await make().resolve('manajerial', 'sandi-manajer'))?.role).toBe('MANAGERIAL');
+    expect(await make().resolve('admin', 'sandi-manajer')).toBeNull();
+    expect(await make().resolve('manajerial', 'sandi-admin')).toBeNull();
+    expect(await make().resolve('admin', 'admin')).toBeNull();
+    expect(await make().resolve('admin', '')).toBeNull();
+  });
+
+  it('fails closed for admin/manajerial when hashes are not configured', async () => {
+    const provider = new LocalSsoProvider({});
+    expect(await provider.resolve('admin', 'sandi-admin')).toBeNull();
+    expect(await provider.resolve('manajerial', 'sandi-manajer')).toBeNull();
+    expect((await provider.resolve('230001', 'pelapor1'))?.role).toBe('REPORTER');
+  });
+
+  it('trims the username but never the password', async () => {
+    expect(await make().resolve('  230001  ', 'pelapor1')).not.toBeNull();
+    expect(await make().resolve('230001', ' pelapor1')).toBeNull();
+  });
+
+  it('returns null for empty username', async () => {
+    expect(await make().resolve('', 'pelapor1')).toBeNull();
+  });
+});
+
+describe('MockSsoProvider ignores passwords', () => {
+  it('still resolves with any or no password', async () => {
+    const provider: SsoProvider = new MockSsoProvider();
+    expect(await provider.resolve('admin', 'apa-saja')).not.toBeNull();
+    expect(await provider.resolve('admin')).not.toBeNull();
+  });
+});
+
 describe('UpiSsoProvider', () => {
   it('has name upi and throws unavailable on resolve', async () => {
     const provider: SsoProvider = new UpiSsoProvider();
@@ -85,8 +168,17 @@ describe('getSsoProvider', () => {
     expect(getSsoProvider('mock').name).toBe('mock');
   });
 
+  it("returns the local provider for 'local', reading hashes from the given env", async () => {
+    const provider = getSsoProvider('local', {
+      ADMIN_PASSWORD_HASH: hashPassword('sandi-admin'),
+    });
+    expect(provider.name).toBe('local');
+    expect((await provider.resolve('admin', 'sandi-admin'))?.role).toBe('ADMIN');
+    expect(await provider.resolve('manajerial', 'apa-saja')).toBeNull();
+  });
+
   it('throws badRequest for anything else', () => {
-    for (const name of ['upi', 'UPI', 'MOCK', '', 'saml']) {
+    for (const name of ['upi', 'UPI', 'MOCK', 'LOCAL', '', 'saml']) {
       try {
         getSsoProvider(name);
         expect.unreachable(`getSsoProvider(${JSON.stringify(name)}) must throw`);

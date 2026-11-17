@@ -559,15 +559,37 @@ vps$ journalctl -u silapor-web --since '10 min ago' --no-pager | grep -i login |
 
 ### Akun uji
 
-| Username | Peran |
-| --- | --- |
-| `admin` | ADMIN |
-| `manajerial` | MANAGERIAL |
-| username lain | REPORTER |
+Dengan `AUTH_PROVIDER=local` (nilai di `silapor.env.example`), login memeriksa
+password:
 
-Password **tidak diverifikasi** (mock SSO). Karena itu Cloudflare Access adalah
-satu-satunya kontrol akses. Jangan pernah menonaktifkannya selama
-`AUTH_PROVIDER=mock`.
+| Username | Peran | Password |
+| --- | --- | --- |
+| `admin` | ADMIN | diverifikasi terhadap `ADMIN_PASSWORD_HASH` |
+| `manajerial` | MANAGERIAL | diverifikasi terhadap `MANAGERIAL_PASSWORD_HASH` |
+| `230001` s.d. `230020` | REPORTER | `pelapor<n>` tanpa nol di depan (`230001` → `pelapor1`, `230020` → `pelapor20`) |
+
+NIM lain dan password salah ditolak. Akun `admin` dan `manajerial` tidak bisa
+login bila hash-nya kosong.
+
+Buat hash di VPS (password diketik di prompt tersembunyi, tidak masuk riwayat
+shell), lalu tempel ke `/etc/silapor/silapor.env` dengan `nano`:
+
+```bash
+vps$ node /opt/silapor/infra/vps/hash-password.mjs      # untuk admin
+vps$ node /opt/silapor/infra/vps/hash-password.mjs      # untuk manajerial
+# Salin masing-masing keluaran `scrypt:...` ke ADMIN_PASSWORD_HASH dan
+# MANAGERIAL_PASSWORD_HASH, lalu: sudo systemctl restart silapor-web
+```
+
+> Jika `/opt/silapor` tidak bisa dibaca `operator`, jalankan sebagai user
+> `silapor` (`sudo -iu silapor`) lalu `exit` setelah selesai.
+
+**Cloudflare Access (Bagian G) menjadi opsional hanya untuk `local`.** Password
+admin dan manajerial tidak boleh ditulis di repo. Di `AUTH_PROVIDER=mock`
+password **tidak diverifikasi**, jadi Cloudflare Access wajib aktif dan jangan
+pernah dinonaktifkan. Password reporter bersifat turunan dari NIM sehingga siapa
+pun yang tahu URL dan polanya bisa login sebagai reporter. Pakai hanya untuk uji
+kelas terbatas.
 
 ---
 

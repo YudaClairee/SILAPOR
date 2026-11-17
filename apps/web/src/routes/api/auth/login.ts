@@ -11,8 +11,8 @@
 // touch last login → clear attempts → Set-Cookie + 200 { user }.
 //
 // Secrecy rule: generic messages everywhere (no user enumeration); the
-// `password` body field is accepted-but-ignored for future UPI compat and
-// never logged. Logs carry only opaque user IDs and session hash prefixes
+// `password` body field is passed to the SSO provider (ignored by `mock`,
+// verified by `local`) and never logged. Logs carry only opaque user IDs and session hash prefixes
 // via neutral `redact()`-safe keys — never usernames, NIMs, or tokens.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
@@ -92,6 +92,21 @@ function parseUsername(body: unknown): string {
   return trimmed;
 }
 
+const MAX_PASSWORD_LENGTH = 256;
+
+// Non-string or oversized passwords become '' so providers that verify
+// passwords reject them; `mock` ignores the value either way.
+function parsePassword(body: unknown): string {
+  if (typeof body !== 'object' || body === null) {
+    return '';
+  }
+  const password = (body as { readonly password?: unknown }).password;
+  if (typeof password !== 'string' || password.length > MAX_PASSWORD_LENGTH) {
+    return '';
+  }
+  return password;
+}
+
 export const Route = createFileRoute('/api/auth/login')({
   server: {
     handlers: {
@@ -127,7 +142,7 @@ export const Route = createFileRoute('/api/auth/login')({
             }
 
             const provider = getSsoProvider(getRuntimeConfig().authProvider);
-            const identity = await provider.resolve(username);
+            const identity = await provider.resolve(username, parsePassword(body));
             if (identity === null || !identity.isActive) {
               noteLoginFailure(key);
               logger.warn('login rejected', {
