@@ -8,11 +8,20 @@
 // generated here — download stays an authorized endpoint (P4-3).
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3';
 import type { AttachmentData, AttachmentPutResult, AttachmentStorage } from './types';
 
 export const DEFAULT_STORAGE_BUCKET = 'silapor';
-export const S3_REGION = 'garage';
+// Default region stays 'garage' for local dev (docker compose Garage).
+// Cloudflare R2 requires 'auto' — set STORAGE_REGION=auto in production.
+export const DEFAULT_S3_REGION = 'garage';
+export const STORAGE_REGION_ENV = 'STORAGE_REGION';
 
 const FALLBACK_CONTENT_TYPE = 'application/octet-stream';
 
@@ -60,6 +69,34 @@ function resolveEndpoint(explicit?: string): string {
     throw new Error('Missing STORAGE_ENDPOINT: set STORAGE_ENDPOINT to use the "s3" storage adapter.');
   }
   return value;
+}
+
+export function resolveS3Region(explicit?: string): string {
+  const trimmed = explicit?.trim();
+  if (trimmed !== undefined && trimmed.length > 0) {
+    return trimmed;
+  }
+  return envValue(STORAGE_REGION_ENV) ?? DEFAULT_S3_REGION;
+}
+
+export interface S3ClientConfigInput {
+  readonly endpoint: string;
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+  readonly region?: string | undefined;
+}
+
+export function buildS3ClientConfig(input: S3ClientConfigInput): S3ClientConfig {
+  return {
+    endpoint: input.endpoint,
+    region: resolveS3Region(input.region),
+    credentials: { accessKeyId: input.accessKeyId, secretAccessKey: input.secretAccessKey },
+    forcePathStyle: true,
+    // S3-compatible stores (R2, Garage): only send/verify flexible checksums
+    // when the operation requires them (AWS SDK v3 >= 3.729 defaults to always).
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
+  };
 }
 
 // Messages name the missing key only — the secret value is never printed.
@@ -141,12 +178,7 @@ export class S3AttachmentStorage implements AttachmentStorage {
     const endpoint = resolveEndpoint(options.endpoint);
     const { accessKeyId, secretAccessKey } = resolveCredentials();
     this.endpoint = endpoint;
-    this.client = new S3Client({
-      endpoint,
-      region: S3_REGION,
-      credentials: { accessKeyId, secretAccessKey },
-      forcePathStyle: true,
-    });
+    this.client = new S3Client(buildS3ClientConfig({ endpoint, accessKeyId, secretAccessKey }));
   }
 
   get bucketName(): string {

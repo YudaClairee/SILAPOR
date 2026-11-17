@@ -9,8 +9,9 @@
 // - database: `getDb()` + lightweight `SELECT 1` with a 2s timeout. Importing
 //   `@silapor/database` never connects (postgres.js is lazy); errors surface
 //   here and are reported without credentials (no URL in the message).
-// - storage: real writable proof through `FilesystemAttachmentStorage`
-//   (put + remove of a unique `__health__/` probe under `resolveStorageDir()`).
+// - storage: real writable proof through the storage factory
+//   (`createAttachmentStorage()`: filesystem in dev, S3/R2 when
+//   `STORAGE_ADAPTER=s3`). Put + remove of a unique `__health__/` probe.
 // - queue: pilot memory stub — publishes one message through `MemoryQueue`
 //   (no broker wired; the durable outbox count arrives with the broker loop).
 // - worker: reads the file-based beat written by `apps/worker`
@@ -27,7 +28,11 @@ import {
   resolveWorkerBeatFile,
   workerBeatAgeMs,
 } from '@silapor/shared';
-import { FilesystemAttachmentStorage, resolveStorageDir } from '@silapor/storage';
+import {
+  S3AttachmentStorage,
+  createAttachmentStorage,
+  resolveStorageDir,
+} from '@silapor/storage';
 
 export interface HealthCheckResult {
   readonly ok: boolean;
@@ -90,10 +95,15 @@ async function checkDatabase(): Promise<HealthCheckResult> {
   }
 }
 
-async function checkStorage(): Promise<HealthCheckResult> {
+// Exported for tests. Uses the SAME factory as uploads/downloads, so the probe
+// exercises the configured backend (filesystem in dev, R2 in production).
+export async function checkStorage(): Promise<HealthCheckResult> {
   try {
-    const dir = resolveStorageDir();
-    const storage = new FilesystemAttachmentStorage(dir);
+    const storage = createAttachmentStorage();
+    const target =
+      storage instanceof S3AttachmentStorage
+        ? `s3 bucket ${storage.bucketName}`
+        : resolveStorageDir();
     const key = `__health__/${randomUUID()}`;
     await withTimeout(
       storage.put(key, new TextEncoder().encode('silapor-health-probe'), 'text/plain'),
@@ -104,7 +114,7 @@ async function checkStorage(): Promise<HealthCheckResult> {
     } catch {
       // Probe cleanup is best-effort; the writability proof already succeeded.
     }
-    return { ok: true, message: `storage writable at ${dir}` };
+    return { ok: true, message: `storage writable at ${target}` };
   } catch (error) {
     return { ok: false, message: `storage unavailable: ${detailOf(error)}` };
   }

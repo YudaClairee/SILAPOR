@@ -1,0 +1,11 @@
+[Unit]
+Description=SILAPOR daily backup (pg_dump)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Dijalankan sebagai root: perlu akses docker dan membaca /etc/silapor/silapor.env.
+ExecStart=/opt/silapor/infra/vps/backup.sh
+Nice=10
+IOSchedulingClass=idle

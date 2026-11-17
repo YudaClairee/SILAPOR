@@ -5,7 +5,7 @@
 // empty strings fall through to fallback/default.
 import { S3Client } from '@aws-sdk/client-s3';
 import { FilesystemAttachmentStorage, resolveStorageDir } from './filesystem';
-import { DEFAULT_STORAGE_BUCKET, S3_REGION, S3AttachmentStorage } from './s3';
+import { buildS3ClientConfig, DEFAULT_STORAGE_BUCKET, S3AttachmentStorage } from './s3';
 import type { AttachmentStorage } from './types';
 
 export type StorageAdapter = 'filesystem' | 's3';
@@ -19,6 +19,7 @@ export interface CreateAttachmentStorageOptions {
   readonly bucket?: string;
   readonly accessKeyId?: string;
   readonly secretAccessKey?: string;
+  readonly region?: string;
   readonly client?: S3Client;
 }
 
@@ -87,11 +88,6 @@ export function createAttachmentStorage(explicit: CreateAttachmentStorageOptions
   }
   const client =
     explicit.client ??
-    new S3Client({
-      endpoint,
-      region: S3_REGION,
-      credentials: { accessKeyId, secretAccessKey },
-      forcePathStyle: true,
-    });
+    new S3Client(buildS3ClientConfig({ endpoint, accessKeyId, secretAccessKey, region: explicit.region }));
   return new S3AttachmentStorage({ bucket, endpoint, client });
 }

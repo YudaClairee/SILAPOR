@@ -13,6 +13,11 @@ by Moon and installed with pnpm workspaces.
 > until the deployment decision lands.
 > The worker runs as a local Node process with the same queue message contract.
 
+> VPS pilot (2026-11): untuk uji coba ke sivitas akademika, SILAPOR dapat
+> dijalankan di satu VPS (web + worker + PostgreSQL) dengan lampiran di
+> Cloudflare R2, di belakang Cloudflare Tunnel + Cloudflare Access.
+> Lihat [docs/deploy-vps.md](docs/deploy-vps.md).
+
 ## Prerequisites
 
 - Node 24.18.0, pnpm 11.21.0 (see `.moon/toolchains.yml`)
