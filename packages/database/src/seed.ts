@@ -56,6 +56,7 @@ const ASSET_TYPE_CATEGORY: Readonly<Record<string, string>> = {
   ELECTRICAL: 'ELECTRICAL',
   HVAC: 'HVAC',
   PLUMBING: 'PLUMBING',
+  OTHER: 'OTHER',
 };
 
 export interface SeedResult {
@@ -222,6 +223,18 @@ function profileMatches(
       return target.roomNameUpper.includes(
         condition.slice('ROOM_NAME_CONTAINS='.length).toUpperCase(),
       );
+    }
+    if (condition.startsWith('ROOM_NAME_ANY=')) {
+      return condition
+        .slice('ROOM_NAME_ANY='.length)
+        .split('|')
+        .some((token) => target.roomNameUpper.includes(token.trim().toUpperCase()));
+    }
+    if (condition.startsWith('ROOM_NAME_NOT=')) {
+      return !condition
+        .slice('ROOM_NAME_NOT='.length)
+        .split('|')
+        .some((token) => target.roomNameUpper.includes(token.trim().toUpperCase()));
     }
     if (condition.startsWith('ROOM_CODE=')) {
       return target.roomCode === condition.slice('ROOM_CODE='.length).trim();

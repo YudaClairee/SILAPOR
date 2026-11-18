@@ -23,3 +23,8 @@ v1,ASSET,STUDENT_CHAIR,Kursi mahasiswa,30,15,true,PROVISIONAL,project-team,2026-
 v1,ASSET,LIGHTING,Lampu,30,15,true,PROVISIONAL,project-team,2026-10-10
 v1,ASSET,LECTURER_DESK,Meja dosen,30,12,true,PROVISIONAL,project-team,2026-10-10
 v1,ASSET,STORAGE_DOOR,Pintu gudang (rencana),30,8,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,LIFT,Lift,30,30,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,OFFICE_DESK,Meja kerja,30,12,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,MEETING_TABLE,Meja rapat,30,12,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,LAB_TABLE,Meja lab,30,12,true,PROVISIONAL,project-team,2026-10-10
+v1,ASSET,BOOKSHELF,Rak buku/koleksi,30,10,true,PROVISIONAL,project-team,2026-10-10
