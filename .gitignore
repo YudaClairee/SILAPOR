@@ -99,3 +99,6 @@ postgres-data/
 .agents/
 .claude/
 .opencode/
+
+# Superpowers agent working files
+.superpowers/
