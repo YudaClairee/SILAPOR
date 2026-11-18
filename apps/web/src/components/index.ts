@@ -6,9 +6,6 @@
 // VisibilityNote, AttachmentDropzone, ConfirmationDialog, DataTable, Toast,
 // Combobox.
 
-export { AppShell, navItemsForRole } from './AppShell';
-export type { AppShellNavItem, AppShellProps, AppShellRole, AppShellUser } from './AppShell';
-
 export { AdminShell } from './AdminShell';
 export type { AdminShellProps, AdminShellUser } from './AdminShell';
 

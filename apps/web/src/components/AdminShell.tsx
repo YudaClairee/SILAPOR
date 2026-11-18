@@ -34,8 +34,8 @@ export interface AdminShellUser {
 
 /**
  * `admin` (default) shows the full admin navigation. `managerial` keeps the same
- * header design for the read-only manajerial account: only its own dashboard
- * entry, no admin groups, and the brand links to /managerial.
+ * header design for the read-only manajerial account: no nav at all (it only has
+ * one page, so a tab would be redundant) and the brand links to /managerial.
  */
 export type AdminShellVariant = 'admin' | 'managerial';
 
@@ -65,10 +65,6 @@ interface NavGroup {
   readonly items: readonly NavGroupItem[];
 }
 
-const MANAGERIAL_PRIMARY_NAV: readonly NavLink[] = [
-  { kind: 'link', to: '/managerial', label: 'Dashboard Manajerial', Icon: GridIcon, exact: true },
-];
-
 const PRIMARY_NAV: readonly NavLink[] = [
   { kind: 'link', to: '/admin', label: 'Dashboard', Icon: GridIcon, exact: true },
   { kind: 'link', to: '/admin/reports', label: 'Kelola Laporan', Icon: GridIcon },
@@ -92,8 +88,6 @@ const GROUP_NAV: readonly NavGroup[] = [
       { to: '/admin/categories', label: 'Kategori Fasilitas' },
       { to: '/admin/technicians', label: 'Teknisi' },
       { to: '/admin/scoring', label: 'Pengaturan Scoring' },
-      { to: '/admin/maintenance-report', label: 'Laporan Maintenance' },
-      { to: '/admin/analytics', label: 'Analitik' },
     ],
   },
 ];
@@ -227,10 +221,7 @@ function NavGroupMenu({ group, mobile, onNavigate }: NavGroupMenuProps): ReactNo
   return (
     <div className={mobile ? '' : 'relative'}>
       <details ref={detailsRef} className="group">
-        <summary
-          className={summaryClassName}
-          aria-current={groupActive ? 'true' : undefined}
-        >
+        <summary className={summaryClassName} aria-current={groupActive ? 'true' : undefined}>
           {group.label}
           <ChevronDownIcon className="h-4 w-4 transition-transform group-open:rotate-180" />
         </summary>
@@ -264,7 +255,7 @@ function navEntries(
   onNavigate?: (() => void) | undefined,
 ): ReactNode[] {
   if (variant === 'managerial') {
-    return MANAGERIAL_PRIMARY_NAV.map((item) => linkFor(item, mobile, onNavigate));
+    return [];
   }
   return [
     ...PRIMARY_NAV.map((item) => linkFor(item, mobile, onNavigate)),
@@ -317,17 +308,23 @@ export function AdminShell({ user, onLogout, children, variant = 'admin' }: Admi
             </Link>
           )}
 
-          <nav
-            aria-label="Navigasi utama"
-            className="hidden items-center gap-1 rounded-xl bg-[#ecf4ff] p-1 lg:flex"
-          >
-            {navEntries(variant, false)}
-          </nav>
+          {isManagerial ? null : (
+            <nav
+              aria-label="Navigasi utama"
+              className="hidden items-center gap-1 rounded-xl bg-[#ecf4ff] p-1 lg:flex"
+            >
+              {navEntries(variant, false)}
+            </nav>
+          )}
 
           <div className="flex items-center gap-3">
             <span
               aria-hidden="true"
-              title={isManagerial ? 'Pusat notifikasi belum tersedia' : 'Pusat notifikasi admin belum tersedia'}
+              title={
+                isManagerial
+                  ? 'Pusat notifikasi belum tersedia'
+                  : 'Pusat notifikasi admin belum tersedia'
+              }
               className="hidden h-9 w-9 items-center justify-center rounded-full text-[#3f4c57] sm:flex"
             >
               <BellIcon className="h-5 w-5" />
@@ -342,46 +339,50 @@ export function AdminShell({ user, onLogout, children, variant = 'admin' }: Admi
             <button
               type="button"
               onClick={onLogout}
-              className="hidden text-xs font-medium text-muted underline underline-offset-2 hover:text-text lg:block"
+              className={`text-xs font-medium text-muted underline underline-offset-2 hover:text-text ${isManagerial ? 'block' : 'hidden lg:block'}`}
             >
               Keluar
             </button>
-            <button
-              type="button"
-              aria-expanded={menuOpen}
-              aria-controls="admin-nav-mobile"
-              onClick={() => setMenuOpen((open) => !open)}
-              className="inline-flex min-h-[40px] items-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-medium text-text lg:hidden"
-            >
-              <MenuIcon className="h-4 w-4" />
-              Menu
-            </button>
+            {isManagerial ? null : (
+              <button
+                type="button"
+                aria-expanded={menuOpen}
+                aria-controls="admin-nav-mobile"
+                onClick={() => setMenuOpen((open) => !open)}
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-medium text-text lg:hidden"
+              >
+                <MenuIcon className="h-4 w-4" />
+                Menu
+              </button>
+            )}
           </div>
         </div>
 
-        <nav
-          id="admin-nav-mobile"
-          aria-label="Navigasi utama (seluler)"
-          className={`${menuOpen ? 'block' : 'hidden'} border-t border-[#e1e5e9] bg-white px-4 py-3 lg:hidden`}
-        >
-          <div className="flex flex-col gap-1">
-            <div className="mb-2 border-b border-[#e1e5e9] pb-2 sm:hidden">
-              <p className="text-sm font-semibold text-[#202a33]">{user.username}</p>
-              <p className="text-[11px] text-[#697784]">{identity}</p>
+        {isManagerial ? null : (
+          <nav
+            id="admin-nav-mobile"
+            aria-label="Navigasi utama (seluler)"
+            className={`${menuOpen ? 'block' : 'hidden'} border-t border-[#e1e5e9] bg-white px-4 py-3 lg:hidden`}
+          >
+            <div className="flex flex-col gap-1">
+              <div className="mb-2 border-b border-[#e1e5e9] pb-2 sm:hidden">
+                <p className="text-sm font-semibold text-[#202a33]">{user.username}</p>
+                <p className="text-[11px] text-[#697784]">{identity}</p>
+              </div>
+              {navEntries(variant, true, () => setMenuOpen(false))}
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onLogout();
+                }}
+                className="mt-2 inline-flex min-h-[40px] items-center rounded-[10px] px-4 text-left text-sm font-medium text-muted hover:bg-[#f7f9ff]"
+              >
+                Keluar
+              </button>
             </div>
-            {navEntries(variant, true, () => setMenuOpen(false))}
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onLogout();
-              }}
-              className="mt-2 inline-flex min-h-[40px] items-center rounded-[10px] px-4 text-left text-sm font-medium text-muted hover:bg-[#f7f9ff]"
-            >
-              Keluar
-            </button>
-          </div>
-        </nav>
+          </nav>
+        )}
       </header>
 
       <div className="mx-auto w-full max-w-[1600px] px-4 py-8 md:px-8 md:py-10">{children}</div>

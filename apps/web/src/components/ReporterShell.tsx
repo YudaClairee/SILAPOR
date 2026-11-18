@@ -1,6 +1,6 @@
 // Reporter V2 shell: top institutional header + center nav pill + user block.
 // This intentionally follows the current Figma design (not the legacy
-// DESIGN.md rail). Admin pages keep AppShell; the reporter portal opts into
+// DESIGN.md rail). The reporter portal opts into
 // this shell from routes/reporter.tsx.
 import { useState, type ComponentType, type ReactNode, type SVGProps } from 'react';
 import { Link } from '@tanstack/react-router';

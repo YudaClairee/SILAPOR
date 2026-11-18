@@ -26,8 +26,6 @@ const ADMIN_PATHS = [
   '/admin/categories',
   '/admin/technicians',
   '/admin/scoring',
-  '/admin/maintenance-report',
-  '/admin/analytics',
 ] as const;
 
 async function renderShell(initialPath: string) {
@@ -177,8 +175,8 @@ describe('AdminShell nav group active', () => {
   });
 });
 
-// Varian manajerial: header yang sama, tetapi hanya dashboard sendiri yang
-// terlihat dan brand mengarah ke /managerial (bukan /admin).
+// Varian manajerial: header yang sama, tanpa navigasi sama sekali (hanya satu
+// halaman) dan brand mengarah ke /managerial (bukan /admin).
 describe('AdminShell variant managerial', () => {
   async function renderManagerialShell() {
     const rootRoute = createRootRoute({
@@ -195,20 +193,20 @@ describe('AdminShell variant managerial', () => {
       history: createMemoryHistory({ initialEntries: ['/managerial'] }),
     });
     render(<RouterProvider router={router} />);
-    await screen.findAllByRole('link', { name: 'Dashboard Manajerial' });
+    await screen.findByText('konten manajerial');
   }
 
-  it('hanya menampilkan tautan Dashboard Manajerial tanpa grup admin', async () => {
+  it('tidak menampilkan navigasi maupun tombol menu', async () => {
     await renderManagerialShell();
 
     expect(screen.queryByText('Fasilitas & Aset')).not.toBeInTheDocument();
     expect(screen.queryByText('Data Master & Parameter')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Kelola Laporan' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /admin/i })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: 'Dashboard Manajerial' })[0]).toHaveAttribute(
-      'href',
-      '/managerial',
-    );
+    expect(screen.queryByRole('link', { name: 'Dashboard Manajerial' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Menu' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Keluar' })).toBeInTheDocument();
   });
 
   it('menautkan brand ke /managerial dan menampilkan identitas akun manajerial', async () => {

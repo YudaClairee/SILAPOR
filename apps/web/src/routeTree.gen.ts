@@ -16,10 +16,8 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ManagerialRouteImport } from './routes/managerial'
 import { Route as ReporterRouteImport } from './routes/reporter'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
-import { Route as AdminAnalyticsRouteImport } from './routes/admin.analytics'
 import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
 import { Route as AdminLocationsRouteImport } from './routes/admin.locations'
-import { Route as AdminMaintenanceReportRouteImport } from './routes/admin.maintenance-report'
 import { Route as AdminMasterDataRouteImport } from './routes/admin.master-data'
 import { Route as AdminScoringRouteImport } from './routes/admin.scoring'
 import { Route as AdminTechniciansRouteImport } from './routes/admin.technicians'
@@ -49,7 +47,6 @@ import { Route as ApiReportsIdRouteImport } from './routes/api/reports.$id'
 import { Route as ApiReportsDuplicateCheckRouteImport } from './routes/api/reports.duplicate-check'
 import { Route as ApiReportsFormOptionsRouteImport } from './routes/api/reports.form-options'
 import { Route as ApiReportsStatsRouteImport } from './routes/api/reports.stats'
-import { Route as ReporterReportsIndexRouteImport } from './routes/reporter.reports.index'
 import { Route as ReporterReportsTicketRouteImport } from './routes/reporter.reports.$ticket'
 import { Route as ReporterReportsNewRouteImport } from './routes/reporter.reports.new'
 import { Route as ApiAdminAnalyticsOverviewRouteImport } from './routes/api/admin/analytics.overview'
@@ -105,11 +102,6 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminAnalyticsRoute = AdminAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
   id: '/categories',
   path: '/categories',
@@ -118,11 +110,6 @@ const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
 const AdminLocationsRoute = AdminLocationsRouteImport.update({
   id: '/locations',
   path: '/locations',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminMaintenanceReportRoute = AdminMaintenanceReportRouteImport.update({
-  id: '/maintenance-report',
-  path: '/maintenance-report',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminMasterDataRoute = AdminMasterDataRouteImport.update({
@@ -271,11 +258,6 @@ const ApiReportsStatsRoute = ApiReportsStatsRouteImport.update({
   path: '/stats',
   getParentRoute: () => ApiReportsRoute,
 } as any)
-const ReporterReportsIndexRoute = ReporterReportsIndexRouteImport.update({
-  id: '/reports/',
-  path: '/reports/',
-  getParentRoute: () => ReporterRoute,
-} as any)
 const ReporterReportsTicketRoute = ReporterReportsTicketRouteImport.update({
   id: '/reports/$ticket',
   path: '/reports/$ticket',
@@ -384,10 +366,8 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/managerial': typeof ManagerialRoute
   '/reporter': typeof ReporterRouteWithChildren
-  '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
-  '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
   '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
@@ -420,7 +400,6 @@ export interface FileRoutesByFullPath {
   '/reporter/reports/new': typeof ReporterReportsNewRoute
   '/admin/facilities/': typeof AdminFacilitiesIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
-  '/reporter/reports/': typeof ReporterReportsIndexRoute
   '/api/admin/analytics/overview': typeof ApiAdminAnalyticsOverviewRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
@@ -444,10 +423,8 @@ export interface FileRoutesByTo {
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
   '/login': typeof LoginRoute
   '/managerial': typeof ManagerialRoute
-  '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
-  '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
   '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
@@ -480,7 +457,6 @@ export interface FileRoutesByTo {
   '/reporter/reports/new': typeof ReporterReportsNewRoute
   '/admin/facilities': typeof AdminFacilitiesIndexRoute
   '/admin/reports': typeof AdminReportsIndexRoute
-  '/reporter/reports': typeof ReporterReportsIndexRoute
   '/api/admin/analytics/overview': typeof ApiAdminAnalyticsOverviewRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
@@ -507,10 +483,8 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/managerial': typeof ManagerialRoute
   '/reporter': typeof ReporterRouteWithChildren
-  '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/locations': typeof AdminLocationsRoute
-  '/admin/maintenance-report': typeof AdminMaintenanceReportRoute
   '/admin/master-data': typeof AdminMasterDataRoute
   '/admin/scoring': typeof AdminScoringRoute
   '/admin/technicians': typeof AdminTechniciansRoute
@@ -543,7 +517,6 @@ export interface FileRoutesById {
   '/reporter/reports/new': typeof ReporterReportsNewRoute
   '/admin/facilities/': typeof AdminFacilitiesIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
-  '/reporter/reports/': typeof ReporterReportsIndexRoute
   '/api/admin/analytics/overview': typeof ApiAdminAnalyticsOverviewRoute
   '/api/admin/assets/$id': typeof ApiAdminAssetsIdRouteWithChildren
   '/api/admin/categories/$id': typeof ApiAdminCategoriesIdRoute
@@ -571,10 +544,8 @@ export interface FileRouteTypes {
     | '/login'
     | '/managerial'
     | '/reporter'
-    | '/admin/analytics'
     | '/admin/categories'
     | '/admin/locations'
-    | '/admin/maintenance-report'
     | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
@@ -607,7 +578,6 @@ export interface FileRouteTypes {
     | '/reporter/reports/new'
     | '/admin/facilities/'
     | '/admin/reports/'
-    | '/reporter/reports/'
     | '/api/admin/analytics/overview'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
@@ -631,10 +601,8 @@ export interface FileRouteTypes {
     | '/kebijakan-privasi'
     | '/login'
     | '/managerial'
-    | '/admin/analytics'
     | '/admin/categories'
     | '/admin/locations'
-    | '/admin/maintenance-report'
     | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
@@ -667,7 +635,6 @@ export interface FileRouteTypes {
     | '/reporter/reports/new'
     | '/admin/facilities'
     | '/admin/reports'
-    | '/reporter/reports'
     | '/api/admin/analytics/overview'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
@@ -693,10 +660,8 @@ export interface FileRouteTypes {
     | '/login'
     | '/managerial'
     | '/reporter'
-    | '/admin/analytics'
     | '/admin/categories'
     | '/admin/locations'
-    | '/admin/maintenance-report'
     | '/admin/master-data'
     | '/admin/scoring'
     | '/admin/technicians'
@@ -729,7 +694,6 @@ export interface FileRouteTypes {
     | '/reporter/reports/new'
     | '/admin/facilities/'
     | '/admin/reports/'
-    | '/reporter/reports/'
     | '/api/admin/analytics/overview'
     | '/api/admin/assets/$id'
     | '/api/admin/categories/$id'
@@ -824,13 +788,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/analytics': {
-      id: '/admin/analytics'
-      path: '/analytics'
-      fullPath: '/admin/analytics'
-      preLoaderRoute: typeof AdminAnalyticsRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/admin/categories': {
       id: '/admin/categories'
       path: '/categories'
@@ -843,13 +800,6 @@ declare module '@tanstack/react-router' {
       path: '/locations'
       fullPath: '/admin/locations'
       preLoaderRoute: typeof AdminLocationsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/maintenance-report': {
-      id: '/admin/maintenance-report'
-      path: '/maintenance-report'
-      fullPath: '/admin/maintenance-report'
-      preLoaderRoute: typeof AdminMaintenanceReportRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/master-data': {
@@ -1055,13 +1005,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReportsStatsRouteImport
       parentRoute: typeof ApiReportsRoute
     }
-    '/reporter/reports/': {
-      id: '/reporter/reports/'
-      path: '/reports'
-      fullPath: '/reporter/reports/'
-      preLoaderRoute: typeof ReporterReportsIndexRouteImport
-      parentRoute: typeof ReporterRoute
-    }
     '/reporter/reports/$ticket': {
       id: '/reporter/reports/$ticket'
       path: '/reports/$ticket'
@@ -1199,10 +1142,8 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
-  AdminAnalyticsRoute: typeof AdminAnalyticsRoute
   AdminCategoriesRoute: typeof AdminCategoriesRoute
   AdminLocationsRoute: typeof AdminLocationsRoute
-  AdminMaintenanceReportRoute: typeof AdminMaintenanceReportRoute
   AdminMasterDataRoute: typeof AdminMasterDataRoute
   AdminScoringRoute: typeof AdminScoringRoute
   AdminTechniciansRoute: typeof AdminTechniciansRoute
@@ -1215,10 +1156,8 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
-  AdminAnalyticsRoute: AdminAnalyticsRoute,
   AdminCategoriesRoute: AdminCategoriesRoute,
   AdminLocationsRoute: AdminLocationsRoute,
-  AdminMaintenanceReportRoute: AdminMaintenanceReportRoute,
   AdminMasterDataRoute: AdminMasterDataRoute,
   AdminScoringRoute: AdminScoringRoute,
   AdminTechniciansRoute: AdminTechniciansRoute,
@@ -1237,7 +1176,6 @@ interface ReporterRouteChildren {
   ReporterIndexRoute: typeof ReporterIndexRoute
   ReporterReportsTicketRoute: typeof ReporterReportsTicketRoute
   ReporterReportsNewRoute: typeof ReporterReportsNewRoute
-  ReporterReportsIndexRoute: typeof ReporterReportsIndexRoute
 }
 
 const ReporterRouteChildren: ReporterRouteChildren = {
@@ -1245,7 +1183,6 @@ const ReporterRouteChildren: ReporterRouteChildren = {
   ReporterIndexRoute: ReporterIndexRoute,
   ReporterReportsTicketRoute: ReporterReportsTicketRoute,
   ReporterReportsNewRoute: ReporterReportsNewRoute,
-  ReporterReportsIndexRoute: ReporterReportsIndexRoute,
 }
 
 const ReporterRouteWithChildren = ReporterRoute._addFileChildren(

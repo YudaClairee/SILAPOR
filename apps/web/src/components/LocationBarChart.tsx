@@ -6,7 +6,8 @@
 // The track is decorative: every row prints its room name and count as text, so
 // nothing depends on bar length or colour alone.
 import type { ReactNode } from 'react';
-import { formatNumberId, niceCountAxisMax } from '../lib/dashboard-period.js';
+import { formatNumberId, formatPercent, niceCountAxisMax } from '../lib/dashboard-period.js';
+import { ChartTooltip, TooltipBody, useChartTooltip } from './ChartTooltip';
 
 export interface LocationBarItem {
   readonly id: string;
@@ -36,6 +37,8 @@ export function LocationBarChart({
   emptyMessage = 'Belum ada laporan per ruang pada periode ini.',
   className,
 }: LocationBarChartProps) {
+  const tooltip = useChartTooltip();
+  const total = items.reduce((sum, item) => sum + item.value, 0);
   const peak = items.reduce((max, item) => Math.max(max, item.value), 0);
   const axisMax = niceCountAxisMax(peak, TICKS);
   const ticks = Array.from({ length: TICKS + 1 }, (_, index) => index);
@@ -62,7 +65,7 @@ export function LocationBarChart({
       {items.length === 0 ? (
         <p className="mt-6 text-sm text-[#697784]">{emptyMessage}</p>
       ) : (
-        <div className="mt-5">
+        <div ref={tooltip.containerRef} className="relative mt-5">
           <div aria-hidden="true" className={`${rowGrid} text-[10px] font-medium text-[#8a97a3]`}>
             <span />
             <span className="flex justify-between">
@@ -75,10 +78,19 @@ export function LocationBarChart({
 
           <ul aria-label={`Rincian ${title}`} className="mt-2 space-y-3">
             {items.map((item) => (
-              <li key={item.id} className={rowGrid}>
-                <span title={item.label} className="truncate text-xs font-medium text-[#202a33]">
-                  {item.label}
-                </span>
+              <li
+                key={item.id}
+                className={rowGrid}
+                {...tooltip.bind(
+                  <TooltipBody
+                    title={item.label}
+                    lines={[
+                      `${formatNumberId(item.value)} laporan (${formatPercent(item.value, total)})`,
+                    ]}
+                  />,
+                )}
+              >
+                <span className="truncate text-xs font-medium text-[#202a33]">{item.label}</span>
                 <span
                   aria-hidden="true"
                   className="block h-2.5 w-full overflow-hidden rounded-full bg-[#eef2f5]"
@@ -96,6 +108,7 @@ export function LocationBarChart({
               </li>
             ))}
           </ul>
+          <ChartTooltip state={tooltip.state} />
         </div>
       )}
     </section>

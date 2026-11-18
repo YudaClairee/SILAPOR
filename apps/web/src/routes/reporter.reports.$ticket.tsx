@@ -441,9 +441,7 @@ function ReportDetailPage() {
             </p>
           )}
         </div>
-        {/* V2 monitoring is /reporter; /reporter/reports is the legacy "Tiket
-            Kampus" list, so both the breadcrumb and this button intentionally
-            target the V2 page. */}
+        {/* Both the breadcrumb and this button target the /reporter monitoring page. */}
         <Link
           to="/reporter"
           search={{ search: '', mine: false, status: '', priority: '', offset: 0 }}

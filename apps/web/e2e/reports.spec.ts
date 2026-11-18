@@ -207,8 +207,8 @@ test('2 list/detail: reporter sees the ticket in the list with REPORTED status',
   const context = await loginContext(browser, '230001');
   const page = await context.newPage();
   try {
-    await page.goto('/reporter/reports');
-    await expect(page.getByRole('heading', { name: 'Tiket Kampus' })).toBeVisible();
+    await page.goto('/reporter');
+    await expect(page.getByRole('heading', { name: 'Pemantauan Tiket' })).toBeVisible();
     const rowLink = page.getByRole('link', { name: ticketA });
     await expect(rowLink).toBeVisible();
     await rowLink.click();
@@ -267,12 +267,10 @@ test('3 campus visibility: reporter-B opens reporter-A ticket in sanitized form'
 
     // The campus list shows another reporter's ticket; the Laporan Saya
     // filter removes it for reporter-B.
-    await page.goto('/reporter/reports');
+    await page.goto('/reporter');
     await expect(page.getByRole('link', { name: ticketA })).toBeVisible();
-    await page
-      .getByRole('navigation', { name: 'Filter status' })
-      .getByRole('link', { name: 'Laporan Saya' })
-      .click();
+    await page.getByRole('link', { name: /Laporan Saya/ }).click();
+    await expect(page).toHaveURL(/mine=(1|true)/);
     await expect(page.getByRole('link', { name: ticketA })).toHaveCount(0);
   } finally {
     await context.close();
@@ -372,8 +370,8 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
     expect(replayBody.idempotentReplay, 'replay is flagged as idempotent').toBe(true);
 
     // Exactly one new row for the ticket in the reporter's campus list.
-    await page.goto('/reporter/reports');
-    await expect(page.getByRole('heading', { name: 'Tiket Kampus' })).toBeVisible();
+    await page.goto('/reporter');
+    await expect(page.getByRole('heading', { name: 'Pemantauan Tiket' })).toBeVisible();
     await expect(page.getByRole('link', { name: ticketB })).toHaveCount(1);
   } finally {
     await context.close();

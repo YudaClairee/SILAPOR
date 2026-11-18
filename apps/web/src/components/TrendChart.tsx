@@ -7,6 +7,7 @@
 // reader gets the same numbers from the visually hidden table.
 import type { ReactNode } from 'react';
 import { formatAxisTick, formatHours, niceAxisMax } from '../lib/dashboard-period.js';
+import { ChartTooltip, TooltipBody, useChartTooltip } from './ChartTooltip';
 
 export interface TrendChartDatum {
   readonly key: string;
@@ -40,13 +41,14 @@ export function TrendChart({
   aside,
   emptyMessage = 'Belum ada data pada periode ini.',
 }: TrendChartProps) {
-  const hasActivity = data.some(
-    (datum) => datum.reports > 0 || (datum.averageSeconds ?? 0) > 0,
-  );
+  const hasActivity = data.some((datum) => datum.reports > 0 || (datum.averageSeconds ?? 0) > 0);
   const showPills = data.length <= 10;
 
   return (
-    <figure aria-label={title} className="rounded-xl border border-[#e1e5e9] bg-white p-6 shadow-sm">
+    <figure
+      aria-label={title}
+      className="rounded-xl border border-[#e1e5e9] bg-white p-6 shadow-sm"
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <figcaption className="min-w-0">
           <h2 className="text-lg font-semibold text-[#202a33]">{title}</h2>
@@ -73,6 +75,7 @@ interface TrendChartPlotProps {
 }
 
 function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
+  const tooltip = useChartTooltip();
   const reportsMax = niceAxisMax(Math.max(...data.map((datum) => datum.reports), 0));
   const durationMax = niceAxisMax(
     Math.max(...data.map((datum) => (datum.averageSeconds ?? 0) / 3600), 0),
@@ -110,147 +113,195 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
 
   return (
     <>
-      <svg
-        aria-hidden="true"
-        role="presentation"
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="mt-5 h-auto w-full"
-      >
-        <defs>
-          <linearGradient id="trend-area-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={LINE_COLOR} stopOpacity="0.16" />
-            <stop offset="100%" stopColor={LINE_COLOR} stopOpacity="0.01" />
-          </linearGradient>
-        </defs>
+      <div ref={tooltip.containerRef} className="relative mt-5">
+        <svg
+          aria-hidden="true"
+          role="presentation"
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          className="h-auto w-full"
+        >
+          <defs>
+            <linearGradient id="trend-area-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={LINE_COLOR} stopOpacity="0.16" />
+              <stop offset="100%" stopColor={LINE_COLOR} stopOpacity="0.01" />
+            </linearGradient>
+          </defs>
 
-        <text x={2} y={12} fill="#697784" fontSize="10" letterSpacing="0.6">
-          TIKET
-        </text>
-        <text x={WIDTH - 2} y={12} textAnchor="end" fill="#697784" fontSize="10" letterSpacing="0.6">
-          DURASI
-        </text>
+          <text x={2} y={12} fill="#697784" fontSize="10" letterSpacing="0.6">
+            TIKET
+          </text>
+          <text
+            x={WIDTH - 2}
+            y={12}
+            textAnchor="end"
+            fill="#697784"
+            fontSize="10"
+            letterSpacing="0.6"
+          >
+            DURASI
+          </text>
 
-        {ticks.map((tick) => {
-          const y = PAD.top + PLOT_HEIGHT - (tick / 4) * PLOT_HEIGHT;
-          return (
-            <g key={`tick-${tick}`}>
-              <line
-                x1={PAD.left}
-                x2={PAD.left + PLOT_WIDTH}
-                y1={y}
-                y2={y}
-                stroke="#e1e5e9"
-                strokeWidth="1"
-                strokeDasharray="4 5"
-              />
-              <text x={PAD.left - 10} y={y + 3} textAnchor="end" fill="#8a97a3" fontSize="10">
-                {formatAxisTick((reportsMax / 4) * tick)}
+          {ticks.map((tick) => {
+            const y = PAD.top + PLOT_HEIGHT - (tick / 4) * PLOT_HEIGHT;
+            return (
+              <g key={`tick-${tick}`}>
+                <line
+                  x1={PAD.left}
+                  x2={PAD.left + PLOT_WIDTH}
+                  y1={y}
+                  y2={y}
+                  stroke="#e1e5e9"
+                  strokeWidth="1"
+                  strokeDasharray="4 5"
+                />
+                <text x={PAD.left - 10} y={y + 3} textAnchor="end" fill="#8a97a3" fontSize="10">
+                  {formatAxisTick((reportsMax / 4) * tick)}
+                </text>
+                <text x={PAD.left + PLOT_WIDTH + 10} y={y + 3} fill="#8a97a3" fontSize="10">
+                  {`${formatAxisTick((durationMax / 4) * tick)}j`}
+                </text>
+              </g>
+            );
+          })}
+
+          <path d={areaPath} fill="url(#trend-area-fill)" />
+          <polyline
+            points={pointsAttr(reportPoints)}
+            fill="none"
+            stroke={LINE_COLOR}
+            strokeWidth="2.5"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+          <polyline
+            points={pointsAttr(durationPoints)}
+            fill="none"
+            stroke={DURATION_COLOR}
+            strokeWidth="2"
+            strokeDasharray="7 5"
+            strokeLinejoin="round"
+          />
+          {reportPoints.map((point) => (
+            <circle
+              key={`reports-${point.datum.key}`}
+              cx={point.x}
+              cy={point.y}
+              r="4"
+              fill="#ffffff"
+              stroke={LINE_COLOR}
+              strokeWidth="2"
+            />
+          ))}
+          {durationPoints.map((point) => (
+            <circle
+              key={`duration-${point.datum.key}`}
+              cx={point.x}
+              cy={point.y}
+              r="3.5"
+              fill="#ffffff"
+              stroke={DURATION_COLOR}
+              strokeWidth="1.8"
+            />
+          ))}
+          {showPills
+            ? reportPoints.map((point) => (
+                <g key={`reports-pill-${point.datum.key}`}>
+                  <rect
+                    x={point.x - 26}
+                    y={point.y - 27}
+                    width="52"
+                    height="18"
+                    rx="4"
+                    fill={LINE_COLOR}
+                  />
+                  <text
+                    x={point.x}
+                    y={point.y - 14}
+                    textAnchor="middle"
+                    fill="#ffffff"
+                    fontSize="10"
+                  >
+                    {`${point.datum.reports} tiket`}
+                  </text>
+                </g>
+              ))
+            : null}
+          {showPills
+            ? durationPoints.map((point) => (
+                <g key={`duration-pill-${point.datum.key}`}>
+                  <rect
+                    x={point.x - 24}
+                    y={point.y + 10}
+                    width="48"
+                    height="17"
+                    rx="4"
+                    fill="#ffffff"
+                    stroke="#d5dee3"
+                  />
+                  <text
+                    x={point.x}
+                    y={point.y + 22}
+                    textAnchor="middle"
+                    fill="#3d6d7a"
+                    fontSize="10"
+                  >
+                    {`${formatHours(point.datum.averageSeconds)} jam`}
+                  </text>
+                </g>
+              ))
+            : null}
+          {data.map((datum, index) => (
+            <g key={`axis-${datum.key}`}>
+              <text
+                x={xOf(index)}
+                y={HEIGHT - PAD.bottom + 18}
+                textAnchor="middle"
+                fill="#202a33"
+                fontSize="11"
+                fontWeight="600"
+              >
+                {datum.label}
               </text>
-              <text x={PAD.left + PLOT_WIDTH + 10} y={y + 3} fill="#8a97a3" fontSize="10">
-                {`${formatAxisTick((durationMax / 4) * tick)}j`}
+              <text
+                x={xOf(index)}
+                y={HEIGHT - PAD.bottom + 31}
+                textAnchor="middle"
+                fill="#8a97a3"
+                fontSize="10"
+              >
+                {datum.sublabel}
               </text>
             </g>
-          );
-        })}
-
-        <path d={areaPath} fill="url(#trend-area-fill)" />
-        <polyline
-          points={pointsAttr(reportPoints)}
-          fill="none"
-          stroke={LINE_COLOR}
-          strokeWidth="2.5"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        <polyline
-          points={pointsAttr(durationPoints)}
-          fill="none"
-          stroke={DURATION_COLOR}
-          strokeWidth="2"
-          strokeDasharray="7 5"
-          strokeLinejoin="round"
-        />
-        {reportPoints.map((point) => (
-          <circle
-            key={`reports-${point.datum.key}`}
-            cx={point.x}
-            cy={point.y}
-            r="4"
-            fill="#ffffff"
-            stroke={LINE_COLOR}
-            strokeWidth="2"
-          />
-        ))}
-        {durationPoints.map((point) => (
-          <circle
-            key={`duration-${point.datum.key}`}
-            cx={point.x}
-            cy={point.y}
-            r="3.5"
-            fill="#ffffff"
-            stroke={DURATION_COLOR}
-            strokeWidth="1.8"
-          />
-        ))}
-        {showPills
-          ? reportPoints.map((point) => (
-              <g key={`reports-pill-${point.datum.key}`}>
-                <rect
-                  x={point.x - 26}
-                  y={point.y - 27}
-                  width="52"
-                  height="18"
-                  rx="4"
-                  fill={LINE_COLOR}
-                />
-                <text x={point.x} y={point.y - 14} textAnchor="middle" fill="#ffffff" fontSize="10">
-                  {`${point.datum.reports} tiket`}
-                </text>
-              </g>
-            ))
-          : null}
-        {showPills
-          ? durationPoints.map((point) => (
-              <g key={`duration-pill-${point.datum.key}`}>
-                <rect
-                  x={point.x - 24}
-                  y={point.y + 10}
-                  width="48"
-                  height="17"
-                  rx="4"
-                  fill="#ffffff"
-                  stroke="#d5dee3"
-                />
-                <text x={point.x} y={point.y + 22} textAnchor="middle" fill="#3d6d7a" fontSize="10">
-                  {`${formatHours(point.datum.averageSeconds)} jam`}
-                </text>
-              </g>
-            ))
-          : null}
-        {data.map((datum, index) => (
-          <g key={`axis-${datum.key}`}>
-            <text
-              x={xOf(index)}
-              y={HEIGHT - PAD.bottom + 18}
-              textAnchor="middle"
-              fill="#202a33"
-              fontSize="11"
-              fontWeight="600"
-            >
-              {datum.label}
-            </text>
-            <text
-              x={xOf(index)}
-              y={HEIGHT - PAD.bottom + 31}
-              textAnchor="middle"
-              fill="#8a97a3"
-              fontSize="10"
-            >
-              {datum.sublabel}
-            </text>
-          </g>
-        ))}
-      </svg>
+          ))}
+          {data.map((datum, index) => {
+            const left = index === 0 ? PAD.left : xOf(index) - step / 2;
+            const right = index === data.length - 1 ? PAD.left + PLOT_WIDTH : xOf(index) + step / 2;
+            const width = data.length > 1 ? right - left : PLOT_WIDTH;
+            return (
+              <rect
+                key={`hover-${datum.key}`}
+                x={data.length > 1 ? left : PAD.left}
+                y={PAD.top}
+                width={width}
+                height={PLOT_HEIGHT}
+                fill="transparent"
+                {...tooltip.bind(
+                  <TooltipBody
+                    title={`${datum.label} ${datum.sublabel}`.trim()}
+                    lines={[
+                      `${datum.reports} tiket masuk`,
+                      datum.averageSeconds === null
+                        ? 'Belum ada tiket selesai'
+                        : `Rata-rata durasi ${formatHours(datum.averageSeconds)} jam`,
+                    ]}
+                  />,
+                )}
+              />
+            );
+          })}
+        </svg>
+        <ChartTooltip state={tooltip.state} />
+      </div>
 
       <table className="sr-only">
         <caption>{title}</caption>

@@ -3,6 +3,7 @@
 // carries the same numbers, so no colour-only encoding.
 import type { ReactNode } from 'react';
 import { formatNumberId, formatPercent } from '../lib/dashboard-period.js';
+import { ChartTooltip, TooltipBody, useChartTooltip } from './ChartTooltip';
 
 export interface CategoryDonutDatum {
   readonly label: string;
@@ -37,15 +38,17 @@ export function CategoryDonut({
   titleId = 'category-donut-title',
 }: CategoryDonutProps) {
   const total = data.reduce((sum, datum) => sum + datum.value, 0);
+  const tooltip = useChartTooltip();
   const sectors = data.map((datum, index) => {
     const fraction = total === 0 ? 0 : datum.value / total;
     return {
       datum,
       color: SLICE_COLORS[index % SLICE_COLORS.length] as string,
       length: fraction * CIRCUMFERENCE,
-      offset: data
-        .slice(0, index)
-        .reduce((sum, previous) => sum + (total === 0 ? 0 : previous.value / total), 0) *
+      offset:
+        data
+          .slice(0, index)
+          .reduce((sum, previous) => sum + (total === 0 ? 0 : previous.value / total), 0) *
         CIRCUMFERENCE,
     };
   });
@@ -71,7 +74,7 @@ export function CategoryDonut({
         <p className="mt-6 text-sm text-[#697784]">{emptyMessage}</p>
       ) : (
         <div className="mt-6 flex flex-col items-center gap-6 sm:flex-row sm:items-center">
-          <div className="relative shrink-0">
+          <div ref={tooltip.containerRef} className="relative shrink-0">
             <svg
               aria-hidden="true"
               role="presentation"
@@ -98,6 +101,15 @@ export function CategoryDonut({
                     strokeWidth={STROKE}
                     strokeDasharray={`${sector.length} ${CIRCUMFERENCE - sector.length}`}
                     strokeDashoffset={-sector.offset}
+                    className="transition-opacity hover:opacity-80"
+                    {...tooltip.bind(
+                      <TooltipBody
+                        title={sector.datum.label}
+                        lines={[
+                          `${formatNumberId(sector.datum.value)} ${centerLabel.toLowerCase()} (${formatPercent(sector.datum.value, total)})`,
+                        ]}
+                      />,
+                    )}
                   />
                 ))}
               </g>
@@ -108,6 +120,7 @@ export function CategoryDonut({
                 {centerLabel}
               </span>
             </div>
+            <ChartTooltip state={tooltip.state} />
           </div>
 
           <ul aria-label={`Rincian ${title}`} className="w-full min-w-0 space-y-3">

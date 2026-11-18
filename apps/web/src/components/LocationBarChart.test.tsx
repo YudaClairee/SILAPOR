@@ -2,7 +2,7 @@
 // LocationBarChart contract: a scaled horizontal bar per room, a shared
 // 0…max axis, visible counts, and an honest empty state.
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LocationBarChart } from './LocationBarChart';
 
@@ -45,7 +45,10 @@ describe('LocationBarChart', () => {
     const { container } = render(
       <LocationBarChart title="Ruang" items={[{ id: 'a', label, value: 3 }]} />,
     );
-    expect(screen.getByTitle(label)).toHaveTextContent(label);
+    expect(screen.getByText(label)).toBeInTheDocument();
+    fireEvent.pointerEnter(screen.getByRole('listitem'), { clientX: 10, clientY: 10 });
+    expect(screen.getByTestId('chart-tooltip')).toHaveTextContent(label);
+    expect(screen.getByTestId('chart-tooltip')).toHaveTextContent('3 laporan');
     expect(container.querySelector('li span[aria-hidden="true"]')).toBeInTheDocument();
   });
 
