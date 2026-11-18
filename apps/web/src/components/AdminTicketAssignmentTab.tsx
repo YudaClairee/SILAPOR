@@ -146,7 +146,7 @@ export function AdminTicketAssignmentTab(props: {
                 }).then((result) => {
                   setPending(false);
                   if (!result.ok) { setError(result.message); return; }
-                  props.onChanged();
+                  setNote(''); props.onChanged();
                 });
               }}>
               {next === 'CLOSED' ? 'Konfirmasi Penyelesaian' : `Lanjut ke ${next}`}

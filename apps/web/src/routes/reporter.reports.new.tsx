@@ -510,12 +510,18 @@ function NewReportPage() {
     const outcome = toSubmitOutcome(response.status, body);
     switch (outcome.kind) {
       case 'verified': {
+        setValues(EMPTY_VALUES);
+        setPhotoFiles([]);
+        setAttempted(false);
         setTicket(outcome.ticketNumber);
         setReplay(outcome.replay);
         setPhase('verified');
         return;
       }
       case 'held': {
+        setValues(EMPTY_VALUES);
+        setPhotoFiles([]);
+        setAttempted(false);
         setTicket(outcome.ticketNumber);
         setHeldMessage(outcome.message);
         setPhase('held');
