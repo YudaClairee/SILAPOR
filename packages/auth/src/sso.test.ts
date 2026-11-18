@@ -165,7 +165,24 @@ describe('UpiSsoProvider', () => {
 
 describe('getSsoProvider', () => {
   it("returns the mock provider for 'mock'", () => {
-    expect(getSsoProvider('mock').name).toBe('mock');
+    expect(getSsoProvider('mock', {}).name).toBe('mock');
+  });
+
+  it('refuses mock in production unless explicitly allowed', () => {
+    try {
+      getSsoProvider('mock', { NODE_ENV: 'production' });
+      expect.unreachable('mock must be refused in production');
+    } catch (error) {
+      expect(isAppError(error)).toBe(true);
+      if (isAppError(error)) {
+        expect(error.status).toBe(503);
+      }
+    }
+    expect(
+      getSsoProvider('mock', { NODE_ENV: 'production', ALLOW_MOCK_AUTH_IN_PRODUCTION: 'true' })
+        .name,
+    ).toBe('mock');
+    expect(getSsoProvider('mock', { NODE_ENV: 'development' }).name).toBe('mock');
   });
 
   it("returns the local provider for 'local', reading hashes from the given env", async () => {

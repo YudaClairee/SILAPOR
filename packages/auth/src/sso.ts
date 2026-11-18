@@ -170,6 +170,14 @@ export function getSsoProvider(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): SsoProvider {
   if (name === 'mock') {
+    // The mock never checks passwords, so refuse it in production unless the
+    // operator explicitly opts in (e.g. hostname fully behind Cloudflare
+    // Access). Fails closed: login returns 503 instead of silently opening.
+    if (env['NODE_ENV'] === 'production' && env['ALLOW_MOCK_AUTH_IN_PRODUCTION'] !== 'true') {
+      throw unavailable(
+        'AUTH_PROVIDER=mock tidak diizinkan di production (set AUTH_PROVIDER=local)',
+      );
+    }
     return new MockSsoProvider();
   }
   if (name === 'local') {

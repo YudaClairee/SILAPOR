@@ -587,7 +587,10 @@ vps$ node /opt/silapor/infra/vps/hash-password.mjs      # untuk manajerial
 **Cloudflare Access (Bagian G) menjadi opsional hanya untuk `local`.** Password
 admin dan manajerial tidak boleh ditulis di repo. Di `AUTH_PROVIDER=mock`
 password **tidak diverifikasi**, jadi Cloudflare Access wajib aktif dan jangan
-pernah dinonaktifkan. Password reporter bersifat turunan dari NIM sehingga siapa
+pernah dinonaktifkan. Dengan `NODE_ENV=production`, aplikasi menolak
+`AUTH_PROVIDER=mock` (login 503) kecuali `ALLOW_MOCK_AUTH_IN_PRODUCTION=true`.
+Rate limit login memakai header `CF-Connecting-IP` dari Cloudflare, bukan
+`X-Forwarded-For`. Password reporter bersifat turunan dari NIM sehingga siapa
 pun yang tahu URL dan polanya bisa login sebagai reporter. Pakai hanya untuk uji
 kelas terbatas.
 

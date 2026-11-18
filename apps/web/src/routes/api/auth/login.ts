@@ -45,15 +45,14 @@ const logger = createLogger({ service: 'web' });
 // inactive) so responses cannot be used to enumerate accounts.
 const INVALID_CREDENTIALS_MESSAGE = 'Kredensial salah';
 
+// Client IP for the rate-limit key. Only `CF-Connecting-IP` is trusted: the
+// origin binds to 127.0.0.1 behind cloudflared, which sets it. A client-
+// supplied `X-Forwarded-For` is never read, otherwise rotating that header
+// would bypass the limiter. Without the header (local dev) all requests
+// share the 'unknown' bucket, which is still keyed per username.
 function clientIp(headers: Headers): string {
-  const forwarded = headers.get('x-forwarded-for');
-  if (forwarded !== null) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first !== undefined && first !== '') {
-      return first;
-    }
-  }
-  return 'unknown';
+  const ip = headers.get('cf-connecting-ip')?.trim();
+  return ip !== undefined && ip !== '' ? ip : 'unknown';
 }
 
 // Secure iff the request arrived over https or the server runs in
