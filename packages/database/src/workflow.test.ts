@@ -152,6 +152,7 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
   let reporterId = '';
   let locId = '';
   let catId = '';
+  let svcCatId = '';
   let itNormalId = '';
   let itDangerousId = '';
   let assetId = '';
@@ -164,7 +165,9 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
   };
 
   // Direct REPORTED insert (bypasses createReport: no ticket-counter coupling).
-  async function makeReport(overrides: { assetId?: string | null } = {}) {
+  async function makeReport(
+    overrides: { assetId?: string | null; submittedCategoryId?: string } = {},
+  ) {
     const handle = requireDb();
     const rows = await handle
       .insert(maintenanceReports)
@@ -174,7 +177,7 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
         reporterId,
         locationId: locId,
         assetId: overrides.assetId === undefined ? assetId : overrides.assetId,
-        submittedCategoryId: catId,
+        submittedCategoryId: overrides.submittedCategoryId ?? catId,
         submittedIssueTypeId: itNormalId,
         description: 'Lampu ruangan mati total sejak pagi hari, mohon segera diperbaiki.',
         status: 'REPORTED',
@@ -264,6 +267,11 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
         .values({ code: 'P53-CAT', name: 'P5-3 category', weight: 10 })
         .returning({ id: facilityCategories.id });
       catId = catRows[0]?.id ?? '';
+      const svcCatRows = await db!
+        .insert(facilityCategories)
+        .values({ code: 'P53-SVC', name: 'P5-3 service', weight: 10, requiresAsset: false })
+        .returning({ id: facilityCategories.id });
+      svcCatId = svcCatRows[0]?.id ?? '';
       const itRows = await db!
         .insert(issueTypes)
         .values([
@@ -289,6 +297,7 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
         reporterId === '' ||
         locId === '' ||
         catId === '' ||
+        svcCatId === '' ||
         itNormalId === '' ||
         itDangerousId === '' ||
         assetId === ''
@@ -406,11 +415,44 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
     expect(metadata['score']).toBe(30);
   });
 
-  it('verify rejects when no effective asset exists (400)', async () => {
+  it('verify rejects an asset-less report whose submitted category requires an asset (400)', async () => {
     const created = await makeReport({ assetId: null });
     await expect(
       verifyReport(requireDb(), created.id, verifyInput(), 1, actor()),
+    ).rejects.toMatchObject({ status: 400, message: 'Category requires an asset' });
+    expect((await refresh(created.id)).status).toBe('REPORTED');
+  });
+
+  it('verifies an asset-less service report against its asset-less category', async () => {
+    const created = await makeReport({ assetId: null, submittedCategoryId: svcCatId });
+    const next = await verifyReport(
+      requireDb(),
+      created.id,
+      verifyInput({ finalCategoryId: svcCatId }),
+      1,
+      actor(),
+    );
+    expect(next.status).toBe('VERIFIED');
+    expect(next.assetId).toBeNull();
+    expect(next.finalCategoryId).toBe(svcCatId);
+    expect(next.version).toBe(2);
+  });
+
+  it('rejects a service report verified under a different category or linked to an asset (400)', async () => {
+    const created = await makeReport({ assetId: null, submittedCategoryId: svcCatId });
+    await expect(
+      verifyReport(requireDb(), created.id, verifyInput({ finalCategoryId: catId }), 1, actor()),
     ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      verifyReport(
+        requireDb(),
+        created.id,
+        verifyInput({ finalCategoryId: svcCatId, assetId }),
+        1,
+        actor(),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    expect((await refresh(created.id)).status).toBe('REPORTED');
   });
 
   it('verify rejects a missing actor (404) and an inactive actor (400)', async () => {

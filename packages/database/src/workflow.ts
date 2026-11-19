@@ -244,11 +244,23 @@ export async function verifyReport(
         throw badRequest('Issue type is inactive');
       }
 
+      // Service reports (no asset) are verified against the category the
+      // reporter chose, which must itself be asset-less. They can never be
+      // linked to an asset here (mirrors held.ts verifyHeldReport).
+      if (report.assetId === null) {
+        if (shaped.assetId !== undefined && shaped.assetId !== null) {
+          throw badRequest('Service report cannot be linked to an asset');
+        }
+        if (category.requiresAsset) {
+          throw badRequest('Category requires an asset');
+        }
+        if (shaped.finalCategoryId !== report.submittedCategoryId) {
+          throw badRequest('Final category does not match the reported service category');
+        }
+      }
+
       const effectiveAssetId = shaped.assetId ?? report.assetId;
       const effectiveLocationId = shaped.locationId ?? report.locationId;
-      if (effectiveAssetId === null || effectiveAssetId === undefined) {
-        throw badRequest('Asset is required for verification');
-      }
       if (shaped.assetId !== undefined && shaped.assetId !== null) {
         const asset = (
           await tx
@@ -280,12 +292,17 @@ export async function verifyReport(
 
       // Scoring weights for the effective scope. Missing rows cannot happen
       // (FK restrict) but map to null weights instead of failing verification.
-      const assetRow = (
-        await tx
-          .select({ weight: schema.facilityAssets.weight })
-          .from(schema.facilityAssets)
-          .where(eq(schema.facilityAssets.id, effectiveAssetId))
-      )[0];
+      // Asset-less service reports have no asset weight: scoring falls back to
+      // the median (see scorePriority).
+      const assetRow =
+        effectiveAssetId === null
+          ? undefined
+          : (
+              await tx
+                .select({ weight: schema.facilityAssets.weight })
+                .from(schema.facilityAssets)
+                .where(eq(schema.facilityAssets.id, effectiveAssetId))
+            )[0];
       const locationRow = (
         await tx
           .select({ tierScore: schema.locations.tierScore })

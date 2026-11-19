@@ -42,6 +42,7 @@ interface NotificationItem {
   readonly ticketNumber: string | null;
   readonly reportStatus: string | null;
   readonly assetName: string | null;
+  readonly submittedCategoryName: string | null;
   readonly locationName: string | null;
   readonly locationBuildingCode: string | null;
   readonly locationFloorNumber: number | null;
@@ -82,7 +83,8 @@ function NotificationGlyph({ type }: { readonly type: string }) {
   return <Glyph className="h-5 w-5" />;
 }
 
-/** Asset + visible location, e.g. "Proyektor · R. Kuliah 12 · Gedung C · Lt. 3". */
+/** Asset (or the category for asset-less service reports) + visible location,
+ *  e.g. "Proyektor · R. Kuliah 12 · Gedung C · Lt. 3" or "Akses & Kunci · R. 3.04". */
 function placeLabel(item: NotificationItem): string | null {
   const location =
     item.locationName === null
@@ -94,7 +96,7 @@ function placeLabel(item: NotificationItem): string | null {
         ]
           .filter((part): part is string => part !== null && part !== '')
           .join(' · ');
-  const parts = [item.assetName, location].filter(
+  const parts = [item.assetName ?? item.submittedCategoryName, location].filter(
     (part): part is string => part !== null && part !== '',
   );
   return parts.length === 0 ? null : parts.join(' · ');
