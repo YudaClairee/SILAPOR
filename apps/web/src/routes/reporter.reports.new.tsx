@@ -412,6 +412,9 @@ function NewReportPage() {
   const [phase, setPhase] = useState<Phase>('form');
 
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  // Photo count captured at submit: the form clears `photoFiles` before the
+  // result screen renders, so the result line reads this instead.
+  const [resultPhotoCount, setResultPhotoCount] = useState(0);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoDropActive, setPhotoDropActive] = useState(false);
 
@@ -590,6 +593,7 @@ function NewReportPage() {
     switch (outcome.kind) {
       case 'verified': {
         setValues(EMPTY_VALUES);
+        setResultPhotoCount(photoFiles.length);
         setPhotoFiles([]);
         setAttempted(false);
         setTicket(outcome.ticketNumber);
@@ -599,6 +603,7 @@ function NewReportPage() {
       }
       case 'held': {
         setValues(EMPTY_VALUES);
+        setResultPhotoCount(photoFiles.length);
         setPhotoFiles([]);
         setAttempted(false);
         setTicket(outcome.ticketNumber);
@@ -656,18 +661,19 @@ function NewReportPage() {
     setDuplicateTicket(null);
     setDuplicateMessage(null);
     setPhotoFiles([]);
+    setResultPhotoCount(0);
     setPhotoError(null);
     setWaitingStep('staging');
     setPhase('form');
   }
 
-  function photoCountLine(): ReactNode {
-    if (photoFiles.length === 0) {
+  function photoCountLine(count: number = photoFiles.length): ReactNode {
+    if (count === 0) {
       return (
         <p className="mt-2 text-sm text-muted">Tanpa foto bukti (opsional).</p>
       );
     }
-    return <p className="mt-2 text-sm text-muted">{photoFiles.length} foto terlampir.</p>;
+    return <p className="mt-2 text-sm text-muted">{count} foto terlampir.</p>;
   }
 
   function resultLinks(): ReactNode {
@@ -877,7 +883,7 @@ function NewReportPage() {
             </TicketMono>
           </p>
           <p className="mt-4 text-sm text-text">{heldMessage}</p>
-          {photoCountLine()}
+          {photoCountLine(resultPhotoCount)}
           {resultLinks()}
         </div>
       </section>
@@ -902,7 +908,7 @@ function NewReportPage() {
               Laporan sudah tercatat dengan nomor tiket tersebut.
             </p>
           ) : null}
-          {photoCountLine()}
+          {photoCountLine(resultPhotoCount)}
           {resultLinks()}
         </div>
       </section>
