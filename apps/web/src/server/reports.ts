@@ -674,12 +674,17 @@ export async function listFormOptions(req: Request): Promise<FormOptions> {
 // AI-verified submit (synchronous verify with held fallback).
 // ---------------------------------------------------------------------------
 
-export interface VerifiedSubmitBody {
+interface VerifiedSubmitBase {
   readonly locationId: string;
-  readonly assetId: string;
   readonly description: string;
   readonly photoKeys: readonly string[];
 }
+
+// ASSET = damage report on a facility asset. SERVICE = non-damage report on a
+// service category (requiresAsset=false), with no asset attached.
+export type VerifiedSubmitBody =
+  | (VerifiedSubmitBase & { readonly kind: 'ASSET'; readonly assetId: string })
+  | (VerifiedSubmitBase & { readonly kind: 'SERVICE'; readonly serviceCategoryId: string });
 
 // The reporter never classifies: any category/issue/occurredAt key is a 400,
 // whether camelCase or snake_case.
@@ -696,10 +701,11 @@ const CLASSIFICATION_FIELDS = [
   'occurred_at',
 ] as const;
 
-// New submit shape: location + asset required, description 10-2000, and
-// OPTIONAL photo storage-key references (0-3; omitted or empty means the
-// report is created without attachments). NEVER copies a client-supplied
-// reporter id — the caller sets it from the session.
+// New submit shape: location required, EXACTLY ONE of asset (damage report) or
+// service category (service report), description 10-2000, and OPTIONAL photo
+// storage-key references (0-3; omitted or empty means the report is created
+// without attachments). NEVER copies a client-supplied reporter id — the caller
+// sets it from the session.
 export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   if (!isRecord(body)) {
     throw badRequest('Invalid report input');
@@ -713,9 +719,21 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   if (typeof locationId !== 'string' || !UUID_RE.test(locationId)) {
     throw badRequest('locationId must be a valid UUID');
   }
-  const assetId = body['assetId'] ?? body['asset_id'];
-  if (typeof assetId !== 'string' || !UUID_RE.test(assetId)) {
+  const assetValue = body['assetId'] ?? body['asset_id'];
+  const serviceValue = body['serviceCategoryId'] ?? body['service_category_id'];
+  const hasAsset = assetValue !== undefined && assetValue !== null;
+  const hasService = serviceValue !== undefined && serviceValue !== null;
+  if (hasAsset && hasService) {
+    throw badRequest('assetId and serviceCategoryId are mutually exclusive');
+  }
+  if (!hasAsset && !hasService) {
+    throw badRequest('assetId or serviceCategoryId is required');
+  }
+  if (hasAsset && (typeof assetValue !== 'string' || !UUID_RE.test(assetValue))) {
     throw badRequest('assetId must be a valid UUID');
+  }
+  if (hasService && (typeof serviceValue !== 'string' || !UUID_RE.test(serviceValue))) {
+    throw badRequest('serviceCategoryId must be a valid UUID');
   }
   const description = body['description'];
   if (typeof description !== 'string' || description.trim().length < 10) {
@@ -732,12 +750,15 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   ) {
     throw badRequest('photoKeys must include at most 3 photos');
   }
-  return {
+  const base = {
     locationId,
-    assetId,
     description: description.trim(),
     photoKeys: (photoKeys as string[]).map((key) => key.trim()),
   };
+  if (hasAsset) {
+    return { ...base, kind: 'ASSET', assetId: assetValue as string };
+  }
+  return { ...base, kind: 'SERVICE', serviceCategoryId: serviceValue as string };
 }
 
 // The Task 2 mapping is imported from `@silapor/domain` (`mapAiVerdict`) so
@@ -755,6 +776,8 @@ const REPORTER_REASONS: Record<string, string> = {
     'Deskripsi belum cukup jelas untuk diverifikasi. Tambahkan detail kerusakan dan lokasinya, lalu coba lagi.',
   WRONG_ASSET:
     'Deskripsi sepertinya tidak sesuai dengan aset atau lokasi yang dipilih. Periksa keduanya, lalu coba lagi.',
+  WRONG_SERVICE_CATEGORY:
+    'Deskripsi sepertinya tidak sesuai dengan jenis kendala yang dipilih. Kalau ini kerusakan barang, pilih Kerusakan fasilitas. Untuk masalah kebersihan, gunakan aplikasi pelaporan kebersihan.',
   UNKNOWN_CODE: 'Laporan belum bisa diklasifikasikan. Coba lagi dengan deskripsi yang lebih jelas.',
   // Model-authored verdict failures (free text reason) collapse onto this
   // fixed copy: the reporter always gets actionable guidance in Indonesian.
@@ -769,9 +792,24 @@ export function toReporterReason(code: string): string {
   );
 }
 
+// Exactly one subject: `asset` (damage report) or `serviceCategory` (service
+// report). `location` carries the place labels for a service report; an asset
+// subject already carries its own labels.
 export interface SubmitVerifyInput {
   readonly description: string;
-  readonly asset: { readonly name: string; readonly category: string };
+  readonly asset?: {
+    readonly name: string;
+    readonly category: string;
+    readonly building?: string;
+    readonly floor?: string;
+    readonly room?: string;
+  };
+  readonly serviceCategory?: { readonly code: string; readonly name: string };
+  readonly location?: {
+    readonly building?: string;
+    readonly floor?: string;
+    readonly room?: string;
+  };
   readonly categories: readonly string[];
   readonly issueTypes: readonly string[];
 }
@@ -965,8 +1003,13 @@ function logVerifyFailCode(reason: string): string {
 // Reporter-facing twin of `logVerifyFailCode`: a model-authored FAIL reason is
 // free text (see `packages/ai` `verify.ts`), so it must never reach the
 // reporter. Non-machine reasons collapse onto the fixed MODEL_VERDICT_FAIL copy.
-function submitFailReason(reason: string): string {
-  return toReporterReason(VERIFY_FAIL_CODES.has(reason) ? reason : 'MODEL_VERDICT_FAIL');
+// A service report's free-text FAIL (wrong category, damage, cleanliness) gets
+// the service copy: the asset copy would name an asset the reporter never chose.
+function submitFailReason(reason: string, isServiceReport: boolean): string {
+  if (VERIFY_FAIL_CODES.has(reason)) {
+    return toReporterReason(reason);
+  }
+  return toReporterReason(isServiceReport ? 'WRONG_SERVICE_CATEGORY' : 'MODEL_VERDICT_FAIL');
 }
 
 type SubmitDb = Parameters<typeof repoCreateReport>[0];
@@ -1063,12 +1106,16 @@ export async function submitVerifiedReport(
     // or expired keys fail with a uniform 400 and zero side effects (no
     // row, no ticket, no outbox event).
     const staged = await resolveStagedPhotoKeys(conn.db, user.id, normalized.photoKeys);
+    const subject =
+      normalized.kind === 'ASSET'
+        ? { assetId: normalized.assetId }
+        : { serviceCategoryId: normalized.serviceCategoryId };
     const created = await repoCreateReport(
       conn.db,
       {
         reporterId: user.id,
         locationId: normalized.locationId,
-        assetId: normalized.assetId,
+        ...subject,
         description: normalized.description,
       },
       key,
@@ -1141,25 +1188,51 @@ export async function submitVerifiedReport(
       promptVersion: PROMPT_VERSION,
       schemaVersion: SCHEMA_VERSION,
     });
-    const assetId = report.assetId;
-    if (assetId === null) {
-      throw internal('Report has no asset');
-    }
-    const asset = await repoGetAsset(conn.db, assetId);
+    // A damage report (assetId set) is judged against its asset's category; a
+    // service report (assetId null) against its submitted service category.
+    // Both share the final checks below.
+    const isServiceReport = report.assetId === null;
     const categories = await listAllPages(conn.db, repoListCategories);
-    const issueTypes = await listAllPages(conn.db, repoListIssueTypes);
-    const assetCategory = categories.find((entry) => entry.id === asset?.categoryId);
-    if (asset === undefined || assetCategory === undefined) {
-      throw internal('Report asset is not usable');
-    }
+    const allIssueTypes = await listAllPages(conn.db, repoListIssueTypes);
     const labels = await locationLabels(conn.db, report.locationId);
+    let asset: Awaited<ReturnType<typeof repoGetAsset>>;
+    let expectedCategory: (typeof categories)[number];
+    let verifySubject: Pick<SubmitVerifyInput, 'asset' | 'serviceCategory' | 'location'>;
+    let aiIssueTypes = allIssueTypes;
+    if (report.assetId === null) {
+      const serviceCategory = categories.find((entry) => entry.id === report.submittedCategoryId);
+      if (serviceCategory === undefined) {
+        throw internal('Report service category is not usable');
+      }
+      expectedCategory = serviceCategory;
+      verifySubject = {
+        serviceCategory: { code: serviceCategory.code, name: serviceCategory.name },
+        location: labels,
+      };
+      // The AI sees only the generic issue types plus those owned by this
+      // category, so it cannot answer LOCKED for a non-access report.
+      aiIssueTypes = allIssueTypes.filter(
+        (entry) => entry.categoryId === null || entry.categoryId === serviceCategory.id,
+      );
+    } else {
+      asset = await repoGetAsset(conn.db, report.assetId);
+      const assetCategory = categories.find((entry) => entry.id === asset?.categoryId);
+      if (asset === undefined || assetCategory === undefined) {
+        throw internal('Report asset is not usable');
+      }
+      expectedCategory = assetCategory;
+      verifySubject = { asset: { name: asset.name, category: assetCategory.code, ...labels } };
+    }
+    // Reporter-facing code for a category mismatch: service reports get the
+    // service copy, damage reports keep the asset copy.
+    const mismatchCode = isServiceReport ? 'WRONG_SERVICE_CATEGORY' : 'WRONG_ASSET';
     const verifyStartedAt = Date.now();
     const outcome = await verify(
       {
         description: normalized.description,
-        asset: { name: asset.name, category: assetCategory.code, ...labels },
+        ...verifySubject,
         categories: categories.map((entry) => entry.code),
-        issueTypes: issueTypes.map((entry) => entry.code),
+        issueTypes: aiIssueTypes.map((entry) => entry.code),
       },
       {
         timeoutMs,
@@ -1218,28 +1291,29 @@ export async function submitVerifiedReport(
       });
       await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
-      return { status: 422, reason: submitFailReason(outcome.reason) };
+      return { status: 422, reason: submitFailReason(outcome.reason, isServiceReport) };
     }
     const mapped = mapAiVerdict({
       impliedCategory: outcome.category,
-      assetCategory: assetCategory.code,
+      expectedCategory: expectedCategory.code,
       category: outcome.category,
       issueType: outcome.issueType,
       priority: outcome.priority,
       categories: categories.map((entry) => entry.code),
-      issueTypes: issueTypes.map((entry) => entry.code),
+      issueTypes: aiIssueTypes.map((entry) => entry.code),
     });
     if (!mapped.ok) {
+      const reasonCode = mapped.reason === 'WRONG_ASSET' ? mismatchCode : mapped.reason;
       await repoMarkAiAnalysis(conn.db, analysis.id, {
         status: 'FAILED',
-        errorCode: mapped.reason,
+        errorCode: reasonCode,
       });
       await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
-      return { status: 422, reason: toReporterReason(mapped.reason) };
+      return { status: 422, reason: toReporterReason(reasonCode) };
     }
     const finalCategory = categories.find((entry) => entry.code === mapped.categoryCode);
-    const finalIssue = issueTypes.find((entry) => entry.code === mapped.issueTypeCode);
+    const finalIssue = allIssueTypes.find((entry) => entry.code === mapped.issueTypeCode);
     if (
       finalCategory === undefined ||
       finalIssue === undefined ||
@@ -1248,11 +1322,11 @@ export async function submitVerifiedReport(
     ) {
       await repoMarkAiAnalysis(conn.db, analysis.id, {
         status: 'FAILED',
-        errorCode: 'WRONG_ASSET',
+        errorCode: mismatchCode,
       });
       await discardStagedPhotos();
       await compensateFailedSubmit(conn.db, report.id);
-      return { status: 422, reason: toReporterReason('WRONG_ASSET') };
+      return { status: 422, reason: toReporterReason(mismatchCode) };
     }
     const location = await repoGetLocation(conn.db, report.locationId);
     let affected = 1;
@@ -1268,7 +1342,8 @@ export async function submitVerifiedReport(
     }
     const score = scorePriority({
       categoryWeight: finalCategory.weight,
-      assetWeight: asset.weight,
+      // A service report has no asset: the median asset weight applies.
+      assetWeight: asset?.weight ?? null,
       locationScore: location?.tierScore ?? null,
       affectedReporters: affected,
       issueTypeCode: finalIssue.code,
@@ -1292,7 +1367,13 @@ export async function submitVerifiedReport(
       .update(maintenanceReports)
       .set({
         priorityScore: score.score,
-        priorityFactors: { ...score.factors, scoringComplete: score.scoringComplete },
+        // A service report has no asset weight by design, so admins should not
+        // read the missing weight as missing data: `assetless` marks it.
+        priorityFactors: {
+          ...score.factors,
+          scoringComplete: score.scoringComplete,
+          ...(isServiceReport ? { assetless: true } : {}),
+        },
         scoringConfigVersion: score.scoringConfigVersion,
         version: verified.version + 1,
         updatedAt: new Date(),

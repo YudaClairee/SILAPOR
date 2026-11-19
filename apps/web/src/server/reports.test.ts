@@ -416,6 +416,15 @@ function submitBody() {
   };
 }
 
+function serviceBody() {
+  return {
+    locationId: UUID_A,
+    serviceCategoryId: UUID_B,
+    description: 'Pintu ruang 3.04 terkunci, kelas jam 08.00 tidak bisa masuk',
+    photoKeys: [SUBMIT_STAGED_KEY],
+  };
+}
+
 function stagedRow() {
   return {
     id: '99999999-9999-4999-8999-999999999999',
@@ -1507,7 +1516,7 @@ describe('submitVerifiedReport AI verification wiring', () => {
       expect(verifyInput.photos).toBeUndefined();
       expect(dbMocks.recordAiAnalysis).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ promptVersion: 'v4', schemaVersion: 'v2' }),
+        expect.objectContaining({ promptVersion: 'v5', schemaVersion: 'v2' }),
       );
       expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
         expect.anything(),
@@ -1778,6 +1787,272 @@ describe('normalizeVerifiedSubmitBody', () => {
       normalizeVerifiedSubmitBody({ ...submitBody(), description: 'too short' }),
     ).toThrowError(/description/);
   });
+
+  it('accepts exactly one of assetId or serviceCategoryId and tags the kind', () => {
+    const asset = normalizeVerifiedSubmitBody(submitBody());
+    expect(asset.kind).toBe('ASSET');
+    expect(asset).toMatchObject({ kind: 'ASSET', assetId: UUID_B, locationId: UUID_A });
+
+    const service = normalizeVerifiedSubmitBody(serviceBody());
+    expect(service.kind).toBe('SERVICE');
+    expect(service).toMatchObject({ kind: 'SERVICE', serviceCategoryId: UUID_B });
+    expect(service).not.toHaveProperty('assetId');
+
+    const snake = normalizeVerifiedSubmitBody({
+      location_id: UUID_A,
+      service_category_id: UUID_B,
+      description: 'Pintu ruang 3.04 terkunci, kelas jam 08.00 tidak bisa masuk',
+    });
+    expect(snake).toMatchObject({ kind: 'SERVICE', serviceCategoryId: UUID_B, photoKeys: [] });
+  });
+
+  it('treats a null asset or service field as absent', () => {
+    expect(normalizeVerifiedSubmitBody({ ...serviceBody(), assetId: null }).kind).toBe('SERVICE');
+    expect(normalizeVerifiedSubmitBody({ ...submitBody(), serviceCategoryId: null }).kind).toBe(
+      'ASSET',
+    );
+  });
+
+  it('rejects a body that has both assetId and serviceCategoryId', () => {
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...submitBody(), serviceCategoryId: UUID_A }),
+    ).toThrowError(/mutually exclusive/);
+    expect(() => normalizeVerifiedSubmitBody({ ...serviceBody(), asset_id: UUID_A })).toThrowError(
+      /mutually exclusive/,
+    );
+  });
+
+  it('rejects a body with neither assetId nor serviceCategoryId', () => {
+    const noAsset = { ...serviceBody(), serviceCategoryId: undefined };
+    expect(() => normalizeVerifiedSubmitBody(noAsset)).toThrowError(/is required/);
+    expect(() => normalizeVerifiedSubmitBody({ ...noAsset, assetId: null })).toThrowError(
+      /is required/,
+    );
+  });
+
+  it('validates the service category UUID and the asset UUID separately', () => {
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...serviceBody(), serviceCategoryId: 'nope' }),
+    ).toThrowError(/serviceCategoryId must be a valid UUID/);
+    expect(() => normalizeVerifiedSubmitBody({ ...submitBody(), assetId: 'nope' })).toThrowError(
+      /assetId must be a valid UUID/,
+    );
+  });
+
+  it('still rejects category_id on a service body', () => {
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...serviceBody(), category_id: UUID_A }),
+    ).toThrowError(/category_id must not be provided/);
+  });
+});
+
+// A service report uses the service category id (UUID_B in serviceBody) and
+// has no asset: the AI sees the category name and the location labels only.
+const LOCKED_ISSUE_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
+const GENERIC_ISSUE_ID = 'aaaaaaaa-2222-4222-8222-222222222222';
+
+function arrangeServiceContext() {
+  dbMocks.listCategories.mockResolvedValue([
+    { id: UUID_B, code: 'ACCESS', name: 'Akses & Kunci', weight: 35, requiresAsset: false },
+    { id: SUBMIT_CATEGORY_ID, code: 'PLUMBING', name: 'Plumbing', weight: 20 },
+  ]);
+  dbMocks.listIssueTypes.mockResolvedValue([
+    { id: LOCKED_ISSUE_ID, code: 'LOCKED', name: 'Terkunci', categoryId: UUID_B },
+    { id: GENERIC_ISSUE_ID, code: 'OTHER', name: 'Lainnya', categoryId: null },
+    { id: SUBMIT_ISSUE_ID, code: 'LEAKING', name: 'Leaking', categoryId: SUBMIT_CATEGORY_ID },
+  ]);
+  dbMocks.getLocation.mockResolvedValue({
+    id: UUID_A,
+    type: 'ROOM',
+    name: 'Ruang 3.04',
+    parentId: null,
+    tierScore: 12,
+  });
+  dbMocks.countAffectedReporters.mockResolvedValue(1);
+}
+
+// Records the verified-report snapshot so tests can read the saved scoring.
+const serviceUpdateSet = vi.fn(() => ({
+  where: () => ({
+    returning: async () => [{ id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000012', version: 3 }],
+  }),
+}));
+
+function arrangeServiceCreated() {
+  dbMocks.createReport.mockResolvedValue({
+    report: {
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000012',
+      status: 'REPORTED',
+      reporterId: SUBMIT_REPORTER_ID,
+      assetId: null,
+      locationId: UUID_A,
+      submittedCategoryId: UUID_B,
+    },
+    duplicateCandidates: [],
+    relation: null,
+    idempotentReplay: false,
+  });
+  dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+  dbMocks.applyVerification.mockResolvedValue({
+    id: SUBMIT_REPORT_ID,
+    ticketNumber: 'MNT-2026-000012',
+    status: 'VERIFIED',
+    version: 2,
+  });
+  dbMocks.getDb.mockReturnValue({
+    db: {
+      transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({ delete: () => ({ where: async () => [] }) }),
+      update: () => ({
+        set: serviceUpdateSet,
+      }),
+    },
+    close: async () => undefined,
+  });
+}
+
+describe('submitVerifiedReport service reports (Langkah 5)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMocks.requireUser.mockResolvedValue(sessionUser());
+    arrangeStagedKeys();
+    arrangeServiceContext();
+    arrangeServiceCreated();
+  });
+
+  const verifyOpts = () => ({
+    model: 'test-model',
+    timeoutMs: 50,
+    apiKey: 'test-openrouter-key',
+    storage: fakeStorage(),
+  });
+
+  it('verifies a service report against its category and location', async () => {
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'PASS',
+      category: 'ACCESS',
+      issueType: 'LOCKED',
+      priority: 'HIGH',
+      confidence: 0.9,
+      reasons: ['ok'],
+      model: 'test-model',
+      promptVersion: 'v5',
+      schemaVersion: 'v2',
+    });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-pass-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({
+      status: 201,
+      verification: { status: 'VERIFIED', category: 'ACCESS', issueType: 'LOCKED' },
+    });
+    const verifyInput = aiMocks.verifyReport.mock.calls[0]?.[0] as {
+      asset?: unknown;
+      serviceCategory?: unknown;
+      location?: unknown;
+      issueTypes: string[];
+    };
+    expect(verifyInput.asset).toBeUndefined();
+    expect(verifyInput.serviceCategory).toEqual({ code: 'ACCESS', name: 'Akses & Kunci' });
+    expect(verifyInput.location).toEqual({ room: 'Ruang 3.04' });
+    // Generic and ACCESS-owned issue types only: never PLUMBING's LEAKING.
+    expect(verifyInput.issueTypes).toEqual(['LOCKED', 'OTHER']);
+    expect(dbMocks.applyVerification).toHaveBeenCalledTimes(1);
+    // Scoring without an asset: flagged as assetless, not as missing data.
+    expect(serviceUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        priorityScore: expect.any(Number),
+        priorityFactors: expect.objectContaining({ assetless: true, scoringComplete: false }),
+      }),
+    );
+  });
+
+  it('fails a PASS whose category is not the chosen service category', async () => {
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'PASS',
+      category: 'PLUMBING',
+      issueType: 'OTHER',
+      priority: 'MEDIUM',
+      confidence: 0.6,
+      reasons: [],
+      model: 'test-model',
+      promptVersion: 'v5',
+      schemaVersion: 'v2',
+    });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-mismatch-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({
+      status: 422,
+      reason: toReporterReason('WRONG_SERVICE_CATEGORY'),
+    });
+    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
+      expect.anything(),
+      SUBMIT_ANALYSIS_ID,
+      expect.objectContaining({ status: 'FAILED', errorCode: 'WRONG_SERVICE_CATEGORY' }),
+    );
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+  });
+
+  it('gives a free-text service FAIL (damage or cleanliness) the service copy', async () => {
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'FAIL',
+      reason: 'Keluhan kebersihan, laporkan lewat aplikasi kebersihan.',
+    });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-fail-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({ status: 422, reason: toReporterReason('WRONG_SERVICE_CATEGORY') });
+    expect(toReporterReason('WRONG_SERVICE_CATEGORY')).toContain('aplikasi pelaporan kebersihan');
+    expect(toReporterReason('WRONG_SERVICE_CATEGORY')).toContain('Kerusakan fasilitas');
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+  });
+
+  it('holds a service report as HELD when the AI is DOWN', async () => {
+    aiMocks.verifyReport.mockResolvedValue({ kind: 'DOWN' });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-down-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({ status: 202, verification: { status: 'HELD' } });
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+  });
+
+  it('merges a service report into another ticket without calling the AI', async () => {
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000013',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: null,
+        locationId: UUID_A,
+        submittedCategoryId: UUID_B,
+      },
+      duplicateCandidates: [],
+      relation: { type: 'SUPPORTING', targetTicket: 'MNT-2026-000012' },
+      idempotentReplay: false,
+    });
+    const verify = vi.fn();
+    const res = await submitVerifiedReport(submitRequest(), serviceBody(), 'key-service-merged-1', {
+      ...verifyOpts(),
+      verify,
+    });
+    expect(res).toMatchObject({ status: 201, verification: { status: 'MERGED' } });
+    expect(verify).not.toHaveBeenCalled();
+  });
 });
 
 describe('mapAiVerdict (domain, submit wiring)', () => {
@@ -1787,7 +2062,7 @@ describe('mapAiVerdict (domain, submit wiring)', () => {
     expect(
       mapAiVerdict({
         impliedCategory: 'PLUMBING',
-        assetCategory: 'PLUMBING',
+        expectedCategory: 'PLUMBING',
         category: 'PLUMBING',
         issueType: 'LEAKING',
         priority: 'MEDIUM',
@@ -1800,7 +2075,7 @@ describe('mapAiVerdict (domain, submit wiring)', () => {
     expect(
       mapAiVerdict({
         impliedCategory: 'ROOFING',
-        assetCategory: 'PLUMBING',
+        expectedCategory: 'PLUMBING',
         category: 'ROOFING',
         issueType: 'LEAKING',
         priority: 'MEDIUM',
@@ -1813,7 +2088,7 @@ describe('mapAiVerdict (domain, submit wiring)', () => {
     expect(
       mapAiVerdict({
         impliedCategory: 'HVAC',
-        assetCategory: 'PLUMBING',
+        expectedCategory: 'PLUMBING',
         category: 'HVAC',
         issueType: 'LEAKING',
         priority: 'MEDIUM',

@@ -152,7 +152,7 @@ describe('verifyReport', () => {
       confidence: 0.9,
       reasons: ['photo shows active leak'],
       model: opts.model,
-      promptVersion: 'v4',
+      promptVersion: 'v5',
       schemaVersion: 'v2',
     });
   });
@@ -323,7 +323,9 @@ describe('verifyReport', () => {
     expect(system).toContain('different object, asset, or place');
     expect(system).not.toContain('Photo quality: FAIL');
     expect(system).not.toContain('retake the photo');
-    expect(system).toContain('Do NOT fail a report merely because the defect is not described as visible');
+    expect(system).toContain(
+      'Do NOT fail a report merely because the defect is not described as visible',
+    );
   });
 
   it('requests usage accounting so cost is returned', async () => {
@@ -396,6 +398,84 @@ describe('verifyReport', () => {
     expect(system).toContain('LOW');
     expect(system).not.toContain(malicious);
     expect(String(messages[1]?.content)).toContain(malicious);
+  });
+});
+
+describe('verifyReport (service branch)', () => {
+  const serviceInput: VerifyInput = {
+    description: 'Pintu ruang 3.04 terkunci, kelas jam 08.00 tidak bisa masuk.',
+    serviceCategory: { code: 'ACCESS', name: 'Akses & Kunci' },
+    location: { building: 'Gedung A', floor: '3', room: '3.04' },
+    categories: ['ACCESS', 'PLUMBING'],
+    issueTypes: ['LOCKED', 'BROKEN'],
+  };
+
+  async function capture(
+    verdict: unknown,
+    value: VerifyInput,
+  ): Promise<{ out: unknown; body: Record<string, unknown> | undefined }> {
+    let body: Record<string, unknown> | undefined;
+    const spy = (async (_url: unknown, init?: { body?: unknown }) => {
+      body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify(verdictBody(verdict)), { status: 200 });
+    }) as unknown as typeof fetch;
+    const out = await verifyReport(value, { ...opts, fetch: spy });
+    return { out, body };
+  }
+
+  it('sends the service category and location, never an asset line', async () => {
+    const { body } = await capture({ verdict: 'FAIL', reason: 'Unclear.' }, serviceInput);
+    const messages = body?.['messages'] as Array<{ role: string; content: unknown }>;
+    const user = String(messages[1]?.content);
+    expect(user).toContain('Service category: Akses & Kunci (code ACCESS)');
+    expect(user).toContain('Location: Gedung A / 3 / 3.04');
+    expect(user).not.toContain('Asset:');
+  });
+
+  it('uses the service system prompt with the cleanliness and damage rules', async () => {
+    const { body } = await capture({ verdict: 'FAIL', reason: 'Unclear.' }, serviceInput);
+    const messages = body?.['messages'] as Array<{ role: string; content: unknown }>;
+    const system = String(messages[0]?.content);
+    expect(system).toContain('service report');
+    expect(system).toContain('cleanliness');
+    expect(system).toContain('untrusted');
+    expect(system).not.toContain('chosen asset');
+  });
+
+  it('returns PASS for a service verdict with the service category code', async () => {
+    const { out } = await capture(
+      {
+        verdict: 'PASS',
+        category: 'ACCESS',
+        issueType: 'LOCKED',
+        priority: 'HIGH',
+        confidence: 0.8,
+      },
+      serviceInput,
+    );
+    expect(out).toMatchObject({
+      kind: 'PASS',
+      category: 'ACCESS',
+      issueType: 'LOCKED',
+      priority: 'HIGH',
+      promptVersion: 'v5',
+    });
+  });
+
+  it('rejects an input that has neither an asset nor a service category', async () => {
+    const out = await verifyReport(
+      { description: serviceInput.description, categories: [], issueTypes: [] },
+      { ...opts, fetch: hangingFetch },
+    );
+    expect(out).toEqual({ kind: 'FAIL', reason: 'INVALID_INPUT' });
+  });
+
+  it('rejects an input that has both an asset and a service category', async () => {
+    const out = await verifyReport(
+      { ...serviceInput, asset: { name: 'AC', category: 'HVAC' } },
+      { ...opts, fetch: hangingFetch },
+    );
+    expect(out).toEqual({ kind: 'FAIL', reason: 'INVALID_INPUT' });
   });
 });
 

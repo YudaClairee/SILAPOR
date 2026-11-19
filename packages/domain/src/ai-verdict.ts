@@ -4,7 +4,9 @@
 
 export interface AiVerdictInput {
   impliedCategory: string;
-  assetCategory: string;
+  // The category the report was submitted under: the asset's category for a
+  // damage report, or the chosen service category for a service report.
+  expectedCategory: string;
   category: string;
   issueType: string;
   priority: string;
@@ -19,7 +21,7 @@ export type AiVerdictResult =
 export function mapAiVerdict(input: AiVerdictInput): AiVerdictResult {
   // Runtime-guard choice (documented): a non-string/blank impliedCategory
   // means the AI implied nothing usable → UNCLEAR_EVIDENCE; a non-string
-  // assetCategory/category/issueType means the caller passed a code that can
+  // expectedCategory/category/issueType means the caller passed a code that can
   // never match the master list → UNKNOWN_CODE (same as an unknown string
   // code). All string fields are trimmed ONCE into locals and only the
   // trimmed values are used for every includes/equality check and return,
@@ -31,26 +33,26 @@ export function mapAiVerdict(input: AiVerdictInput): AiVerdictResult {
     return { ok: false, reason: 'UNCLEAR_EVIDENCE' };
   }
   if (
-    typeof raw['assetCategory'] !== 'string' ||
+    typeof raw['expectedCategory'] !== 'string' ||
     typeof raw['category'] !== 'string' ||
     typeof raw['issueType'] !== 'string'
   ) {
     return { ok: false, reason: 'UNKNOWN_CODE' };
   }
-  const assetCategory = (raw['assetCategory'] as string).trim();
+  const expectedCategory = (raw['expectedCategory'] as string).trim();
   const category = (raw['category'] as string).trim();
   const issueType = (raw['issueType'] as string).trim();
   const priority =
     typeof raw['priority'] === 'string' ? (raw['priority'] as string).trim() : input.priority;
   if (
     !input.categories.includes(implied) ||
-    !input.categories.includes(assetCategory) ||
+    !input.categories.includes(expectedCategory) ||
     !input.categories.includes(category) ||
     !input.issueTypes.includes(issueType)
   ) {
     return { ok: false, reason: 'UNKNOWN_CODE' };
   }
-  if (implied !== assetCategory) {
+  if (implied !== expectedCategory) {
     return { ok: false, reason: 'WRONG_ASSET' };
   }
   return {
