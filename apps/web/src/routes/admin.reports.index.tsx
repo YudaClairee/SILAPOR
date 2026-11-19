@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { Link, createFileRoute, redirect, useNavigate, useRouter } from '@tanstack/react-router';
 import {
+  ADMIN_REPORT_KIND_OPTIONS,
   ADMIN_SORT_OPTIONS,
   buildAdminListParams,
   pageRange,
@@ -39,7 +40,10 @@ interface AdminReportRow {
   readonly status: string;
   readonly finalPriority: string | null;
   readonly priorityScore: number | null;
+  // Null for service reports (no asset): the category name stands in.
+  readonly assetId: string | null;
   readonly assetName: string | null;
+  readonly submittedCategoryId: string;
   readonly locationName: string | null;
   readonly technicianName: string | null;
   readonly reporterCount: number | null;
@@ -62,6 +66,7 @@ interface AdminListData {
 interface AdminListSearch {
   readonly search: string;
   readonly status: string;
+  readonly kind: string;
   readonly categoryId: string;
   readonly locationId: string;
   readonly priority: string;
@@ -90,6 +95,7 @@ interface AdminListBundle {
 const DEFAULT_SEARCH: AdminListSearch = {
   search: '',
   status: '',
+  kind: '',
   categoryId: '',
   locationId: '',
   priority: '',
@@ -115,7 +121,7 @@ const STATUS_TABS = [
 
 const REPORT_COLUMNS = [
   'Ticket ID',
-  'Aset',
+  'Aset / Layanan',
   'Lokasi',
   'Prioritas',
   'Status',
@@ -141,6 +147,7 @@ async function fetchAdminListBundle(
       categoryId: search.categoryId,
       locationId: search.locationId,
       priority: search.priority,
+      kind: search.kind,
       reporterId: search.reporterId,
       from: search.from,
       to: search.to,
@@ -186,6 +193,7 @@ export const Route = createFileRoute('/admin/reports/')({
   validateSearch: (search: Record<string, unknown>): AdminListSearch => ({
     search: stringParam(search, 'search', ''),
     status: stringParam(search, 'status', ''),
+    kind: stringParam(search, 'kind', ''),
     categoryId: stringParam(search, 'categoryId', ''),
     locationId: stringParam(search, 'locationId', ''),
     priority: stringParam(search, 'priority', ''),
@@ -386,6 +394,29 @@ function StatusTab({ status, label, count, active, search }: StatusTabProps) {
   );
 }
 
+interface KindTabProps {
+  readonly kind: string;
+  readonly label: string;
+  readonly active: boolean;
+  readonly search: AdminListSearch;
+}
+
+// Jenis laporan filter: kerusakan (ada aset) vs layanan (tanpa aset).
+function KindTab({ kind, label, active, search }: KindTabProps) {
+  return (
+    <Link
+      to="/admin/reports"
+      search={{ ...search, kind, offset: 0 }}
+      aria-current={active ? 'page' : undefined}
+      className={`inline-flex min-h-[36px] items-center rounded-[10px] px-3 text-[13px] font-medium transition-colors ${
+        active ? 'bg-[#e7f7fb] text-[#0a3947]' : 'text-[#33414d] hover:bg-[#eef3fb]'
+      }`}
+    >
+      {label}
+    </Link>
+  );
+}
+
 interface PaginationProps {
   readonly current: number;
   readonly totalPages: number;
@@ -514,6 +545,7 @@ function AdminReportsPage() {
 
   const reports = clientBundle?.reports ?? loaderData.reports;
   const options = clientBundle?.options ?? loaderData.options;
+  const categoryNames = new Map((options?.categories ?? []).map((c) => [c.id, c.name] as const));
   const loadError = clientError ?? clientBundle?.loadError ?? loaderData.loadError;
   const forbidden = (clientBundle?.forbidden ?? loaderData.forbidden) && !clientPending;
 
@@ -598,6 +630,23 @@ function AdminReportsPage() {
               search={search}
             />
           )}
+        </div>
+        <div
+          role="group"
+          aria-label="Jenis laporan"
+          className="mt-2 flex flex-wrap items-center gap-1 border-t border-[#e8edf3] pt-2"
+        >
+          <span className="px-2 text-[13px] text-[#5c6b7a]">Jenis:</span>
+          <KindTab kind="" label="Semua" active={search.kind === ''} search={search} />
+          {ADMIN_REPORT_KIND_OPTIONS.map((option) => (
+            <KindTab
+              key={option.value}
+              kind={option.value}
+              label={option.label}
+              active={search.kind === option.value}
+              search={search}
+            />
+          ))}
         </div>
       </div>
 
@@ -840,7 +889,12 @@ function AdminReportsPage() {
                         </Link>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-[14px] font-semibold text-[#202a33]">
-                        {item.assetName ?? '—'}
+                        {item.assetName ?? categoryNames.get(item.submittedCategoryId) ?? '—'}
+                        {item.assetId === null ? (
+                          <span className="ml-2 rounded-full bg-[#e7f7fb] px-2 py-0.5 text-[11px] font-semibold text-[#0a3947]">
+                            Layanan
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-6 py-4 text-[14px] text-[#4a5a6a]">
                         {item.locationName ?? '—'}

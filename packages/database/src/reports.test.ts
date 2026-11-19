@@ -1586,6 +1586,50 @@ describe.skipIf(!enabled)(
       expect(item?.submittedCategoryName).toBe('T3 T3-ACCESS');
     });
 
+    it('filters the admin list by report kind: service rows have no asset, damage rows do', async () => {
+      const locG = await freshRoom('T3-ROOM-G');
+      const svc = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locG,
+          serviceCategoryId: catAccess,
+          description: longDescription('filter jenis layanan'),
+        },
+        randomUUID(),
+      );
+      const dmgAsset = await createAsset('T3-ASSET-KIND-1', catElec);
+      const dmg = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locA,
+          assetId: dmgAsset,
+          description: longDescription('filter jenis kerusakan'),
+        },
+        randomUUID(),
+      );
+      const serviceOnly = await listAllReports(db!, {
+        reportKind: 'SERVICE',
+        search: svc.report.ticketNumber,
+      });
+      expect(serviceOnly.items.map((row) => row.ticketNumber)).toEqual([svc.report.ticketNumber]);
+      expect(serviceOnly.items.every((row) => row.assetId === null)).toBe(true);
+
+      const damageOnly = await listAllReports(db!, {
+        reportKind: 'DAMAGE',
+        search: dmg.report.ticketNumber,
+      });
+      expect(damageOnly.items.map((row) => row.ticketNumber)).toEqual([dmg.report.ticketNumber]);
+
+      // A service ticket never shows under the damage filter.
+      const crossed = await listAllReports(db!, {
+        reportKind: 'DAMAGE',
+        search: svc.report.ticketNumber,
+      });
+      expect(crossed.items).toEqual([]);
+    });
+
     it('rejects an inactive service category with 400 and an unknown one with 404', async () => {
       await expect(
         createReport(
@@ -1699,6 +1743,14 @@ it('reports Task 3 availability (informational)', () => {
 // tests pass a stub that would crash on use; any path reaching the database
 // with this stub fails loudly instead of passing silently.
 const stubDb = undefined as never;
+
+describe('report kind filter (pure)', () => {
+  it('rejects an unknown kind with 400 before any query', async () => {
+    await expect(listAllReports(stubDb, { reportKind: 'OTHER' })).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+});
 
 describe('P3-3 list validation (pure)', () => {
   it('rejects invalid status values with 400', async () => {

@@ -42,6 +42,8 @@ export function AdminTicketV2Content(props: {
   const totalLabel = related.length === 0 ? '1 Laporan' : `${related.length + 1} Laporan Tergabung`;
   const categoryName = detail.report.finalCategoryId === null ? '—' : (categoryNames.get(detail.report.finalCategoryId) ?? detail.report.finalCategoryId);
   const issueTypeName = detail.report.finalIssueTypeId === null ? '—' : (issueTypeNames.get(detail.report.finalIssueTypeId) ?? detail.report.finalIssueTypeId);
+  // A service report (no asset) is labelled as such instead of "Tanpa aset terdaftar".
+  const isService = detail.report.assetId === null;
   return (
     <>
       <AdminTicketHeader
@@ -58,8 +60,9 @@ export function AdminTicketV2Content(props: {
         {props.activeTab === 'ringkasan' ? (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <AdminAssetAssignmentCard
+              assetLabel={isService ? 'Jenis Laporan' : 'ID & Nama Aset'}
               assetCode={detail.report.assetId === null ? null : (assetCodes.get(detail.report.assetId) ?? null)}
-              assetName={detail.report.assetId === null ? 'Tanpa aset terdaftar' : (assetNames.get(detail.report.assetId) ?? detail.report.assetId)}
+              assetName={isService ? 'Laporan layanan — tidak terkait aset' : (assetNames.get(detail.report.assetId ?? '') ?? detail.report.assetId ?? '')}
               categoryName={categoryName}
               locationLabel={locationNames.get(detail.report.locationId) ?? detail.report.locationId}
               technicianName={null}

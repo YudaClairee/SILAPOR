@@ -2,6 +2,8 @@
 import { formatJakartaDateTime } from '../lib/ticket-detail.js';
 
 export function AdminAssetAssignmentCard(props: {
+  // Service reports have no asset: the caller relabels the identity row.
+  readonly assetLabel?: string;
   readonly assetCode: string | null; readonly assetName: string; readonly categoryName: string;
   readonly locationLabel: string; readonly technicianName: string | null; readonly technicianSpecialty: string | null;
   readonly technicianActiveCount: number | null; readonly assignedAt: string | null;
@@ -10,7 +12,7 @@ export function AdminAssetAssignmentCard(props: {
     <section aria-labelledby="admin-detail-asset-title" className="rounded-xl border border-border bg-surface p-5 shadow-sm">
       <h2 id="admin-detail-asset-title" className="text-base font-semibold text-text">Identitas Aset, Lokasi &amp; Penugasan</h2>
       <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div><dt className="text-xs text-muted">ID &amp; Nama Aset</dt><dd className="mt-0.5 text-sm font-medium text-text">{props.assetCode === null ? props.assetName : `${props.assetCode} · ${props.assetName}`}</dd></div>
+        <div><dt className="text-xs text-muted">{props.assetLabel ?? 'ID &amp; Nama Aset'}</dt><dd className="mt-0.5 text-sm font-medium text-text">{props.assetCode === null ? props.assetName : `${props.assetCode} · ${props.assetName}`}</dd></div>
         <div><dt className="text-xs text-muted">Kategori Fasilitas</dt><dd className="mt-0.5 text-sm text-text">{props.categoryName}</dd></div>
       </dl>
       <div className="mt-3"><p className="text-xs text-muted">Lokasi Terdaftar</p><p className="mt-0.5 text-sm font-medium text-text">{props.locationLabel}</p></div>

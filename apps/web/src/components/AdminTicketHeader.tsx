@@ -23,6 +23,7 @@ export interface AdminTicketHeaderProps {
 const REPORT_LIST_DEFAULTS = {
   search: '',
   status: '',
+  kind: '',
   categoryId: '',
   locationId: '',
   priority: '',

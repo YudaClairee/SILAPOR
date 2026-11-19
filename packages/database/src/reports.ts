@@ -1164,6 +1164,17 @@ function parseStatusFilter(status: unknown): Array<(typeof REPORT_STATUS)[number
   return values as Array<(typeof REPORT_STATUS)[number]>;
 }
 
+// Empty means "no filter"; anything other than DAMAGE/SERVICE is a 400.
+function parseReportKindFilter(kind: unknown): ReportKindFilter | undefined {
+  if (kind === undefined || kind === null || kind === '') {
+    return undefined;
+  }
+  if (typeof kind !== 'string' || !(REPORT_KIND_FILTER as readonly string[]).includes(kind)) {
+    throw badRequest('Invalid report kind filter');
+  }
+  return kind as ReportKindFilter;
+}
+
 function parsePriorityFilter(priority: unknown): string | undefined {
   if (priority === undefined || priority === null) {
     return undefined;
@@ -1225,7 +1236,12 @@ export interface ListMyReportsOptions {
 export interface ListAllReportsOptions extends ListMyReportsOptions {
   readonly reporterId?: string | undefined;
   readonly search?: string | undefined;
+  // DAMAGE = reports on an asset; SERVICE = asset-less service reports.
+  readonly reportKind?: string | undefined;
 }
+
+export const REPORT_KIND_FILTER = ['DAMAGE', 'SERVICE'] as const;
+export type ReportKindFilter = (typeof REPORT_KIND_FILTER)[number];
 
 export interface ReportListResult {
   readonly items: schema.Report[];
@@ -1248,6 +1264,7 @@ async function queryReportList(
     readonly from?: unknown;
     readonly to?: unknown;
     readonly search?: unknown;
+    readonly reportKind?: unknown;
     // Campus list searches ticket + asset name + location name (reporter-safe
     // locations only); admin lists add description and include hidden/inactive
     // locations because UMPER must find lift rooms and archived assets too.
@@ -1263,6 +1280,7 @@ async function queryReportList(
   const categoryId = optionalUuid(filter.categoryId, 'categoryId');
   const locationId = optionalUuid(filter.locationId, 'locationId');
   const priority = parsePriorityFilter(filter.priority);
+  const reportKind = parseReportKindFilter(filter.reportKind);
   const from = parseDateBound(filter.from, 'from');
   const to = parseDateBound(filter.to, 'to');
   const pattern = buildSearchPattern(filter.search);
@@ -1303,6 +1321,13 @@ async function queryReportList(
   }
   if (priority !== undefined) {
     conditions.push(eq(schema.maintenanceReports.finalPriority, priority));
+  }
+  if (reportKind !== undefined) {
+    conditions.push(
+      reportKind === 'DAMAGE'
+        ? isNotNull(schema.maintenanceReports.assetId)
+        : isNull(schema.maintenanceReports.assetId),
+    );
   }
   if (from !== undefined) {
     conditions.push(gte(schema.maintenanceReports.reportedAt, from.instant));

@@ -94,8 +94,10 @@ export function DashboardContent({
 }) {
   return (
     <>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Keluhan masuk" value={model.cards.totalReports} detail="Pada periode terpilih" />
+        <MetricCard label="Kerusakan fasilitas" value={model.cards.damageReports} detail="Terkait aset" />
+        <MetricCard label="Kendala layanan" value={model.cards.serviceReports} detail="Tanpa aset, misalnya akses atau keamanan" />
         <MetricCard label="Keluhan aktif" value={model.cards.activeReports} detail={`${model.cards.inRepair} sedang diperbaiki`} />
         <MetricCard label="Prioritas tinggi" value={model.cards.highPriorityActive} detail="Masih aktif" />
         <MetricCard label="Selesai bulan ini" value={model.cards.resolvedThisMonth} detail="Metrik bulan berjalan" />
