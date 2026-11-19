@@ -122,6 +122,7 @@ function normalizeCategoryInput(input: unknown): CategoryCreateInput {
   copyField(input, out, 'description', []);
   copyField(input, out, 'weight', []);
   copyField(input, out, 'isActive', ['is_active']);
+  copyField(input, out, 'requiresAsset', ['requires_asset']);
   return out as unknown as CategoryCreateInput;
 }
 

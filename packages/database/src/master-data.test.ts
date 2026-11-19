@@ -52,6 +52,16 @@ describe('validateCategoryInput', () => {
     expect(validateCategoryInput(null)).not.toEqual([]);
     expect(validateCategoryInput('ELECTRICAL')).not.toEqual([]);
   });
+
+  it('accepts requiresAsset true or false, and rejects a non-boolean', () => {
+    expect(
+      validateCategoryInput({ code: 'ACCESS', name: 'Akses', requiresAsset: false }),
+    ).toEqual([]);
+    expect(validateCategoryInput({ code: 'HVAC', name: 'HVAC', requiresAsset: true })).toEqual([]);
+    expect(validateCategoryInput({ code: 'X', name: 'X', requiresAsset: 'no' })).toContain(
+      'requiresAsset must be a boolean',
+    );
+  });
 });
 
 describe('validateIssueTypeInput', () => {

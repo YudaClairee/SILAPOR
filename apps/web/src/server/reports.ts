@@ -559,6 +559,8 @@ export interface CategoryOption {
   readonly code: string;
   readonly name: string;
   readonly weight: number;
+  // false = service category (laporan layanan, no asset).
+  readonly requiresAsset: boolean;
 }
 
 export interface IssueTypeOption {
@@ -580,6 +582,9 @@ export interface AssetOption {
 export interface FormOptions {
   readonly locations: LocationOption[];
   readonly categories: CategoryOption[];
+  // Active service categories (requiresAsset=false) for the service report
+  // option; a subset of `categories`.
+  readonly serviceCategories: CategoryOption[];
   readonly issueTypes: IssueTypeOption[];
   readonly assets: AssetOption[];
 }
@@ -608,7 +613,18 @@ export function toLocationOption(row: Location): LocationOption {
 }
 
 export function toCategoryOption(row: FacilityCategory): CategoryOption {
-  return { id: row.id, code: row.code, name: row.name, weight: row.weight };
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    weight: row.weight,
+    requiresAsset: row.requiresAsset,
+  };
+}
+
+// Service categories only (requiresAsset=false): the reporter's service option.
+export function toServiceCategoryOptions(rows: readonly FacilityCategory[]): CategoryOption[] {
+  return rows.filter((row) => !row.requiresAsset).map(toCategoryOption);
 }
 
 export function toIssueTypeOption(row: IssueType): IssueTypeOption {
@@ -662,6 +678,7 @@ export async function listFormOptions(req: Request): Promise<FormOptions> {
     return {
       locations: locationRows.filter(isReporterVisibleLocation).map(toLocationOption),
       categories: categoryRows.map(toCategoryOption),
+      serviceCategories: toServiceCategoryOptions(categoryRows),
       issueTypes: issueTypeRows.map(toIssueTypeOption),
       assets: assetRows.map(toAssetOption),
     };

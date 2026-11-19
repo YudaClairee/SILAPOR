@@ -193,6 +193,8 @@ export function validateCategoryInput(input: unknown): string[] {
   }
   checkWeight(input['weight'], 40, errors);
   checkOptionalBoolean(input['isActive'], 'isActive', errors);
+  // false = kategori layanan (laporan tanpa aset); true (default) = kerusakan.
+  checkOptionalBoolean(input['requiresAsset'], 'requiresAsset', errors);
   return errors;
 }
 
@@ -386,6 +388,7 @@ export interface CategoryCreateInput {
   readonly description?: string | null;
   readonly weight?: number;
   readonly isActive?: boolean;
+  readonly requiresAsset?: boolean;
 }
 
 export interface CategoryPatch {
@@ -394,6 +397,7 @@ export interface CategoryPatch {
   readonly description?: string | null;
   readonly weight?: number;
   readonly isActive?: boolean;
+  readonly requiresAsset?: boolean;
 }
 
 export interface IssueTypeCreateInput {
@@ -761,6 +765,7 @@ export async function createCategory(
           // identical whether the caller omits weight or sends 10.
           weight: input.weight ?? 10,
           isActive: input.isActive ?? true,
+          requiresAsset: input.requiresAsset ?? true,
         })
         .returning();
       const row = inserted[0];
@@ -804,6 +809,7 @@ export async function updateCategory(
     description: existing.description,
     weight: existing.weight,
     isActive: existing.isActive,
+    requiresAsset: existing.requiresAsset,
     ...clean,
   };
   const errors = validateCategoryInput(merged);
@@ -823,6 +829,18 @@ export async function updateCategory(
       throw conflict(`Category code '${(clean['code'] as string).trim()}' already exists`);
     }
   }
+  // A category that already owns assets cannot become asset-less: those
+  // assets would point at a service category.
+  if (existing.requiresAsset && clean['requiresAsset'] === false) {
+    const owned = await db
+      .select({ id: schema.facilityAssets.id })
+      .from(schema.facilityAssets)
+      .where(eq(schema.facilityAssets.categoryId, id))
+      .limit(1);
+    if (owned.length > 0) {
+      throw conflict('Category already has assets and cannot become a service category');
+    }
+  }
   const set: Partial<typeof schema.facilityCategories.$inferInsert> = {};
   if (clean['code'] !== undefined) {
     set.code = (clean['code'] as string).trim();
@@ -838,6 +856,9 @@ export async function updateCategory(
   }
   if (clean['isActive'] !== undefined) {
     set.isActive = clean['isActive'] as boolean;
+  }
+  if (clean['requiresAsset'] !== undefined) {
+    set.requiresAsset = clean['requiresAsset'] as boolean;
   }
   const action = auditActionForUpdate(clean['isActive'] === false);
   try {
@@ -1169,13 +1190,22 @@ export async function getAsset(
   return rows[0];
 }
 
+// An asset may only sit in a damage category (`requiresAsset=true`). Service
+// categories (`requiresAsset=false`) never own assets.
 async function assertAssetCategoryExists(db: Database, categoryId: string): Promise<void> {
   const rows = await db
-    .select({ id: schema.facilityCategories.id })
+    .select({
+      id: schema.facilityCategories.id,
+      requiresAsset: schema.facilityCategories.requiresAsset,
+    })
     .from(schema.facilityCategories)
     .where(eq(schema.facilityCategories.id, categoryId));
-  if (rows.length === 0) {
+  const category = rows[0];
+  if (category === undefined) {
     throw badRequest('Category not found');
+  }
+  if (!category.requiresAsset) {
+    throw badRequest('Service category cannot have assets');
   }
 }
 

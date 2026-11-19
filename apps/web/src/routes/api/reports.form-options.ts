@@ -31,6 +31,7 @@ export const Route = createFileRoute('/api/reports/form-options')({
               details: redact({
                 locationCount: result.locations.length,
                 categoryCount: result.categories.length,
+                serviceCategoryCount: result.serviceCategories.length,
                 issueTypeCount: result.issueTypes.length,
                 assetCount: result.assets.length,
               }),

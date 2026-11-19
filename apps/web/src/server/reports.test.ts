@@ -26,6 +26,7 @@ import {
   toAssetOption,
   toCategoryOption,
   toIssueTypeOption,
+  toServiceCategoryOptions,
   toLocationOption,
   toReporterReason,
   type DuplicateCheckFilter,
@@ -353,7 +354,13 @@ describe('form-option projections', () => {
         isActive: true,
         requiresAsset: true,
       }),
-    ).toEqual({ id: UUID_A, code: 'ELECTRICAL', name: 'Kelistrikan', weight: 40 });
+    ).toEqual({
+      id: UUID_A,
+      code: 'ELECTRICAL',
+      name: 'Kelistrikan',
+      weight: 40,
+      requiresAsset: true,
+    });
     expect(
       toIssueTypeOption({
         id: UUID_A,
@@ -384,6 +391,33 @@ describe('form-option projections', () => {
       locationId: UUID_A,
       weight: 15,
     });
+  });
+});
+
+describe('service category form options', () => {
+  const category = (code: string, requiresAsset: boolean) => ({
+    id: UUID_A,
+    code,
+    name: code,
+    description: null,
+    weight: 35,
+    isActive: true,
+    requiresAsset,
+  });
+
+  it('keeps only asset-less categories, in order, with requiresAsset false', () => {
+    const options = toServiceCategoryOptions([
+      category('ELECTRICAL', true),
+      category('ACCESS', false),
+      category('HVAC', true),
+      category('SECURITY', false),
+    ]);
+    expect(options.map((option) => option.code)).toEqual(['ACCESS', 'SECURITY']);
+    expect(options.every((option) => option.requiresAsset === false)).toBe(true);
+  });
+
+  it('returns an empty list when no category is asset-less', () => {
+    expect(toServiceCategoryOptions([category('ELECTRICAL', true)])).toEqual([]);
   });
 });
 
