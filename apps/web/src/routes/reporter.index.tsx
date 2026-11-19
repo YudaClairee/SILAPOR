@@ -44,6 +44,8 @@ interface ReportRow {
   readonly finalPriority: string | null;
   readonly assetId: string | null;
   readonly assetName: string | null;
+  // Service reports have no asset: the category name stands in for it.
+  readonly submittedCategoryName: string | null;
   readonly locationId: string;
   readonly locationName: string | null;
   readonly locationBuildingCode: string | null;
@@ -705,7 +707,7 @@ function Page() {
                         </td>
                         <td className="px-5 py-4">
                           <p className="font-medium text-text">
-                            {row.assetName ?? 'Aset tidak tercatat'}
+                            {row.assetName ?? row.submittedCategoryName ?? 'Aset tidak tercatat'}
                           </p>
                           {row.reporterCount !== null ? (
                             <p className="mt-1 flex items-center gap-1 text-xs text-[#697784]">

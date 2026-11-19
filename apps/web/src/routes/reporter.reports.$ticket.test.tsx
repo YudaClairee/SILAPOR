@@ -21,6 +21,7 @@ const FLOOR = '22222222-2222-4222-8222-222222222222';
 const ROOM = '33333333-3333-4333-8333-333333333333';
 const ASSET = '44444444-4444-4444-8444-444444444444';
 const CATEGORY = '55555555-5555-4555-8555-555555555555';
+const SERVICE_CATEGORY = '99999999-9999-4999-8999-999999999999';
 const ISSUE = '66666666-6666-4666-8666-666666666666';
 const ATTACHMENT = '77777777-7777-4777-8777-777777777777';
 const RELATED = '88888888-8888-4888-8888-888888888888';
@@ -61,7 +62,10 @@ const FORM_OPTIONS = {
       tierScore: 90,
     },
   ],
-  categories: [{ id: CATEGORY, code: 'ELEC', name: 'Elektronik', weight: 3 }],
+  categories: [
+    { id: CATEGORY, code: 'ELEC', name: 'Elektronik', weight: 3 },
+    { id: SERVICE_CATEGORY, code: 'ACCESS', name: 'Akses & Kunci', weight: 35 },
+  ],
   issueTypes: [{ id: ISSUE, code: 'BROKEN', name: 'Rusak Total', weight: 3 }],
   assets: [{ id: ASSET, assetCode: 'PRJ-302', name: 'Proyektor Epson EB-X400', locationId: ROOM }],
 };
@@ -270,6 +274,28 @@ describe('detail tiket pelapor', () => {
     const noteBlocks = timeline.querySelectorAll('li p.mt-1');
     expect(noteBlocks).toHaveLength(1);
     expect(noteBlocks[0]).toHaveTextContent('Lampu proyektor sedang diganti teknisi.');
+  });
+
+  it('names the service category in place of an asset for a service ticket', async () => {
+    stubFetch({
+      detailBody: {
+        ...DETAIL,
+        report: {
+          ...DETAIL.report,
+          assetId: null,
+          submittedCategoryId: SERVICE_CATEGORY,
+          finalCategoryId: SERVICE_CATEGORY,
+          submittedIssueTypeId: null,
+          finalIssueTypeId: null,
+        },
+      },
+    });
+    renderPage();
+    expect(await screen.findByRole('heading', { name: '#MNT-2026-000007' })).toBeInTheDocument();
+    expect(screen.getByText('Layanan')).toBeInTheDocument();
+    expect(screen.queryByText('Tidak tercatat')).not.toBeInTheDocument();
+    // The category shows in the subject slot and in the category facts.
+    expect(screen.getAllByText('Akses & Kunci').length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows the not-found state for a missing ticket', async () => {

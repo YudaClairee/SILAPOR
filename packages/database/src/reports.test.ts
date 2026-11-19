@@ -1565,6 +1565,27 @@ describe.skipIf(!enabled)(
       expect(rows[0]?.finalCategoryId).toBeNull();
     });
 
+    it('lists a service report with its category name and no asset name', async () => {
+      const locF = await freshRoom('T3-ROOM-F');
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locF,
+          serviceCategoryId: catAccess,
+          description: longDescription('daftar layanan tanpa aset'),
+        },
+        randomUUID(),
+      );
+      const campus = await listCampusReports(db!, reporterA, {
+        search: created.report.ticketNumber,
+      });
+      const item = campus.items.find((row) => row.id === created.report.id);
+      expect(item?.assetId).toBeNull();
+      expect(item?.assetName).toBeNull();
+      expect(item?.submittedCategoryName).toBe('T3 T3-ACCESS');
+    });
+
     it('rejects an inactive service category with 400 and an unknown one with 404', async () => {
       await expect(
         createReport(

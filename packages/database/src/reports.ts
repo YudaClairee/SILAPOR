@@ -1538,6 +1538,9 @@ export interface CampusReportListItem {
   readonly locationId: string;
   readonly assetId: string | null;
   readonly assetName: string | null;
+  // Name of the submitted category: the label for asset-less service reports,
+  // where `assetName` is null.
+  readonly submittedCategoryName: string | null;
   // Null when the location is inactive or reporterHidden (lift rooms).
   readonly locationName: string | null;
   readonly locationBuildingCode: string | null;
@@ -1579,6 +1582,7 @@ function toCampusReportListItem(row: schema.Report, viewerId: string): CampusRep
     locationId: row.locationId,
     assetId: row.assetId,
     assetName: null,
+    submittedCategoryName: null,
     locationName: null,
     locationBuildingCode: null,
     locationFloorNumber: null,
@@ -1619,6 +1623,7 @@ export async function listCampusReports(
     ...new Set(rows.map((row) => row.assetId).filter((value): value is string => value !== null)),
   ];
   const locationIds = [...new Set(rows.map((row) => row.locationId))];
+  const categoryIds = [...new Set(rows.map((row) => row.submittedCategoryId))];
   const assetRows =
     assetIds.length === 0
       ? []
@@ -1626,6 +1631,13 @@ export async function listCampusReports(
           .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
           .from(schema.facilityAssets)
           .where(inArray(schema.facilityAssets.id, assetIds));
+  const categoryRows =
+    categoryIds.length === 0
+      ? []
+      : await db
+          .select({ id: schema.facilityCategories.id, name: schema.facilityCategories.name })
+          .from(schema.facilityCategories)
+          .where(inArray(schema.facilityCategories.id, categoryIds));
   const locationRows =
     locationIds.length === 0
       ? []
@@ -1641,6 +1653,7 @@ export async function listCampusReports(
           .from(schema.locations)
           .where(inArray(schema.locations.id, locationIds));
   const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
+  const categoryNames = new Map(categoryRows.map((row) => [row.id, row.name] as const));
   const locationsById = new Map(locationRows.map((row) => [row.id, row] as const));
 
   return {
@@ -1651,6 +1664,7 @@ export async function listCampusReports(
       return {
         ...row,
         assetName: row.assetId === null ? null : (assetNames.get(row.assetId) ?? null),
+        submittedCategoryName: categoryNames.get(row.submittedCategoryId) ?? null,
         locationName: visibleLocation?.name ?? null,
         locationBuildingCode: visibleLocation?.buildingCode ?? null,
         locationFloorNumber: visibleLocation?.floorNumber ?? null,
