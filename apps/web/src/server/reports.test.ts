@@ -246,6 +246,12 @@ describe('parseAdminReportsQuery', () => {
       ),
     ).toEqual({ status: ['REPORTED'], reporterId: UUID_A, search: 'MNT-2026' });
   });
+
+  it('passes the report kind through for the database layer to validate', () => {
+    expect(parseAdminReportsQuery(`${BASE}/api/admin/reports?kind=SERVICE`)).toEqual({
+      reportKind: 'SERVICE',
+    });
+  });
 });
 
 describe('classifyReportRef', () => {

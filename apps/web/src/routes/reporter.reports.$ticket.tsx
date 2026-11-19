@@ -510,10 +510,16 @@ function ReportDetailPage() {
               </h3>
               <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
                 <div>
-                  <dt className="text-xs text-muted">Nama Aset</dt>
+                  {/* A service report has no asset: its category names the subject. */}
+                  <dt className="text-xs text-muted">
+                    {report !== null && report.assetId === null ? 'Layanan' : 'Nama Aset'}
+                  </dt>
                   <dd className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-text">
                     <BuildingIcon className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-                    {asset?.name ?? 'Tidak tercatat'}
+                    {asset?.name ??
+                      (report !== null && report.assetId === null
+                        ? categoryName
+                        : 'Tidak tercatat')}
                   </dd>
                 </div>
                 <div>

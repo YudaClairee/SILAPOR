@@ -10,6 +10,8 @@ const response: DashboardOverviewResponse = {
     inRepair: 2,
     highPriorityActive: 3,
     resolvedThisMonth: 5,
+    damageReports: 9,
+    serviceReports: 3,
   },
   byStatus: [{ status: 'REPORTED', count: 4 }],
   byCategory: [{ categoryId: null, categoryName: null, count: 12 }],
@@ -47,6 +49,8 @@ describe('buildManagerialDashboardViewModel', () => {
       inRepair: 2,
       highPriorityActive: 3,
       resolvedThisMonth: 5,
+      damageReports: 9,
+      serviceReports: 3,
     });
     expect(model.resolutionTime).toEqual({
       sampleSize: 2,

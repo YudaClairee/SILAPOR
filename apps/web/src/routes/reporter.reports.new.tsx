@@ -1,8 +1,10 @@
 // New-report form for the AI verification flow: full chain
 // gedung → lantai → ruangan → aset (all required) plus description and
 // an optional 0-3 photos, then a blocking wait for the inline verdict.
-// Verification is text-only (description + asset + location): the photos are
-// evidence for the technician and are never sent to the model.
+// Verification is text-only (description + asset or service category + location):
+// the photos are evidence for the technician and are never sent to the model.
+// Two report kinds share the chain: damage (pick an asset) and service
+// (pick a service category, no asset). See `ReportKind`.
 //
 // Photo-first: picked photos stage to /api/uploads before the submit, and
 // the submit carries the returned storage keys. The server links staged
@@ -49,11 +51,19 @@ import {
 // Pure form contract (exported for tests).
 // ---------------------------------------------------------------------------
 
+// DAMAGE = kerusakan fasilitas (asset required). SERVICE = kendala akses atau
+// keamanan (service category required, no asset).
+export type ReportKind = 'DAMAGE' | 'SERVICE';
+
 export interface NewReportValues {
+  readonly kind: ReportKind;
   readonly buildingId: string;
   readonly floorId: string;
   readonly locationId: string;
+  // Used when kind is DAMAGE; ignored (and not sent) for SERVICE.
   readonly assetId: string;
+  // Used when kind is SERVICE; ignored (and not sent) for DAMAGE.
+  readonly serviceCategoryId: string;
   readonly description: string;
 }
 
@@ -62,8 +72,26 @@ export type NewReportField =
   | 'floorId'
   | 'locationId'
   | 'assetId'
+  | 'serviceCategoryId'
   | 'description'
   | 'photos';
+
+export const REPORT_KIND_OPTIONS: ReadonlyArray<{
+  readonly kind: ReportKind;
+  readonly label: string;
+  readonly hint: string;
+}> = [
+  {
+    kind: 'DAMAGE',
+    label: 'Kerusakan fasilitas',
+    hint: 'Barang atau fasilitas di ruangan rusak. Pilih aset yang bermasalah.',
+  },
+  {
+    kind: 'SERVICE',
+    label: 'Kendala akses atau keamanan',
+    hint: 'Misalnya pintu terkunci atau masalah keamanan. Tidak perlu memilih aset.',
+  },
+];
 
 export type NewReportErrors = Partial<Record<NewReportField, string>>;
 
@@ -126,7 +154,13 @@ export function validateNewReportForm(
   } else if (!UUID_RE.test(values.locationId)) {
     errors.locationId = 'Ruangan tidak valid.';
   }
-  if (values.assetId === '') {
+  if (values.kind === 'SERVICE') {
+    if (values.serviceCategoryId === '') {
+      errors.serviceCategoryId = 'Pilih jenis kendala terlebih dahulu.';
+    } else if (!UUID_RE.test(values.serviceCategoryId)) {
+      errors.serviceCategoryId = 'Jenis kendala tidak valid.';
+    }
+  } else if (values.assetId === '') {
     errors.assetId = 'Pilih aset terlebih dahulu.';
   } else if (!UUID_RE.test(values.assetId)) {
     errors.assetId = 'Aset tidak valid.';
@@ -155,6 +189,33 @@ export function isNewReportSubmittable(
 ): boolean {
   return Object.keys(validateNewReportForm(values, photoFiles, floorRequired)).length === 0;
 }
+
+// POST /api/reports body. Exactly one of assetId / serviceCategoryId is sent,
+// matching the kind, so the server's exactly-one rule always holds.
+export interface NewReportSubmitBody {
+  readonly locationId: string;
+  readonly description: string;
+  readonly photoKeys: readonly string[];
+  readonly assetId?: string;
+  readonly serviceCategoryId?: string;
+}
+
+export function toNewReportSubmitBody(
+  values: NewReportValues,
+  photoKeys: readonly string[],
+): NewReportSubmitBody {
+  const base = {
+    locationId: values.locationId,
+    description: values.description.trim(),
+    photoKeys: [...photoKeys],
+  };
+  return values.kind === 'SERVICE'
+    ? { ...base, serviceCategoryId: values.serviceCategoryId }
+    : { ...base, assetId: values.assetId };
+}
+
+// The server's service-duplicate message is English; the reporter sees this.
+export const SERVICE_DUPLICATE_COPY = 'Kamu sudah melaporkan kendala ini di ruangan yang sama.';
 
 export type SubmitOutcome =
   | { readonly kind: 'verified'; readonly ticketNumber: string; readonly replay: boolean }
@@ -241,10 +302,17 @@ interface AssetOption {
   readonly locationId: string | null;
 }
 
-// The form reads only locations and assets from the payload.
+interface ServiceCategoryOption {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+}
+
+// The form reads locations, assets, and service categories from the payload.
 interface NewFormOptions {
   readonly locations: LocationOption[];
   readonly assets: AssetOption[];
+  readonly serviceCategories: ServiceCategoryOption[];
 }
 
 interface NewLoaderData {
@@ -263,9 +331,14 @@ function toNewFormOptions(data: unknown): NewFormOptions | null {
   if (!Array.isArray(locations) || !Array.isArray(assets)) {
     return null;
   }
+  // Older payloads without `serviceCategories` simply offer no service option.
+  const serviceCategories = data['serviceCategories'];
   return {
     locations: locations as LocationOption[],
     assets: assets as AssetOption[],
+    serviceCategories: Array.isArray(serviceCategories)
+      ? (serviceCategories as ServiceCategoryOption[])
+      : [],
   };
 }
 
@@ -313,10 +386,12 @@ export const Route = createFileRoute('/reporter/reports/new')({
 });
 
 const EMPTY_VALUES: NewReportValues = {
+  kind: 'DAMAGE',
   buildingId: '',
   floorId: '',
   locationId: '',
   assetId: '',
+  serviceCategoryId: '',
   description: '',
 };
 
@@ -450,6 +525,8 @@ function NewReportPage() {
           : roomsForParent(locations, values.floorId);
   const assetOptions =
     values.locationId === '' ? [] : assetsForRoom(options?.assets ?? [], values.locationId);
+  const serviceCategories = options?.serviceCategories ?? [];
+  const isService = values.kind === 'SERVICE';
 
   const liveErrors = validateNewReportForm(values, photoFiles, floorRequired);
   const submittable = Object.keys(liveErrors).length === 0 && photoError === null;
@@ -458,6 +535,13 @@ function NewReportPage() {
 
   function patch(patchValues: Partial<NewReportValues>): void {
     setValues((current) => ({ ...current, ...patchValues }));
+  }
+
+  // Switching kind drops the other kind's target (asset vs service category)
+  // so a stale selection can never be sent.
+  function changeKind(next: ReportKind): void {
+    setValues((current) => ({ ...current, kind: next, assetId: '', serviceCategoryId: '' }));
+    setFormAlert(null);
   }
 
   async function submitReport(): Promise<void> {
@@ -486,12 +570,7 @@ function NewReportPage() {
           'content-type': 'application/json',
           'x-idempotency-key': keyRef.current ?? crypto.randomUUID(),
         },
-        body: JSON.stringify({
-          locationId: values.locationId,
-          assetId: values.assetId,
-          description: values.description.trim(),
-          photoKeys,
-        }),
+        body: JSON.stringify(toNewReportSubmitBody(values, photoKeys)),
       });
     } catch {
       setSubmitError('Jaringan bermasalah. Coba lagi.');
@@ -534,7 +613,7 @@ function NewReportPage() {
       }
       case 'duplicate': {
         setDuplicateTicket(outcome.ticketNumber);
-        setDuplicateMessage(outcome.message);
+        setDuplicateMessage(values.kind === 'SERVICE' ? SERVICE_DUPLICATE_COPY : outcome.message);
         setPhase('duplicate');
         return;
       }
@@ -835,6 +914,8 @@ function NewReportPage() {
     const selectedFloor = buildingFloors.find((item) => item.id === values.floorId);
     const selectedRoom = roomOptions.find((item) => item.id === values.locationId);
     const selectedAsset = assetOptions.find((item) => item.id === values.assetId);
+    const selectedService = serviceCategories.find((item) => item.id === values.serviceCategoryId);
+    const selectedKind = REPORT_KIND_OPTIONS.find((item) => item.kind === values.kind);
     return (
       <section aria-labelledby="new-report-review-title" className="max-w-3xl">
         <h1 id="new-report-review-title" className="text-2xl font-semibold text-text">
@@ -842,6 +923,10 @@ function NewReportPage() {
         </h1>
         <div className="mt-4 rounded-md border border-border bg-surface p-4 md:p-6">
           <dl className="divide-y divide-border">
+            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Jenis laporan</dt>
+              <dd className="text-sm text-text">{selectedKind?.label ?? values.kind}</dd>
+            </div>
             <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
               <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Gedung</dt>
               <dd className="text-sm text-text">{selectedBuilding?.name ?? values.buildingId}</dd>
@@ -856,10 +941,19 @@ function NewReportPage() {
               <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Ruangan</dt>
               <dd className="text-sm text-text">{selectedRoom?.name ?? values.locationId}</dd>
             </div>
-            <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
-              <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Aset</dt>
-              <dd className="text-sm text-text">{selectedAsset?.name ?? values.assetId}</dd>
-            </div>
+            {isService ? (
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Jenis kendala</dt>
+                <dd className="text-sm text-text">
+                  {selectedService?.name ?? values.serviceCategoryId}
+                </dd>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
+                <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Aset</dt>
+                <dd className="text-sm text-text">{selectedAsset?.name ?? values.assetId}</dd>
+              </div>
+            )}
             <div className="flex flex-col gap-1 py-3 sm:flex-row sm:gap-4">
               <dt className="shrink-0 text-sm font-medium text-muted sm:w-40">Deskripsi</dt>
               <dd className="whitespace-pre-wrap text-sm text-text">{values.description.trim()}</dd>
@@ -888,11 +982,12 @@ function NewReportPage() {
       <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 id="new-report-title" className="text-[clamp(1.75rem,3vw,2rem)] font-semibold tracking-[-0.04em] text-[#202a33]">
-            Buat Laporan Kerusakan
+            {isService ? 'Buat Laporan Layanan' : 'Buat Laporan Kerusakan'}
           </h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
-            Lokasi dan deskripsi kondisi fisik wajib diisi; foto bukti boleh ditambahkan bila ada
-            untuk memeriksa serta memproses laporan penanganan sarana prasarana kampus.
+            {isService
+              ? 'Lokasi, jenis kendala, dan deskripsi wajib diisi. Laporan layanan tidak memerlukan aset.'
+              : 'Lokasi dan deskripsi kondisi fisik wajib diisi; foto bukti boleh ditambahkan bila ada untuk memeriksa serta memproses laporan penanganan sarana prasarana kampus.'}
           </p>
         </div>
         <div className="inline-flex w-fit items-center gap-2 rounded-full bg-[#e7f7fb] px-3 py-2 text-[11px] font-semibold tracking-[0.02em] text-[#0a3947]">
@@ -910,6 +1005,43 @@ function NewReportPage() {
         className="mt-6 rounded-lg border border-[#edf0f2] bg-surface p-6 shadow-[0_1px_2px_rgba(6,70,83,0.06)] md:p-8"
       >
         <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
+          <fieldset className="min-w-0 md:col-span-2">
+            <legend className="mb-1.5 text-xs font-semibold tracking-[0.02em] text-[#202a33]">
+              Jenis laporan
+            </legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {REPORT_KIND_OPTIONS.map((option) => {
+                const active = values.kind === option.kind;
+                return (
+                  <label
+                    key={option.kind}
+                    className={`flex min-h-[44px] cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition-colors ${
+                      active
+                        ? 'border-accent bg-[#eef8fb]'
+                        : 'border-[#edf0f2] hover:border-[#94cbd5]'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="report-kind"
+                      value={option.kind}
+                      checked={active}
+                      onChange={() => changeKind(option.kind)}
+                      className="mt-1 h-4 w-4 shrink-0 accent-[#0a6b74]"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-text">{option.label}</span>
+                      <span className="block text-xs leading-5 text-muted">{option.hint}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              Masalah kebersihan? Laporkan lewat aplikasi pelaporan kebersihan.
+            </p>
+          </fieldset>
+
           <div className="min-w-0">
             <div className="mb-1.5 flex items-center justify-between gap-3">
               <label htmlFor="report-building" className="text-xs font-semibold tracking-[0.02em] text-[#202a33] after:ml-0.5 after:text-[#ba1a1a] after:content-['*']">
@@ -925,7 +1057,13 @@ function NewReportPage() {
               invalid={shownErrors.buildingId !== undefined}
               aria-describedby={shownErrors.buildingId ? 'report-building-error' : undefined}
               onChange={(event) => {
-                patch({ buildingId: event.target.value, floorId: '', locationId: '', assetId: '' });
+                patch({
+                  buildingId: event.target.value,
+                  floorId: '',
+                  locationId: '',
+                  assetId: '',
+                  serviceCategoryId: '',
+                });
               }}
             >
               <option value="">Pilih gedung</option>
@@ -951,7 +1089,12 @@ function NewReportPage() {
               invalid={shownErrors.floorId !== undefined}
               aria-describedby={shownErrors.floorId ? 'report-floor-error' : undefined}
               onChange={(event) => {
-                patch({ floorId: event.target.value, locationId: '', assetId: '' });
+                patch({
+                  floorId: event.target.value,
+                  locationId: '',
+                  assetId: '',
+                  serviceCategoryId: '',
+                });
               }}
             >
               <option value="">
@@ -983,7 +1126,7 @@ function NewReportPage() {
               invalid={shownErrors.locationId !== undefined}
               aria-describedby={shownErrors.locationId ? 'report-room-error' : undefined}
               onChange={(event) => {
-                patch({ locationId: event.target.value, assetId: '' });
+                patch({ locationId: event.target.value, assetId: '', serviceCategoryId: '' });
               }}
             >
               <option value="">
@@ -1002,6 +1145,45 @@ function NewReportPage() {
             <FieldError id="report-room-error" message={shownErrors.locationId} />
           </div>
 
+          {isService ? (
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <label htmlFor="report-service-category" className="text-xs font-semibold tracking-[0.02em] text-[#202a33] after:ml-0.5 after:text-[#ba1a1a] after:content-['*']">
+                Jenis kendala
+              </label>
+            </div>
+            <Select
+              id="report-service-category"
+              className="shadow-[0_1px_1px_rgba(0,0,0,0.05)]"
+              required
+              value={values.serviceCategoryId}
+              disabled={values.locationId === ''}
+              invalid={shownErrors.serviceCategoryId !== undefined}
+              aria-describedby={
+                shownErrors.serviceCategoryId ? 'report-service-category-error' : undefined
+              }
+              onChange={(event) => {
+                patch({ serviceCategoryId: event.target.value });
+              }}
+            >
+              <option value="">
+                {values.locationId === '' ? 'Pilih ruangan terlebih dahulu' : 'Pilih jenis kendala'}
+              </option>
+              {serviceCategories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </Select>
+            <FieldError
+              id="report-service-category-error"
+              message={shownErrors.serviceCategoryId}
+            />
+            {serviceCategories.length === 0 ? (
+              <p className="mt-1 text-sm text-muted">Belum ada jenis kendala yang tersedia.</p>
+            ) : null}
+          </div>
+          ) : (
           <div className="min-w-0">
             <div className="mb-1.5 flex items-center justify-between gap-3">
               <label htmlFor="report-asset" className="text-xs font-semibold tracking-[0.02em] text-[#202a33] after:ml-0.5 after:text-[#ba1a1a] after:content-['*']">
@@ -1039,13 +1221,14 @@ function NewReportPage() {
               </p>
             ) : null}
           </div>
+          )}
 
           <div className="md:col-span-2">
             <label
               htmlFor="report-description"
               className="mb-1.5 block text-xs font-semibold tracking-[0.02em] text-[#202a33]"
             >
-              Deskripsi Kerusakan
+              {isService ? 'Deskripsi Kendala' : 'Deskripsi Kerusakan'}
             </label>
             <Textarea
               id="report-description"
@@ -1053,6 +1236,11 @@ function NewReportPage() {
               required
               maxLength={2000}
               rows={4}
+              placeholder={
+                isService
+                  ? 'Contoh: Pintu ruang 3.04 terkunci, kelas jam 08.00 tidak bisa masuk.'
+                  : 'Contoh: AC di ruang 3.04 tidak mengeluarkan udara dingin.'
+              }
               invalid={shownErrors.description !== undefined}
               aria-describedby={shownErrors.description ? 'report-description-error' : undefined}
               onChange={(event) => {
@@ -1064,7 +1252,9 @@ function NewReportPage() {
             </p>
             <p className="mt-2 flex items-start gap-2 rounded-md bg-[#eef7ff] px-3 py-2 text-xs leading-5 text-muted">
               <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#426e9b]" />
-              Jelaskan kondisi fisik yang terlihat secara spesifik, bukan menebak penyebab teknis kerusakan.
+              {isService
+                ? 'Jelaskan kendala yang Anda alami di ruangan ini dan kapan terjadinya.'
+                : 'Jelaskan kondisi fisik yang terlihat secara spesifik, bukan menebak penyebab teknis kerusakan.'}
             </p>
             <FieldError id="report-description-error" message={shownErrors.description} />
           </div>

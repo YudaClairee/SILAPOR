@@ -323,12 +323,16 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
 
   it('summarises the overview cards', async () => {
     const cards = await getOverviewCards(requireDb(), range, octNow);
+    // Every fixture row here is asset-less (see insertFixtureReport), so all
+    // in-range reports count as service reports and none as damage.
     expect(cards).toEqual({
       totalReports: 7,
       activeReports: 6,
       inRepair: 1,
       highPriorityActive: 1,
       resolvedThisMonth: 2,
+      damageReports: 0,
+      serviceReports: 7,
     });
   });
 
@@ -459,6 +463,8 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
       inRepair: 0,
       highPriorityActive: 0,
       resolvedThisMonth: 0,
+      damageReports: 0,
+      serviceReports: 0,
     });
     expect(await getResolutionTimeMetrics(requireDb(), zeroRange)).toEqual({
       sampleSize: 0,
@@ -628,5 +634,26 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
     // Reports without asset_id never surface here.
     const totalReportsWithAssets = hotspots.reduce((sum, item) => sum + item.count, 0);
     expect(totalReportsWithAssets).toBe(2);
+  });
+
+  it('counts an asset-backed report as damage, not service, in the overview split', async () => {
+    const before = await getOverviewCards(requireDb(), range, octNow);
+    await requireDb()
+      .insert(maintenanceReports)
+      .values({
+        ticketNumber: 'P7-SPLIT-0001',
+        idempotencyKey: randomUUID(),
+        reporterId: reporterAId,
+        locationId: roomId,
+        assetId,
+        submittedCategoryId: hvacId,
+        description: 'AC di ruangan ini tidak mengeluarkan udara dingin sama sekali.',
+        status: 'REPORTED' as const,
+        reportedAt: new Date('2026-10-09T02:00:00.000Z'),
+      });
+    const after = await getOverviewCards(requireDb(), range, octNow);
+    expect(after.totalReports - before.totalReports).toBe(1);
+    expect(after.damageReports - before.damageReports).toBe(1);
+    expect(after.serviceReports - before.serviceReports).toBe(0);
   });
 });

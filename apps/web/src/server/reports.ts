@@ -410,14 +410,12 @@ export function parseAdminReportsQuery(url: string | URL): ListAllReportsOptions
   const base = parseBaseListQuery(params);
   const reporterId = queryParam(params, ['reporterId', 'reporter_id']);
   const search = queryParam(params, ['search']);
-  const extra: ListAllReportsOptions =
-    reporterId !== null && search !== null
-      ? { reporterId, search }
-      : reporterId !== null
-        ? { reporterId }
-        : search !== null
-          ? { search }
-          : {};
+  const reportKind = queryParam(params, ['kind']);
+  const extra: ListAllReportsOptions = {
+    ...(reporterId !== null ? { reporterId } : {}),
+    ...(search !== null ? { search } : {}),
+    ...(reportKind !== null ? { reportKind } : {}),
+  };
   const merged: ListAllReportsOptions = { ...base, ...extra };
   return merged;
 }

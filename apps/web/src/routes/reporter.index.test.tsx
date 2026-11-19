@@ -41,6 +41,7 @@ const ROW = {
   finalPriority: 'HIGH',
   assetId: 'a1',
   assetName: 'Proyektor Epson EB-X400',
+  submittedCategoryName: null,
   locationId: 'l1',
   locationName: 'R. Kuliah 12',
   locationBuildingCode: 'C',
@@ -92,6 +93,28 @@ describe('pemantauan tiket', () => {
     expect(screen.getByText('4 pelapor')).toBeInTheDocument();
     expect(screen.getByText('Proyektor Epson EB-X400')).toBeInTheDocument();
     expect(screen.getByText('R. Kuliah 12 · Gedung C · Lt. 3')).toBeInTheDocument();
+  });
+
+  it('names the category in place of the asset for a service report', async () => {
+    stubFetch({
+      items: [
+        {
+          ...ROW,
+          id: 'r2',
+          ticketNumber: 'MNT-2026-000150',
+          assetId: null,
+          assetName: null,
+          submittedCategoryName: 'Akses & Kunci',
+          reporterCount: null,
+        },
+      ],
+      total: 1,
+    });
+    renderPage();
+
+    expect(await screen.findByText('MNT-2026-000150')).toBeInTheDocument();
+    expect(screen.getByText('Akses & Kunci')).toBeInTheDocument();
+    expect(screen.queryByText('Aset tidak tercatat')).not.toBeInTheDocument();
   });
 
   it('shows the empty state when no rows match', async () => {

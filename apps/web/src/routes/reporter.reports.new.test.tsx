@@ -21,6 +21,8 @@ import {
   floorsForBuilding,
   isNewReportSubmittable,
   roomsForParent,
+  SERVICE_DUPLICATE_COPY,
+  toNewReportSubmitBody,
   toSubmitOutcome,
   validateNewReportForm,
   type NewReportValues,
@@ -33,6 +35,7 @@ const FLOOR_1 = '33333333-3333-4333-8333-333333333333';
 const ROOM_101 = '44444444-4444-4444-8444-444444444444';
 const ROOM_LOBBY = '55555555-5555-4555-8555-555555555555';
 const ASSET_AC = '66666666-6666-4666-8666-666666666666';
+const SERVICE_ACCESS = '77777777-7777-4777-8777-777777777777';
 
 const LOCATIONS = [
   { id: BUILDING, code: 'G-A', name: 'Gedung A', type: 'BUILDING', parentId: null },
@@ -51,10 +54,12 @@ function photo(name = 'retak.jpg', type = 'image/jpeg', size = 10_000) {
 }
 
 const VALID_VALUES: NewReportValues = {
+  kind: 'DAMAGE',
   buildingId: BUILDING,
   floorId: FLOOR_1,
   locationId: ROOM_101,
   assetId: ASSET_AC,
+  serviceCategoryId: '',
   description: 'Dinding ruang retak memanjang dan rembes saat hujan.',
 };
 
@@ -78,10 +83,12 @@ describe('new-flow submit gate', () => {
 
   it('requires lantai only when the building has floors', () => {
     const flat: NewReportValues = {
+      kind: 'DAMAGE',
       buildingId: FLAT_BUILDING,
       floorId: '',
       locationId: ROOM_LOBBY,
       assetId: ASSET_AC,
+      serviceCategoryId: '',
       description: 'Lampu lobi mati total sejak pagi.',
     };
     expect(validateNewReportForm(flat, [photo()], false)).toEqual({});
@@ -164,8 +171,55 @@ describe('submit verdict mapping', () => {
   });
 });
 
+describe('report kind: damage vs service', () => {
+  const SERVICE_VALUES: NewReportValues = {
+    ...VALID_VALUES,
+    kind: 'SERVICE',
+    assetId: '',
+    serviceCategoryId: SERVICE_ACCESS,
+  };
+
+  it('requires a service category for a service report and ignores the asset', () => {
+    expect(validateNewReportForm(SERVICE_VALUES, [], true)).toEqual({});
+    expect(
+      validateNewReportForm({ ...SERVICE_VALUES, serviceCategoryId: '' }, [], true)
+        .serviceCategoryId,
+    ).toBe('Pilih jenis kendala terlebih dahulu.');
+    expect(
+      validateNewReportForm({ ...SERVICE_VALUES, serviceCategoryId: 'bukan-uuid' }, [], true)
+        .serviceCategoryId,
+    ).toBe('Jenis kendala tidak valid.');
+    // An empty asset is fine for a service report.
+    expect(validateNewReportForm(SERVICE_VALUES, [], true).assetId).toBeUndefined();
+  });
+
+  it('still requires an asset for a damage report and ignores the service category', () => {
+    expect(validateNewReportForm({ ...VALID_VALUES, assetId: '' }, [], true).assetId).toBe(
+      'Pilih aset terlebih dahulu.',
+    );
+    expect(validateNewReportForm({ ...VALID_VALUES, serviceCategoryId: '' }, [], true)).toEqual({});
+  });
+
+  it('sends exactly one target: assetId for damage, serviceCategoryId for service', () => {
+    expect(toNewReportSubmitBody(VALID_VALUES, ['k1'])).toEqual({
+      locationId: ROOM_101,
+      assetId: ASSET_AC,
+      description: VALID_VALUES.description,
+      photoKeys: ['k1'],
+    });
+    const padded = { ...SERVICE_VALUES, description: `  ${SERVICE_VALUES.description}  ` };
+    expect(toNewReportSubmitBody(padded, [])).toEqual({
+      locationId: ROOM_101,
+      serviceCategoryId: SERVICE_ACCESS,
+      description: SERVICE_VALUES.description,
+      photoKeys: [],
+    });
+  });
+});
+
 describe('reporter form render', () => {
   const FORM_OPTIONS = {
+    serviceCategories: [{ id: SERVICE_ACCESS, code: 'ACCESS', name: 'Akses & Kunci' }],
     locations: [
       { id: BUILDING, code: 'G-A', name: 'Gedung A', type: 'BUILDING', parentId: null, buildingCode: null },
       { id: FLOOR_1, code: 'G-A-1', name: 'Lantai 1', type: 'FLOOR', parentId: BUILDING, buildingCode: 'G-A' },
@@ -329,5 +383,58 @@ describe('reporter form render', () => {
     fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
     expect(await screen.findByText('MNT-2026-000009')).toBeInTheDocument();
     expect(await screen.findByText('Laporan menunggu pemeriksaan.')).toBeInTheDocument();
+  });
+
+  it('switches to a service report: category instead of asset, and a body without assetId', async () => {
+    const fetchMock = stubFetch();
+    renderPage();
+    await screen.findByRole('button', { name: /lanjut ke review/i });
+    fireEvent.click(screen.getByRole('radio', { name: /Kendala akses atau keamanan/ }));
+    expect(screen.getByRole('heading', { name: 'Buat Laporan Layanan' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Aset')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Jenis kendala')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Gedung'), { target: { value: BUILDING } });
+    fireEvent.change(screen.getByLabelText('Lantai'), { target: { value: FLOOR_1 } });
+    fireEvent.change(screen.getByLabelText('Ruangan'), { target: { value: ROOM_101 } });
+    fireEvent.change(screen.getByLabelText('Jenis kendala'), { target: { value: SERVICE_ACCESS } });
+    fireEvent.change(screen.getByLabelText('Deskripsi Kendala'), {
+      target: { value: 'Pintu ruang 101 terkunci sejak pagi, kelas tidak bisa masuk.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    expect(await screen.findByRole('heading', { name: 'Tinjau Laporan' })).toBeInTheDocument();
+    expect(screen.getByText('Akses & Kunci')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /kirim laporan/i }));
+    expect(await screen.findByText('MNT-2026-000007')).toBeInTheDocument();
+    const submits = fetchMock.mock.calls.filter(([url]) => url === '/api/reports');
+    expect(submits).toHaveLength(1);
+    const body = JSON.parse(String(submits[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body['serviceCategoryId']).toBe(SERVICE_ACCESS);
+    expect(body).not.toHaveProperty('assetId');
+  });
+
+  it('shows the Indonesian duplicate copy for a service report', async () => {
+    stubFetch({
+      reportsStatus: 409,
+      reportsBody: {
+        error: { message: 'Duplicate report: an active report already exists for this location and category' },
+        ticketNumber: 'MNT-2026-000001',
+      },
+    });
+    renderPage();
+    await screen.findByRole('button', { name: /lanjut ke review/i });
+    fireEvent.click(screen.getByRole('radio', { name: /Kendala akses atau keamanan/ }));
+    fireEvent.change(screen.getByLabelText('Gedung'), { target: { value: BUILDING } });
+    fireEvent.change(screen.getByLabelText('Lantai'), { target: { value: FLOOR_1 } });
+    fireEvent.change(screen.getByLabelText('Ruangan'), { target: { value: ROOM_101 } });
+    fireEvent.change(screen.getByLabelText('Jenis kendala'), { target: { value: SERVICE_ACCESS } });
+    fireEvent.change(screen.getByLabelText('Deskripsi Kendala'), {
+      target: { value: 'Pintu ruang 101 terkunci sejak pagi, kelas tidak bisa masuk.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
+    expect(await screen.findByText(SERVICE_DUPLICATE_COPY)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Buka tiket yang sudah ada' })).toBeInTheDocument();
   });
 });

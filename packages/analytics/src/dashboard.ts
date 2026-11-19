@@ -40,6 +40,10 @@ export interface OverviewCards {
   readonly inRepair: number;
   readonly highPriorityActive: number;
   readonly resolvedThisMonth: number;
+  // Split of `totalReports`: damage reports carry an asset, service reports
+  // (requiresAsset=false categories) carry none.
+  readonly damageReports: number;
+  readonly serviceReports: number;
 }
 
 export interface StatusCount {
@@ -162,8 +166,15 @@ export async function getOverviewCards(
 ): Promise<OverviewCards> {
   const reported = reportedConditions(range);
   const month = jakartaMonthBoundsUtc(now);
-  const [totalReports, activeReports, inRepair, highPriorityActive, resolvedThisMonth] =
-    await Promise.all([
+  const [
+    totalReports,
+    activeReports,
+    inRepair,
+    highPriorityActive,
+    resolvedThisMonth,
+    damageReports,
+    serviceReports,
+  ] = await Promise.all([
       countWhere(db, reported),
       countWhere(db, [...reported, ne(maintenanceReports.status, 'CLOSED')]),
       countWhere(db, [...reported, eq(maintenanceReports.status, 'IN_REPAIR')]),
@@ -178,8 +189,18 @@ export async function getOverviewCards(
         gte(maintenanceReports.resolvedAt, month.start),
         lt(maintenanceReports.resolvedAt, month.endExclusive),
       ]),
+      countWhere(db, [...reported, isNotNull(maintenanceReports.assetId)]),
+      countWhere(db, [...reported, isNull(maintenanceReports.assetId)]),
     ]);
-  return { totalReports, activeReports, inRepair, highPriorityActive, resolvedThisMonth };
+  return {
+    totalReports,
+    activeReports,
+    inRepair,
+    highPriorityActive,
+    resolvedThisMonth,
+    damageReports,
+    serviceReports,
+  };
 }
 
 export async function getReportsByStatus(

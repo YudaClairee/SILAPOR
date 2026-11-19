@@ -15,6 +15,14 @@ const UUID_A = '11111111-1111-1111-1111-111111111111';
 const UUID_B = '22222222-2222-2222-2222-222222222222';
 
 describe('buildAdminListParams', () => {
+  it('passes a known report kind through and drops an unknown one', () => {
+    expect(buildAdminListParams({ kind: 'SERVICE' })).toMatchObject({ kind: 'SERVICE' });
+    expect(buildAdminListParams({ kind: 'DAMAGE' })).toMatchObject({ kind: 'DAMAGE' });
+    expect(buildAdminListParams({ kind: 'OTHER' })).not.toHaveProperty('kind');
+    expect(buildAdminListParams({ kind: '' })).not.toHaveProperty('kind');
+    expect(buildAdminListParams({})).not.toHaveProperty('kind');
+  });
+
   it('omits a blank search (no filter)', () => {
     expect(buildAdminListParams({ search: '' })).not.toHaveProperty('search');
     expect(buildAdminListParams({ search: '   ' })).not.toHaveProperty('search');

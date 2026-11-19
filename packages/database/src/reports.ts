@@ -1164,6 +1164,17 @@ function parseStatusFilter(status: unknown): Array<(typeof REPORT_STATUS)[number
   return values as Array<(typeof REPORT_STATUS)[number]>;
 }
 
+// Empty means "no filter"; anything other than DAMAGE/SERVICE is a 400.
+function parseReportKindFilter(kind: unknown): ReportKindFilter | undefined {
+  if (kind === undefined || kind === null || kind === '') {
+    return undefined;
+  }
+  if (typeof kind !== 'string' || !(REPORT_KIND_FILTER as readonly string[]).includes(kind)) {
+    throw badRequest('Invalid report kind filter');
+  }
+  return kind as ReportKindFilter;
+}
+
 function parsePriorityFilter(priority: unknown): string | undefined {
   if (priority === undefined || priority === null) {
     return undefined;
@@ -1225,7 +1236,12 @@ export interface ListMyReportsOptions {
 export interface ListAllReportsOptions extends ListMyReportsOptions {
   readonly reporterId?: string | undefined;
   readonly search?: string | undefined;
+  // DAMAGE = reports on an asset; SERVICE = asset-less service reports.
+  readonly reportKind?: string | undefined;
 }
+
+export const REPORT_KIND_FILTER = ['DAMAGE', 'SERVICE'] as const;
+export type ReportKindFilter = (typeof REPORT_KIND_FILTER)[number];
 
 export interface ReportListResult {
   readonly items: schema.Report[];
@@ -1248,6 +1264,7 @@ async function queryReportList(
     readonly from?: unknown;
     readonly to?: unknown;
     readonly search?: unknown;
+    readonly reportKind?: unknown;
     // Campus list searches ticket + asset name + location name (reporter-safe
     // locations only); admin lists add description and include hidden/inactive
     // locations because UMPER must find lift rooms and archived assets too.
@@ -1263,6 +1280,7 @@ async function queryReportList(
   const categoryId = optionalUuid(filter.categoryId, 'categoryId');
   const locationId = optionalUuid(filter.locationId, 'locationId');
   const priority = parsePriorityFilter(filter.priority);
+  const reportKind = parseReportKindFilter(filter.reportKind);
   const from = parseDateBound(filter.from, 'from');
   const to = parseDateBound(filter.to, 'to');
   const pattern = buildSearchPattern(filter.search);
@@ -1303,6 +1321,13 @@ async function queryReportList(
   }
   if (priority !== undefined) {
     conditions.push(eq(schema.maintenanceReports.finalPriority, priority));
+  }
+  if (reportKind !== undefined) {
+    conditions.push(
+      reportKind === 'DAMAGE'
+        ? isNotNull(schema.maintenanceReports.assetId)
+        : isNull(schema.maintenanceReports.assetId),
+    );
   }
   if (from !== undefined) {
     conditions.push(gte(schema.maintenanceReports.reportedAt, from.instant));
@@ -1538,6 +1563,9 @@ export interface CampusReportListItem {
   readonly locationId: string;
   readonly assetId: string | null;
   readonly assetName: string | null;
+  // Name of the submitted category: the label for asset-less service reports,
+  // where `assetName` is null.
+  readonly submittedCategoryName: string | null;
   // Null when the location is inactive or reporterHidden (lift rooms).
   readonly locationName: string | null;
   readonly locationBuildingCode: string | null;
@@ -1579,6 +1607,7 @@ function toCampusReportListItem(row: schema.Report, viewerId: string): CampusRep
     locationId: row.locationId,
     assetId: row.assetId,
     assetName: null,
+    submittedCategoryName: null,
     locationName: null,
     locationBuildingCode: null,
     locationFloorNumber: null,
@@ -1619,6 +1648,7 @@ export async function listCampusReports(
     ...new Set(rows.map((row) => row.assetId).filter((value): value is string => value !== null)),
   ];
   const locationIds = [...new Set(rows.map((row) => row.locationId))];
+  const categoryIds = [...new Set(rows.map((row) => row.submittedCategoryId))];
   const assetRows =
     assetIds.length === 0
       ? []
@@ -1626,6 +1656,13 @@ export async function listCampusReports(
           .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
           .from(schema.facilityAssets)
           .where(inArray(schema.facilityAssets.id, assetIds));
+  const categoryRows =
+    categoryIds.length === 0
+      ? []
+      : await db
+          .select({ id: schema.facilityCategories.id, name: schema.facilityCategories.name })
+          .from(schema.facilityCategories)
+          .where(inArray(schema.facilityCategories.id, categoryIds));
   const locationRows =
     locationIds.length === 0
       ? []
@@ -1641,6 +1678,7 @@ export async function listCampusReports(
           .from(schema.locations)
           .where(inArray(schema.locations.id, locationIds));
   const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
+  const categoryNames = new Map(categoryRows.map((row) => [row.id, row.name] as const));
   const locationsById = new Map(locationRows.map((row) => [row.id, row] as const));
 
   return {
@@ -1651,6 +1689,7 @@ export async function listCampusReports(
       return {
         ...row,
         assetName: row.assetId === null ? null : (assetNames.get(row.assetId) ?? null),
+        submittedCategoryName: categoryNames.get(row.submittedCategoryId) ?? null,
         locationName: visibleLocation?.name ?? null,
         locationBuildingCode: visibleLocation?.buildingCode ?? null,
         locationFloorNumber: visibleLocation?.floorNumber ?? null,

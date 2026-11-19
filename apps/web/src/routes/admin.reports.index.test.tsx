@@ -59,7 +59,11 @@ function listPayload() {
   };
 }
 
-function stubFetch(listStatus = 200): void {
+function stubFetch(
+  listStatus = 200,
+  payload: unknown = listPayload(),
+  options: unknown = { locations: [], categories: [], issueTypes: [], assets: [] },
+): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -68,13 +72,13 @@ function stubFetch(listStatus = 200): void {
         return {
           status: listStatus,
           ok: listStatus === 200,
-          json: async () => (listStatus === 200 ? listPayload() : {}),
+          json: async () => (listStatus === 200 ? payload : {}),
         };
       }
       return {
         status: 200,
         ok: true,
-        json: async () => ({ locations: [], categories: [], issueTypes: [], assets: [] }),
+        json: async () => options,
       };
     }),
   );
@@ -109,7 +113,8 @@ describe('admin kelola laporan', () => {
       screen.getByPlaceholderText('Cari Ticket ID, nama aset, atau lokasi...'),
     ).toBeInTheDocument();
 
-    const allTab = screen.getByRole('link', { name: /Semua/ });
+    // The status tab reads "Semua <count>"; the report-kind filter's "Semua" is exact.
+    const allTab = screen.getByRole('link', { name: /^Semua\s*2$/ });
     expect(allTab).toHaveTextContent('2');
     expect(allTab).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /^VERIFIED/ })).toHaveTextContent('1');
@@ -135,6 +140,46 @@ describe('admin kelola laporan', () => {
 
     expect(screen.getByRole('combobox', { name: 'Urutan laporan' })).toHaveValue('priority_desc');
     expect(screen.getByText('Menampilkan 1–2 dari 2 tiket')).toBeInTheDocument();
+  });
+
+  it('names the category and marks a service report row, and offers the kind filter', async () => {
+    const serviceRow = {
+      id: 'r3',
+      ticketNumber: 'MNT-2026-000003',
+      status: 'VERIFIED',
+      finalPriority: 'HIGH',
+      priorityScore: 70,
+      assetId: null,
+      assetName: null,
+      submittedCategoryId: 'cat-access',
+      locationName: 'Gedung C · Lt. 3 · Ruang 14',
+      technicianName: null,
+      reporterCount: 2,
+      reportedAt: '2026-10-20T03:00:00.000Z',
+    };
+    stubFetch(
+      200,
+      { ...listPayload(), items: [serviceRow], total: 1 },
+      {
+        locations: [],
+        categories: [{ id: 'cat-access', code: 'ACCESS', name: 'Akses & Kunci', weight: 35 }],
+        issueTypes: [],
+        assets: [],
+      },
+    );
+    renderPage();
+
+    const row = (await screen.findByRole('link', { name: '#MNT-2026-000003' })).closest('tr');
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText('Akses & Kunci')).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText('Layanan')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Jenis laporan' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Layanan' }).getAttribute('href')).toContain(
+      'kind=SERVICE',
+    );
+    expect(screen.getByRole('link', { name: 'Kerusakan' }).getAttribute('href')).toContain(
+      'kind=DAMAGE',
+    );
   });
 
   it('opens the filter panel and links to the held verification queue', async () => {

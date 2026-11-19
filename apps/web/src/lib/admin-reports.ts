@@ -36,6 +36,18 @@ const KNOWN_SORTS: ReadonlySet<string> = new Set(ADMIN_SORTS as readonly string[
 
 const KNOWN_PRIORITIES: ReadonlySet<string> = new Set(['LOW', 'MEDIUM', 'HIGH']);
 
+// Report kind filter: DAMAGE = laporan kerusakan (ada aset), SERVICE = laporan
+// layanan (tanpa aset). Blank = both.
+export const ADMIN_REPORT_KIND_OPTIONS: ReadonlyArray<{
+  readonly value: 'DAMAGE' | 'SERVICE';
+  readonly label: string;
+}> = [
+  { value: 'DAMAGE', label: 'Kerusakan' },
+  { value: 'SERVICE', label: 'Layanan' },
+];
+
+const KNOWN_KINDS: ReadonlySet<string> = new Set(ADMIN_REPORT_KIND_OPTIONS.map((o) => o.value));
+
 export const DEFAULT_ADMIN_SORT: AdminSort = 'reported_desc';
 export const DEFAULT_ADMIN_LIMIT = 50;
 
@@ -49,6 +61,7 @@ export interface AdminListState {
   readonly categoryId?: string | undefined;
   readonly locationId?: string | undefined;
   readonly priority?: string | undefined;
+  readonly kind?: string | undefined;
   readonly reporterId?: string | undefined;
   readonly from?: string | undefined;
   readonly to?: string | undefined;
@@ -112,6 +125,11 @@ export function buildAdminListParams(state: AdminListState): AdminListParams {
   const priority = cleanText(state.priority);
   if (priority !== null && KNOWN_PRIORITIES.has(priority)) {
     params['priority'] = priority;
+  }
+
+  const kind = cleanText(state.kind);
+  if (kind !== null && KNOWN_KINDS.has(kind)) {
+    params['kind'] = kind;
   }
 
   const sort = cleanText(state.sort);

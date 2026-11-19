@@ -82,6 +82,25 @@ describe('AdminAssetAssignmentCard', () => {
     expect(html).toContain('Gedung C');
     expect(html).toContain('Belum ditugaskan');
   });
+
+  it('labels a service report as having no asset', () => {
+    const html = renderToStaticMarkup(
+      <AdminAssetAssignmentCard
+        assetLabel="Jenis Laporan"
+        assetCode={null}
+        assetName="Laporan layanan — tidak terkait aset"
+        categoryName="Akses & Kunci"
+        locationLabel="Gedung C · Lantai 3 · Ruang 14"
+        technicianName={null}
+        technicianSpecialty={null}
+        technicianActiveCount={null}
+        assignedAt={null}
+      />,
+    );
+    expect(html).toContain('Jenis Laporan');
+    expect(html).toContain('Laporan layanan — tidak terkait aset');
+    expect(html).not.toContain('ID &amp; Nama Aset');
+  });
 });
 
 describe('AdminAiScoreCard', () => {
