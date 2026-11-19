@@ -282,6 +282,8 @@ describe.skipIf(!enabled)(
     let svcFirstTicket = '';
     let itElec = '';
     let itHvac = '';
+    let itAccess = '';
+    let itGeneric = '';
     let assetElec1 = '';
     let assetElec2 = '';
     let assetElec3 = '';
@@ -295,6 +297,20 @@ describe.skipIf(!enabled)(
 
     const longDescription = (label: string): string =>
       `Laporan verifikasi ${label} dengan deskripsi yang cukup panjang untuk validasi.`;
+
+    // A fresh room per test, so a service report never collides with another
+    // test's active report at the same location and category.
+    const freshRoom = async (code: string): Promise<string> => {
+      const rows = await db!
+        .insert(locations)
+        .values({ type: 'ROOM', code, name: `T3 room ${code}` })
+        .returning({ id: locations.id });
+      const id = rows[0]?.id;
+      if (id === undefined) {
+        throw new Error('fixture: location insert failed');
+      }
+      return id;
+    };
 
     const createAsset = async (assetCode: string, categoryId: string): Promise<string> => {
       const rows = await db!
@@ -392,6 +408,8 @@ describe.skipIf(!enabled)(
       };
       itElec = await insertIssueType('T3-IT-ELEC', catElec);
       itHvac = await insertIssueType('T3-IT-HVAC', catHvac);
+      itAccess = await insertIssueType('T3-IT-ACCESS', catAccess);
+      itGeneric = await insertIssueType('T3-IT-GENERIC', null);
 
       const insertAsset = async (
         assetCode: string,
@@ -1485,6 +1503,60 @@ describe.skipIf(!enabled)(
           randomUUID(),
         ),
       ).rejects.toMatchObject({ status: 400 });
+    });
+
+    it('applyVerification verifies a held service report under its reported service category', async () => {
+      const locD = await freshRoom('T3-ROOM-D');
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locD,
+          serviceCategoryId: catAccess,
+          description: longDescription('verifikasi layanan akses'),
+        },
+        randomUUID(),
+      );
+      const next = await applyVerification(db!, created.report.id, {
+        finalCategoryId: catAccess,
+        finalIssueTypeId: itAccess,
+        finalPriority: 'HIGH',
+      });
+      expect(next.status).toBe('VERIFIED');
+      expect(next.assetId).toBeNull();
+      expect(next.finalCategoryId).toBe(catAccess);
+      expect(next.finalIssueTypeId).toBe(itAccess);
+    });
+
+    it('applyVerification rejects a service report finalized under another category, with no write', async () => {
+      const locE = await freshRoom('T3-ROOM-E');
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locE,
+          serviceCategoryId: catAccess,
+          description: longDescription('verifikasi layanan pindah kategori'),
+        },
+        randomUUID(),
+      );
+      await expect(
+        applyVerification(db!, created.report.id, {
+          finalCategoryId: catSecurity,
+          finalIssueTypeId: itGeneric,
+          finalPriority: 'HIGH',
+        }),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: 'Final category does not match the reported service category',
+      });
+
+      const rows = await db!
+        .select()
+        .from(maintenanceReports)
+        .where(eq(maintenanceReports.id, created.report.id));
+      expect(rows[0]?.status).toBe('REPORTED');
+      expect(rows[0]?.finalCategoryId).toBeNull();
     });
 
     it('rejects an inactive service category with 400 and an unknown one with 404', async () => {

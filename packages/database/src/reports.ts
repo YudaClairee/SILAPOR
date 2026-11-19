@@ -900,27 +900,35 @@ export async function applyVerification(
       if (issueType.categoryId !== null && issueType.categoryId !== finals.finalCategoryId) {
         throw badRequest('Issue type does not belong to the final category');
       }
-      // No silent recode: the final category must equal the report asset's
-      // master category, even for callers that skip `mapAiVerdict`. The
-      // asset row is loaded in-tx so a concurrent recategorization cannot
-      // slip between the check and the update.
+      // No silent recode, even for callers that skip `mapAiVerdict`. An asset
+      // report's final category must equal its asset's master category; the
+      // asset row is loaded in-tx so a concurrent recategorization cannot slip
+      // between the check and the update. A service report has no asset, so
+      // its final category must be the one the reporter chose and must itself
+      // be asset-less (`requiresAsset=false`).
       if (report.assetId === null || report.assetId === undefined) {
-        throw badRequest('Report has no asset');
-      }
-      const asset = (
-        await tx
-          .select()
-          .from(schema.facilityAssets)
-          .where(eq(schema.facilityAssets.id, report.assetId))
-      )[0];
-      if (asset === undefined) {
-        throw notFound('Asset not found');
-      }
-      if (asset.categoryId === null || asset.categoryId === undefined) {
-        throw badRequest('Asset has no category');
-      }
-      if (asset.categoryId !== finals.finalCategoryId) {
-        throw badRequest('Final category does not match asset category');
+        if (category.id !== report.submittedCategoryId) {
+          throw badRequest('Final category does not match the reported service category');
+        }
+        if (category.requiresAsset) {
+          throw badRequest('Category requires an asset');
+        }
+      } else {
+        const asset = (
+          await tx
+            .select()
+            .from(schema.facilityAssets)
+            .where(eq(schema.facilityAssets.id, report.assetId))
+        )[0];
+        if (asset === undefined) {
+          throw notFound('Asset not found');
+        }
+        if (asset.categoryId === null || asset.categoryId === undefined) {
+          throw badRequest('Asset has no category');
+        }
+        if (asset.categoryId !== finals.finalCategoryId) {
+          throw badRequest('Final category does not match asset category');
+        }
       }
 
       // Spec floor: a DANGEROUS final issue type keeps minimum HIGH, whether
