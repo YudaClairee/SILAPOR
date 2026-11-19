@@ -68,6 +68,29 @@ describe('frequencyBonus', () => {
   });
 });
 
+describe('scorePriority without an asset (service reports)', () => {
+  it('uses the median asset weight, stays within 0-100, and is stable', () => {
+    const service = input({
+      categoryWeight: 40,
+      assetWeight: null,
+      locationScore: 30,
+      affectedReporters: 9,
+    });
+    const first = scorePriority(service);
+    const second = scorePriority(service);
+    expect(first).toEqual(second);
+    expect(first.factors.asset).toBe(12);
+    expect(first.score).toBeGreaterThanOrEqual(0);
+    expect(first.score).toBeLessThanOrEqual(100);
+    expect(first.scoringComplete).toBe(false);
+  });
+
+  it('keeps the DANGEROUS rule at HIGH even without an asset', () => {
+    const r = scorePriority(input({ assetWeight: null, issueTypeCode: 'DANGEROUS' }));
+    expect(r.suggestedPriority).toBe('HIGH');
+  });
+});
+
 describe('scorePriority clamps', () => {
   it('clamps category 40 → 35', () => {
     const r = scorePriority(
@@ -151,7 +174,13 @@ describe('scorePriority DANGEROUS override', () => {
 
   it('leaves an already-HIGH suggestion untouched', () => {
     const r = scorePriority(
-      input({ categoryWeight: 40, assetWeight: 30, locationScore: 30, affectedReporters: 9, issueTypeCode: 'DANGEROUS' }),
+      input({
+        categoryWeight: 40,
+        assetWeight: 30,
+        locationScore: 30,
+        affectedReporters: 9,
+        issueTypeCode: 'DANGEROUS',
+      }),
     );
     expect(r.score).toBe(100);
     expect(r.suggestedPriority).toBe('HIGH');
@@ -179,7 +208,13 @@ describe('scorePriority result shape', () => {
     );
     expect(r.score).toBe(34);
     expect(r.suggestedPriority).toBe('LOW');
-    expect(r.factors).toEqual({ category: 10, asset: 8, location: 6, frequency: 10, affectedReporters: 3 });
+    expect(r.factors).toEqual({
+      category: 10,
+      asset: 8,
+      location: 6,
+      frequency: 10,
+      affectedReporters: 3,
+    });
     expect(r.scoringComplete).toBe(true);
     expect(r.scoringConfigVersion).toBe(1);
   });

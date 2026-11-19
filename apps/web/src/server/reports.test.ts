@@ -1516,7 +1516,7 @@ describe('submitVerifiedReport AI verification wiring', () => {
       expect(verifyInput.photos).toBeUndefined();
       expect(dbMocks.recordAiAnalysis).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ promptVersion: 'v4', schemaVersion: 'v2' }),
+        expect.objectContaining({ promptVersion: 'v5', schemaVersion: 'v2' }),
       );
       expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
         expect.anything(),
@@ -1846,18 +1846,212 @@ describe('normalizeVerifiedSubmitBody', () => {
   });
 });
 
-describe('submitVerifiedReport (service body guard)', () => {
-  it('rejects a service body before any database work', async () => {
-    await expect(
-      submitVerifiedReport(submitRequest(), serviceBody(), 'key-service-guard-1', {
-        verify: async () => {
-          throw new Error('verify must not run for service reports yet');
-        },
-        model: 'test-model',
-        timeoutMs: 50,
-        storage: fakeStorage(),
+// A service report uses the service category id (UUID_B in serviceBody) and
+// has no asset: the AI sees the category name and the location labels only.
+const LOCKED_ISSUE_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
+const GENERIC_ISSUE_ID = 'aaaaaaaa-2222-4222-8222-222222222222';
+
+function arrangeServiceContext() {
+  dbMocks.listCategories.mockResolvedValue([
+    { id: UUID_B, code: 'ACCESS', name: 'Akses & Kunci', weight: 35, requiresAsset: false },
+    { id: SUBMIT_CATEGORY_ID, code: 'PLUMBING', name: 'Plumbing', weight: 20 },
+  ]);
+  dbMocks.listIssueTypes.mockResolvedValue([
+    { id: LOCKED_ISSUE_ID, code: 'LOCKED', name: 'Terkunci', categoryId: UUID_B },
+    { id: GENERIC_ISSUE_ID, code: 'OTHER', name: 'Lainnya', categoryId: null },
+    { id: SUBMIT_ISSUE_ID, code: 'LEAKING', name: 'Leaking', categoryId: SUBMIT_CATEGORY_ID },
+  ]);
+  dbMocks.getLocation.mockResolvedValue({
+    id: UUID_A,
+    type: 'ROOM',
+    name: 'Ruang 3.04',
+    parentId: null,
+    tierScore: 12,
+  });
+  dbMocks.countAffectedReporters.mockResolvedValue(1);
+}
+
+// Records the verified-report snapshot so tests can read the saved scoring.
+const serviceUpdateSet = vi.fn(() => ({
+  where: () => ({
+    returning: async () => [{ id: SUBMIT_REPORT_ID, ticketNumber: 'MNT-2026-000012', version: 3 }],
+  }),
+}));
+
+function arrangeServiceCreated() {
+  dbMocks.createReport.mockResolvedValue({
+    report: {
+      id: SUBMIT_REPORT_ID,
+      ticketNumber: 'MNT-2026-000012',
+      status: 'REPORTED',
+      reporterId: SUBMIT_REPORTER_ID,
+      assetId: null,
+      locationId: UUID_A,
+      submittedCategoryId: UUID_B,
+    },
+    duplicateCandidates: [],
+    relation: null,
+    idempotentReplay: false,
+  });
+  dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
+  dbMocks.applyVerification.mockResolvedValue({
+    id: SUBMIT_REPORT_ID,
+    ticketNumber: 'MNT-2026-000012',
+    status: 'VERIFIED',
+    version: 2,
+  });
+  dbMocks.getDb.mockReturnValue({
+    db: {
+      transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({ delete: () => ({ where: async () => [] }) }),
+      update: () => ({
+        set: serviceUpdateSet,
       }),
-    ).rejects.toThrowError(/Laporan layanan belum tersedia/);
+    },
+    close: async () => undefined,
+  });
+}
+
+describe('submitVerifiedReport service reports (Langkah 5)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMocks.requireUser.mockResolvedValue(sessionUser());
+    arrangeStagedKeys();
+    arrangeServiceContext();
+    arrangeServiceCreated();
+  });
+
+  const verifyOpts = () => ({
+    model: 'test-model',
+    timeoutMs: 50,
+    apiKey: 'test-openrouter-key',
+    storage: fakeStorage(),
+  });
+
+  it('verifies a service report against its category and location', async () => {
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'PASS',
+      category: 'ACCESS',
+      issueType: 'LOCKED',
+      priority: 'HIGH',
+      confidence: 0.9,
+      reasons: ['ok'],
+      model: 'test-model',
+      promptVersion: 'v5',
+      schemaVersion: 'v2',
+    });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-pass-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({
+      status: 201,
+      verification: { status: 'VERIFIED', category: 'ACCESS', issueType: 'LOCKED' },
+    });
+    const verifyInput = aiMocks.verifyReport.mock.calls[0]?.[0] as {
+      asset?: unknown;
+      serviceCategory?: unknown;
+      location?: unknown;
+      issueTypes: string[];
+    };
+    expect(verifyInput.asset).toBeUndefined();
+    expect(verifyInput.serviceCategory).toEqual({ code: 'ACCESS', name: 'Akses & Kunci' });
+    expect(verifyInput.location).toEqual({ room: 'Ruang 3.04' });
+    // Generic and ACCESS-owned issue types only: never PLUMBING's LEAKING.
+    expect(verifyInput.issueTypes).toEqual(['LOCKED', 'OTHER']);
+    expect(dbMocks.applyVerification).toHaveBeenCalledTimes(1);
+    // Scoring without an asset: flagged as assetless, not as missing data.
+    expect(serviceUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        priorityScore: expect.any(Number),
+        priorityFactors: expect.objectContaining({ assetless: true, scoringComplete: false }),
+      }),
+    );
+  });
+
+  it('fails a PASS whose category is not the chosen service category', async () => {
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'PASS',
+      category: 'PLUMBING',
+      issueType: 'OTHER',
+      priority: 'MEDIUM',
+      confidence: 0.6,
+      reasons: [],
+      model: 'test-model',
+      promptVersion: 'v5',
+      schemaVersion: 'v2',
+    });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-mismatch-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({
+      status: 422,
+      reason: toReporterReason('WRONG_SERVICE_CATEGORY'),
+    });
+    expect(dbMocks.markAiAnalysis).toHaveBeenCalledWith(
+      expect.anything(),
+      SUBMIT_ANALYSIS_ID,
+      expect.objectContaining({ status: 'FAILED', errorCode: 'WRONG_SERVICE_CATEGORY' }),
+    );
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+  });
+
+  it('gives a free-text service FAIL (damage or cleanliness) the service copy', async () => {
+    aiMocks.verifyReport.mockResolvedValue({
+      kind: 'FAIL',
+      reason: 'Keluhan kebersihan, laporkan lewat aplikasi kebersihan.',
+    });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-fail-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({ status: 422, reason: toReporterReason('WRONG_SERVICE_CATEGORY') });
+    expect(toReporterReason('WRONG_SERVICE_CATEGORY')).toContain('aplikasi pelaporan kebersihan');
+    expect(toReporterReason('WRONG_SERVICE_CATEGORY')).toContain('Kerusakan fasilitas');
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+  });
+
+  it('holds a service report as HELD when the AI is DOWN', async () => {
+    aiMocks.verifyReport.mockResolvedValue({ kind: 'DOWN' });
+    const res = await submitVerifiedReport(
+      submitRequest(),
+      serviceBody(),
+      'key-service-down-1',
+      verifyOpts(),
+    );
+    expect(res).toMatchObject({ status: 202, verification: { status: 'HELD' } });
+    expect(dbMocks.applyVerification).not.toHaveBeenCalled();
+  });
+
+  it('merges a service report into another ticket without calling the AI', async () => {
+    dbMocks.createReport.mockResolvedValue({
+      report: {
+        id: SUBMIT_REPORT_ID,
+        ticketNumber: 'MNT-2026-000013',
+        status: 'REPORTED',
+        reporterId: SUBMIT_REPORTER_ID,
+        assetId: null,
+        locationId: UUID_A,
+        submittedCategoryId: UUID_B,
+      },
+      duplicateCandidates: [],
+      relation: { type: 'SUPPORTING', targetTicket: 'MNT-2026-000012' },
+      idempotentReplay: false,
+    });
+    const verify = vi.fn();
+    const res = await submitVerifiedReport(submitRequest(), serviceBody(), 'key-service-merged-1', {
+      ...verifyOpts(),
+      verify,
+    });
+    expect(res).toMatchObject({ status: 201, verification: { status: 'MERGED' } });
+    expect(verify).not.toHaveBeenCalled();
   });
 });
 
@@ -1868,7 +2062,7 @@ describe('mapAiVerdict (domain, submit wiring)', () => {
     expect(
       mapAiVerdict({
         impliedCategory: 'PLUMBING',
-        assetCategory: 'PLUMBING',
+        expectedCategory: 'PLUMBING',
         category: 'PLUMBING',
         issueType: 'LEAKING',
         priority: 'MEDIUM',
@@ -1881,7 +2075,7 @@ describe('mapAiVerdict (domain, submit wiring)', () => {
     expect(
       mapAiVerdict({
         impliedCategory: 'ROOFING',
-        assetCategory: 'PLUMBING',
+        expectedCategory: 'PLUMBING',
         category: 'ROOFING',
         issueType: 'LEAKING',
         priority: 'MEDIUM',
@@ -1894,7 +2088,7 @@ describe('mapAiVerdict (domain, submit wiring)', () => {
     expect(
       mapAiVerdict({
         impliedCategory: 'HVAC',
-        assetCategory: 'PLUMBING',
+        expectedCategory: 'PLUMBING',
         category: 'HVAC',
         issueType: 'LEAKING',
         priority: 'MEDIUM',

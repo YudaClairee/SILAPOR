@@ -31,6 +31,12 @@ function scoringComplete(value: unknown): boolean | null {
   return typeof flag === 'boolean' ? flag : null;
 }
 
+// Service reports carry no asset weight by design (see `assetless` in submit).
+function isAssetless(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  return (value as Record<string, unknown>)['assetless'] === true;
+}
+
 export function AdminAiPanel({
   report,
   analysis,
@@ -110,7 +116,7 @@ export function AdminAiPanel({
             </span>
             <span className="block text-muted">
               Pelapor terdampak: {factorNumber(factors, 'affectedReporters') ?? '—'}
-              {complete === false ? ' · Bobot belum lengkap' : ''}
+              {complete === false && !isAssetless(factors) ? ' · Bobot belum lengkap' : ''}
             </span>
           </dd>
         </div>

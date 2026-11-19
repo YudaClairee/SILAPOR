@@ -1,9 +1,11 @@
 import { z } from 'zod';
 
-// v4: photo quality / photo-to-asset matching removed from the prompt. Photos
-// produced too many false rejections, so verification is text-only now
-// (description + asset + sanitized location labels).
-export const PROMPT_VERSION = 'v4' as const;
+// v5: service-report branch added (non-damage service category + location
+// judgement, cleanliness routed to another app). The asset branch prompt is
+// unchanged. v4: photo quality / photo-to-asset matching removed from the
+// prompt. Photos produced too many false rejections, so verification is
+// text-only now (description + subject + sanitized location labels).
+export const PROMPT_VERSION = 'v5' as const;
 export const SCHEMA_VERSION = 'v2' as const;
 
 // Models sometimes return `reasons` as objects (`{reason, reasoningSummary}`)
