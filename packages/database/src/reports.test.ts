@@ -23,6 +23,12 @@ import { describe, expect, it, afterAll, beforeAll } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { isAppError } from '@silapor/shared';
 import { getDb, resolveDatabaseUrl } from './index.js';
+import {
+  createAsset as repoCreateAsset,
+  createCategory as repoCreateCategory,
+  updateAsset as repoUpdateAsset,
+  updateCategory as repoUpdateCategory,
+} from './master-data.js';
 import { runMigrations } from './migrate.js';
 import {
   facilityAssets,
@@ -1584,6 +1590,63 @@ describe.skipIf(!enabled)(
           randomUUID(),
         ),
       ).rejects.toMatchObject({ status: 404 });
+    });
+
+    // -----------------------------------------------------------------
+    // Master-data guards for requires_asset (admin category/asset API).
+    // -----------------------------------------------------------------
+
+    const masterCtx = { actorId: null, requestId: null };
+
+    it('refuses to attach an asset to a service category, on create and on update, with 400', async () => {
+      await expect(
+        repoCreateAsset(
+          db!,
+          { assetCode: `T3-SVC-ASSET-${randomUUID()}`, name: 'Aset salah', categoryId: catAccess },
+          masterCtx,
+        ),
+      ).rejects.toMatchObject({ status: 400, message: 'Service category cannot have assets' });
+      await expect(
+        repoUpdateAsset(db!, assetElec1, { categoryId: catAccess }, masterCtx),
+      ).rejects.toMatchObject({ status: 400, message: 'Service category cannot have assets' });
+    });
+
+    it('creates a category as damage (requiresAsset true) by default and as service when asked', async () => {
+      const defaulted = await repoCreateCategory(
+        db!,
+        { code: `T3-DEF-${randomUUID().slice(0, 8)}`, name: 'Default' },
+        masterCtx,
+      );
+      expect(defaulted.requiresAsset).toBe(true);
+      const service = await repoCreateCategory(
+        db!,
+        { code: `T3-SVC-${randomUUID().slice(0, 8)}`, name: 'Layanan', requiresAsset: false },
+        masterCtx,
+      );
+      expect(service.requiresAsset).toBe(false);
+    });
+
+    it('turns an asset-less category into a service category and back', async () => {
+      const made = await repoCreateCategory(
+        db!,
+        { code: `T3-FLIP-${randomUUID().slice(0, 8)}`, name: 'Flip' },
+        masterCtx,
+      );
+      const asService = await repoUpdateCategory(db!, made.id, { requiresAsset: false }, masterCtx);
+      expect(asService.requiresAsset).toBe(false);
+      const back = await repoUpdateCategory(db!, made.id, { requiresAsset: true }, masterCtx);
+      expect(back.requiresAsset).toBe(true);
+    });
+
+    it('refuses to turn a category that already owns assets into a service category, with 409 and no write', async () => {
+      await expect(
+        repoUpdateCategory(db!, catElec, { requiresAsset: false }, masterCtx),
+      ).rejects.toMatchObject({ status: 409 });
+      const rows = await db!
+        .select()
+        .from(facilityCategories)
+        .where(eq(facilityCategories.id, catElec));
+      expect(rows[0]?.requiresAsset).toBe(true);
     });
   },
 );
