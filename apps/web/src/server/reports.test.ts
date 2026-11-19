@@ -416,6 +416,15 @@ function submitBody() {
   };
 }
 
+function serviceBody() {
+  return {
+    locationId: UUID_A,
+    serviceCategoryId: UUID_B,
+    description: 'Pintu ruang 3.04 terkunci, kelas jam 08.00 tidak bisa masuk',
+    photoKeys: [SUBMIT_STAGED_KEY],
+  };
+}
+
 function stagedRow() {
   return {
     id: '99999999-9999-4999-8999-999999999999',
@@ -1777,6 +1786,78 @@ describe('normalizeVerifiedSubmitBody', () => {
     expect(() =>
       normalizeVerifiedSubmitBody({ ...submitBody(), description: 'too short' }),
     ).toThrowError(/description/);
+  });
+
+  it('accepts exactly one of assetId or serviceCategoryId and tags the kind', () => {
+    const asset = normalizeVerifiedSubmitBody(submitBody());
+    expect(asset.kind).toBe('ASSET');
+    expect(asset).toMatchObject({ kind: 'ASSET', assetId: UUID_B, locationId: UUID_A });
+
+    const service = normalizeVerifiedSubmitBody(serviceBody());
+    expect(service.kind).toBe('SERVICE');
+    expect(service).toMatchObject({ kind: 'SERVICE', serviceCategoryId: UUID_B });
+    expect(service).not.toHaveProperty('assetId');
+
+    const snake = normalizeVerifiedSubmitBody({
+      location_id: UUID_A,
+      service_category_id: UUID_B,
+      description: 'Pintu ruang 3.04 terkunci, kelas jam 08.00 tidak bisa masuk',
+    });
+    expect(snake).toMatchObject({ kind: 'SERVICE', serviceCategoryId: UUID_B, photoKeys: [] });
+  });
+
+  it('treats a null asset or service field as absent', () => {
+    expect(normalizeVerifiedSubmitBody({ ...serviceBody(), assetId: null }).kind).toBe('SERVICE');
+    expect(normalizeVerifiedSubmitBody({ ...submitBody(), serviceCategoryId: null }).kind).toBe(
+      'ASSET',
+    );
+  });
+
+  it('rejects a body that has both assetId and serviceCategoryId', () => {
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...submitBody(), serviceCategoryId: UUID_A }),
+    ).toThrowError(/mutually exclusive/);
+    expect(() => normalizeVerifiedSubmitBody({ ...serviceBody(), asset_id: UUID_A })).toThrowError(
+      /mutually exclusive/,
+    );
+  });
+
+  it('rejects a body with neither assetId nor serviceCategoryId', () => {
+    const noAsset = { ...serviceBody(), serviceCategoryId: undefined };
+    expect(() => normalizeVerifiedSubmitBody(noAsset)).toThrowError(/is required/);
+    expect(() => normalizeVerifiedSubmitBody({ ...noAsset, assetId: null })).toThrowError(
+      /is required/,
+    );
+  });
+
+  it('validates the service category UUID and the asset UUID separately', () => {
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...serviceBody(), serviceCategoryId: 'nope' }),
+    ).toThrowError(/serviceCategoryId must be a valid UUID/);
+    expect(() => normalizeVerifiedSubmitBody({ ...submitBody(), assetId: 'nope' })).toThrowError(
+      /assetId must be a valid UUID/,
+    );
+  });
+
+  it('still rejects category_id on a service body', () => {
+    expect(() =>
+      normalizeVerifiedSubmitBody({ ...serviceBody(), category_id: UUID_A }),
+    ).toThrowError(/category_id must not be provided/);
+  });
+});
+
+describe('submitVerifiedReport (service body guard)', () => {
+  it('rejects a service body before any database work', async () => {
+    await expect(
+      submitVerifiedReport(submitRequest(), serviceBody(), 'key-service-guard-1', {
+        verify: async () => {
+          throw new Error('verify must not run for service reports yet');
+        },
+        model: 'test-model',
+        timeoutMs: 50,
+        storage: fakeStorage(),
+      }),
+    ).rejects.toThrowError(/Laporan layanan belum tersedia/);
   });
 });
 

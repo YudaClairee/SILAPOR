@@ -674,12 +674,17 @@ export async function listFormOptions(req: Request): Promise<FormOptions> {
 // AI-verified submit (synchronous verify with held fallback).
 // ---------------------------------------------------------------------------
 
-export interface VerifiedSubmitBody {
+interface VerifiedSubmitBase {
   readonly locationId: string;
-  readonly assetId: string;
   readonly description: string;
   readonly photoKeys: readonly string[];
 }
+
+// ASSET = damage report on a facility asset. SERVICE = non-damage report on a
+// service category (requiresAsset=false), with no asset attached.
+export type VerifiedSubmitBody =
+  | (VerifiedSubmitBase & { readonly kind: 'ASSET'; readonly assetId: string })
+  | (VerifiedSubmitBase & { readonly kind: 'SERVICE'; readonly serviceCategoryId: string });
 
 // The reporter never classifies: any category/issue/occurredAt key is a 400,
 // whether camelCase or snake_case.
@@ -696,10 +701,11 @@ const CLASSIFICATION_FIELDS = [
   'occurred_at',
 ] as const;
 
-// New submit shape: location + asset required, description 10-2000, and
-// OPTIONAL photo storage-key references (0-3; omitted or empty means the
-// report is created without attachments). NEVER copies a client-supplied
-// reporter id — the caller sets it from the session.
+// New submit shape: location required, EXACTLY ONE of asset (damage report) or
+// service category (service report), description 10-2000, and OPTIONAL photo
+// storage-key references (0-3; omitted or empty means the report is created
+// without attachments). NEVER copies a client-supplied reporter id — the caller
+// sets it from the session.
 export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   if (!isRecord(body)) {
     throw badRequest('Invalid report input');
@@ -713,9 +719,21 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   if (typeof locationId !== 'string' || !UUID_RE.test(locationId)) {
     throw badRequest('locationId must be a valid UUID');
   }
-  const assetId = body['assetId'] ?? body['asset_id'];
-  if (typeof assetId !== 'string' || !UUID_RE.test(assetId)) {
+  const assetValue = body['assetId'] ?? body['asset_id'];
+  const serviceValue = body['serviceCategoryId'] ?? body['service_category_id'];
+  const hasAsset = assetValue !== undefined && assetValue !== null;
+  const hasService = serviceValue !== undefined && serviceValue !== null;
+  if (hasAsset && hasService) {
+    throw badRequest('assetId and serviceCategoryId are mutually exclusive');
+  }
+  if (!hasAsset && !hasService) {
+    throw badRequest('assetId or serviceCategoryId is required');
+  }
+  if (hasAsset && (typeof assetValue !== 'string' || !UUID_RE.test(assetValue))) {
     throw badRequest('assetId must be a valid UUID');
+  }
+  if (hasService && (typeof serviceValue !== 'string' || !UUID_RE.test(serviceValue))) {
+    throw badRequest('serviceCategoryId must be a valid UUID');
   }
   const description = body['description'];
   if (typeof description !== 'string' || description.trim().length < 10) {
@@ -732,12 +750,15 @@ export function normalizeVerifiedSubmitBody(body: unknown): VerifiedSubmitBody {
   ) {
     throw badRequest('photoKeys must include at most 3 photos');
   }
-  return {
+  const base = {
     locationId,
-    assetId,
     description: description.trim(),
     photoKeys: (photoKeys as string[]).map((key) => key.trim()),
   };
+  if (hasAsset) {
+    return { ...base, kind: 'ASSET', assetId: assetValue as string };
+  }
+  return { ...base, kind: 'SERVICE', serviceCategoryId: serviceValue as string };
 }
 
 // The Task 2 mapping is imported from `@silapor/domain` (`mapAiVerdict`) so
@@ -1040,6 +1061,12 @@ export async function submitVerifiedReport(
     throw badRequest('Idempotency key is required');
   }
   const normalized = normalizeVerifiedSubmitBody(body);
+  // Service reports (Langkah 4 accepts them, Langkah 5 verifies them). Until the
+  // AI branch exists, reject before any DB write rather than create a row that
+  // would then fail with "Report has no asset".
+  if (normalized.kind !== 'ASSET') {
+    throw badRequest('Laporan layanan belum tersedia');
+  }
   const timeoutMs = resolveVerifyTimeoutMs(deps?.timeoutMs);
   const model = resolveAiModel(deps?.model);
   const apiKey = resolveAiApiKey(deps?.apiKey);
