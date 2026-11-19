@@ -14,12 +14,17 @@ dokumen resmi dan dikonfirmasi oleh UMPER/admin.
 - `rooms_lengkap.csv`: daftar ruangan yang sudah diverifikasi dan menjadi
   acuan resmi terbaru.
 - `facility-categories.csv`: taxonomy kategori fasilitas sementara untuk form.
+  Kolom `requires_asset`: `true` untuk kategori kerusakan (laporan wajib memilih
+  aset); `false` untuk kategori layanan (laporan cukup lokasi + kategori), yaitu
+  `ACCESS` (Akses & Kunci) dan `SECURITY` (Keamanan). Kategori layanan tidak
+  boleh dipetakan dari `asset-profiles.csv`.
 - `issue-types.csv`: taxonomy jenis masalah sementara untuk form.
 - `asset-profiles.csv`: aturan/perlengkapan umum berdasarkan tipe ruangan atau
   gedung; ini belum menjadi inventaris aset individual.
 - `shared-areas.csv`: area bersama yang bukan ruangan bernomor, misalnya
   lorong; area ini dapat menjadi lokasi fasilitas agregat.
-- `technicians.csv`: lima teknisi dummy untuk pengembangan dan pengujian MVP;
+- `technicians.csv`: tujuh teknisi dummy untuk pengembangan dan pengujian MVP
+  (TECH-006 "Bagian Umum" dan TECH-007 "Keamanan" menangani laporan layanan);
   harus diganti atau dilengkapi dengan data resmi sebelum production.
 - `assets.csv`: template inventaris aset individual, masih kosong sampai kode
   aset dan pemetaan per ruangan tersedia.

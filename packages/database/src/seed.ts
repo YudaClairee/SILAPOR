@@ -305,6 +305,10 @@ async function runSeed(url: string): Promise<SeedDetail> {
       }
       const weight = weights.category.get(code) ?? 0;
       const isActive = parseBool(row['is_active'] ?? '', `facility-categories.csv ${code}`);
+      const requiresAsset = parseBool(
+        row['requires_asset'] ?? '',
+        `facility-categories.csv ${code}`,
+      );
       const existing = await db
         .select({ id: facilityCategories.id })
         .from(facilityCategories)
@@ -312,11 +316,11 @@ async function runSeed(url: string): Promise<SeedDetail> {
       tally('facility_categories', existing.length > 0);
       const upserted = await db
         .insert(facilityCategories)
-        .values({ code, name, weight, isActive })
+        .values({ code, name, weight, isActive, requiresAsset })
         .onConflictDoUpdate({
           target: facilityCategories.code,
           // Never flip is_active false->true: admin archivals survive re-seed.
-          set: { name, weight },
+          set: { name, weight, requiresAsset },
         })
         .returning({ id: facilityCategories.id });
       const id = existing[0]?.id ?? upserted[0]?.id;

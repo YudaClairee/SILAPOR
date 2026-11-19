@@ -5,6 +5,8 @@ v1,CATEGORY,PLUMBING,Toilet dan sanitasi,40,35,true,PROVISIONAL,project-team,202
 v1,CATEGORY,ELECTRONIC,Elektronik komputer dan jaringan,40,25,true,PROVISIONAL,project-team,2026-10-10
 v1,CATEGORY,FURNITURE,Furniture pintu dan jendela,40,15,true,PROVISIONAL,project-team,2026-10-10
 v1,CATEGORY,OTHER,Lainnya,40,10,true,PROVISIONAL,project-team,2026-10-10
+v1,CATEGORY,ACCESS,Akses & Kunci,40,35,true,PROVISIONAL,project-team,2026-11-18
+v1,CATEGORY,SECURITY,Keamanan,40,40,true,PROVISIONAL,project-team,2026-11-18
 v1,ASSET,CENTRAL_AC,AC central ballroom/kelas C,30,30,true,PROVISIONAL,project-team,2026-10-10
 v1,ASSET,SERVER_PANEL,Panel/server tertutup (rencana),30,28,true,PROVISIONAL,project-team,2026-10-10
 v1,ASSET,CONVENTIONAL_AC,AC biasa/split,30,25,true,PROVISIONAL,project-team,2026-10-10
