@@ -107,6 +107,9 @@ export const facilityCategories = pgTable(
     // v1: ELECTRICAL 40, HVAC 35, PLUMBING 35, ELECTRONIC 25, FURNITURE 15, OTHER 10.
     weight: integer('weight').notNull().default(10),
     isActive: boolean('is_active').notNull().default(true),
+    // true = kategori kerusakan (laporan wajib memilih aset).
+    // false = kategori layanan (laporan cukup lokasi + kategori, tanpa aset).
+    requiresAsset: boolean('requires_asset').notNull().default(true),
   },
   (table) => [
     check('facility_categories_weight_check', sql`${table.weight} >= 0 AND ${table.weight} <= 40`),
@@ -309,6 +312,11 @@ export const maintenanceReports = pgTable(
       table.status,
     ),
     index('maintenance_reports_resolved_at_idx').on(table.resolvedAt),
+    index('maintenance_reports_location_category_status_idx').on(
+      table.locationId,
+      table.submittedCategoryId,
+      table.status,
+    ),
     check(
       'maintenance_reports_priority_score_check',
       sql`${table.priorityScore} IS NULL OR (${table.priorityScore} >= 0 AND ${table.priorityScore} <= 100)`,

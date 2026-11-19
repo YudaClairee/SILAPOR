@@ -351,6 +351,7 @@ describe('form-option projections', () => {
         description: 'dropped',
         weight: 40,
         isActive: true,
+        requiresAsset: true,
       }),
     ).toEqual({ id: UUID_A, code: 'ELECTRICAL', name: 'Kelistrikan', weight: 40 });
     expect(

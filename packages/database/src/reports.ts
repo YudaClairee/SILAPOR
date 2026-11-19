@@ -2,9 +2,12 @@
 //
 // `createReport` is duplicate-first: inside a single `db.transaction` it
 // replays an idempotency key, validates the new input shape (reporter +
-// location + required asset + description; the reporter NEVER sends a
-// category, issue type, or occurredAt), checks the referenced rows, then
-// looks for an ACTIVE report on the SAME asset BEFORE minting a ticket:
+// location + exactly one of asset or service category + description; the
+// reporter NEVER sends a category, issue type, or occurredAt), checks the
+// referenced rows, then looks for an ACTIVE report on the SAME target BEFORE
+// minting a ticket. The target is the asset for damage reports, or the
+// location + category for service reports (`assetId` null, which never
+// matches or merges with damage reports):
 // same-reporter actives throw `DuplicateActiveError` (`DUPLICATE_ACTIVE`
 // with the active ticketNumber, consuming no ticket); different-reporter
 // actives are auto-merged — the new row is created and a SUPPORTING
@@ -89,10 +92,13 @@ export type AiVerdictResult =
 // Pure input validation (no I/O; FK existence is checked by `createReport`).
 // ---------------------------------------------------------------------------
 
+// Exactly one target: `assetId` (laporan kerusakan fasilitas) or
+// `serviceCategoryId` (laporan layanan, kategori dengan requiresAsset=false).
 export interface CreateReportInput {
   readonly reporterId: string;
   readonly locationId: string;
-  readonly assetId: string;
+  readonly assetId?: string | undefined;
+  readonly serviceCategoryId?: string | undefined;
   readonly description: string;
 }
 
@@ -119,7 +125,20 @@ export function validateCreateReportInput(input: unknown): string[] {
   }
   checkRequiredUuid(input, 'reporterId', errors);
   checkRequiredUuid(input, 'locationId', errors);
-  checkRequiredUuid(input, 'assetId', errors);
+
+  // Exactly one target: a damage report names an asset, a service report
+  // names a service category. Sending both, or neither, is rejected.
+  const hasAsset = input['assetId'] !== undefined;
+  const hasService = input['serviceCategoryId'] !== undefined;
+  if (hasAsset && hasService) {
+    errors.push('assetId and serviceCategoryId are mutually exclusive');
+  } else if (hasAsset) {
+    checkRequiredUuid(input, 'assetId', errors);
+  } else if (hasService) {
+    checkRequiredUuid(input, 'serviceCategoryId', errors);
+  } else {
+    errors.push('assetId or serviceCategoryId is required');
+  }
 
   for (const field of ['submittedCategoryId', 'submittedIssueTypeId', 'occurredAt']) {
     if (input[field] !== undefined) {
@@ -185,10 +204,16 @@ interface IncidentScope {
 }
 
 function incidentConditions(filter: IncidentScope) {
+  // Damage reports match only their own asset. Service reports (no asset)
+  // match only other asset-less rows at the same location, so a service
+  // report never duplicates or merges with a damage report, and vice versa.
   const scope =
     filter.assetId !== undefined && filter.assetId !== null
       ? sql`${schema.maintenanceReports.assetId} IS NOT DISTINCT FROM ${filter.assetId}`
-      : eq(schema.maintenanceReports.locationId, filter.locationId);
+      : and(
+          eq(schema.maintenanceReports.locationId, filter.locationId),
+          isNull(schema.maintenanceReports.assetId),
+        );
   return [
     inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
     scope,
@@ -282,10 +307,13 @@ export interface SupportingRelationRef {
 // counter increments — a blocked submit consumes no ticket and writes no
 // rows (the enclosing transaction rolls back).
 export class DuplicateActiveError extends AppError {
-  constructor(ticketNumber: string) {
+  constructor(
+    ticketNumber: string,
+    message = 'Duplicate report: an active report already exists for this asset',
+  ) {
     super({
       code: 'DUPLICATE_ACTIVE',
-      message: 'Duplicate report: an active report already exists for this asset',
+      message,
       status: 409,
       details: { ticketNumber },
     });
@@ -321,6 +349,40 @@ async function findEarliestActiveOnAsset(
       and(
         reporterCondition,
         eq(schema.maintenanceReports.assetId, assetId),
+        inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
+      ),
+    )
+    .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id))
+    .limit(1);
+  const row = rows[0];
+  return row === undefined ? undefined : { id: row.id, ticketNumber: row.ticketNumber };
+}
+
+// Earliest ACTIVE service report (asset_id IS NULL) at a location for one
+// service category: same-reporter hit blocks, other-reporter hit auto-merges.
+// Asset-based rows never match, so damage and service reports stay apart.
+async function findEarliestActiveOnLocationCategory(
+  db: ReportQueryDb,
+  locationId: string,
+  categoryId: string,
+  reporterId: string,
+  sameReporter: boolean,
+): Promise<ActiveAssetMatch | undefined> {
+  const reporterCondition = sameReporter
+    ? eq(schema.maintenanceReports.reporterId, reporterId)
+    : ne(schema.maintenanceReports.reporterId, reporterId);
+  const rows = await db
+    .select({
+      id: schema.maintenanceReports.id,
+      ticketNumber: schema.maintenanceReports.ticketNumber,
+    })
+    .from(schema.maintenanceReports)
+    .where(
+      and(
+        reporterCondition,
+        isNull(schema.maintenanceReports.assetId),
+        eq(schema.maintenanceReports.locationId, locationId),
+        eq(schema.maintenanceReports.submittedCategoryId, categoryId),
         inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
       ),
     )
@@ -429,6 +491,123 @@ function toFilterInput(report: schema.Report): DuplicateCandidateFilter {
   };
 }
 
+// What a new report is filed against: an active asset (damage report) or,
+// with `assetId: null`, a service category at the location (service report).
+interface SubmissionTarget {
+  readonly assetId: string | null;
+  readonly categoryId: string;
+}
+
+const SERVICE_DUPLICATE_MESSAGE =
+  'Duplicate report: an active report already exists for this location and category';
+
+// Damage report: the asset row is locked (`FOR UPDATE`) so concurrent
+// same-asset submits serialize here: the loser blocks until the winner
+// commits, then the checks below see the winner's row.
+async function resolveAssetTarget(
+  tx: TransactionClient,
+  assetId: string,
+): Promise<SubmissionTarget> {
+  const asset = (
+    await tx
+      .select()
+      .from(schema.facilityAssets)
+      .where(eq(schema.facilityAssets.id, assetId))
+      .for('update')
+  )[0];
+  if (asset === undefined) {
+    throw notFound('Asset not found');
+  }
+  if (!asset.isActive) {
+    throw badRequest('Asset is inactive');
+  }
+  if (asset.categoryId === null || asset.categoryId === undefined) {
+    throw badRequest('Asset has no category');
+  }
+  // The derived submitted category must itself be active — an asset
+  // pointing at an archived category cannot accept new reports.
+  const assetCategory = (
+    await tx
+      .select()
+      .from(schema.facilityCategories)
+      .where(eq(schema.facilityCategories.id, asset.categoryId))
+  )[0];
+  if (assetCategory === undefined) {
+    throw notFound('Category not found');
+  }
+  if (!assetCategory.isActive) {
+    throw badRequest('Category is inactive');
+  }
+  return { assetId, categoryId: asset.categoryId };
+}
+
+// Service report: the category must be active and asset-less by design
+// (`requiresAsset=false`). There is no asset row to lock, so the location row
+// is locked instead. One lock per transaction, taken before the ticket counter,
+// the same position as the asset lock.
+async function resolveServiceTarget(
+  tx: TransactionClient,
+  locationId: string,
+  serviceCategoryId: string,
+): Promise<SubmissionTarget> {
+  const category = (
+    await tx
+      .select()
+      .from(schema.facilityCategories)
+      .where(eq(schema.facilityCategories.id, serviceCategoryId))
+  )[0];
+  if (category === undefined) {
+    throw notFound('Category not found');
+  }
+  if (!category.isActive) {
+    throw badRequest('Category is inactive');
+  }
+  if (category.requiresAsset) {
+    throw badRequest('Category requires an asset');
+  }
+  await tx
+    .select({ id: schema.locations.id })
+    .from(schema.locations)
+    .where(eq(schema.locations.id, locationId))
+    .for('update');
+  return { assetId: null, categoryId: category.id };
+}
+
+async function resolveSubmissionTarget(
+  tx: TransactionClient,
+  input: CreateReportInput,
+): Promise<SubmissionTarget> {
+  if (input.assetId !== undefined) {
+    return await resolveAssetTarget(tx, input.assetId);
+  }
+  if (input.serviceCategoryId !== undefined) {
+    return await resolveServiceTarget(tx, input.locationId, input.serviceCategoryId);
+  }
+  // Unreachable after `validateCreateReportInput`, kept for type narrowing.
+  throw badRequest('Invalid report input: assetId or serviceCategoryId is required');
+}
+
+// Same-reporter / other-reporter ACTIVE lookup for the target: by asset for
+// damage reports, by location + category for service reports.
+async function findActiveForTarget(
+  tx: TransactionClient,
+  locationId: string,
+  reporterId: string,
+  target: SubmissionTarget,
+  sameReporter: boolean,
+): Promise<ActiveAssetMatch | undefined> {
+  if (target.assetId !== null) {
+    return await findEarliestActiveOnAsset(tx, target.assetId, reporterId, sameReporter);
+  }
+  return await findEarliestActiveOnLocationCategory(
+    tx,
+    locationId,
+    target.categoryId,
+    reporterId,
+    sameReporter,
+  );
+}
+
 export async function createReport(
   db: Database,
   input: CreateReportInput,
@@ -462,11 +641,10 @@ export async function createReport(
 
   try {
     return await db.transaction(async (tx) => {
-      // Referenced rows must exist AND be active. The asset row is locked
-      // (`FOR UPDATE`) so concurrent same-asset submits serialize here: the
-      // loser blocks until the winner commits, then the checks below see the
-      // winner's row. One lock per transaction, always taken before the
-      // shared ticket counter — no lock-order inversion.
+      // Referenced rows must exist AND be active. The target lock (asset row or
+      // location row, see `resolveSubmissionTarget`) serializes concurrent
+      // submits to the same target. One lock per transaction, always taken
+      // before the shared ticket counter — no lock-order inversion.
       const reporter = (
         await tx.select().from(schema.users).where(eq(schema.users.id, input.reporterId))
       )[0];
@@ -485,38 +663,9 @@ export async function createReport(
       if (!location.isActive) {
         throw badRequest('Location is inactive');
       }
-      const asset = (
-        await tx
-          .select()
-          .from(schema.facilityAssets)
-          .where(eq(schema.facilityAssets.id, input.assetId))
-          .for('update')
-      )[0];
-      if (asset === undefined) {
-        throw notFound('Asset not found');
-      }
-      if (!asset.isActive) {
-        throw badRequest('Asset is inactive');
-      }
-      if (asset.categoryId === null || asset.categoryId === undefined) {
-        throw badRequest('Asset has no category');
-      }
-      // The derived submitted category must itself be active — an asset
-      // pointing at an archived category cannot accept new reports.
-      const assetCategory = (
-        await tx
-          .select()
-          .from(schema.facilityCategories)
-          .where(eq(schema.facilityCategories.id, asset.categoryId))
-      )[0];
-      if (assetCategory === undefined) {
-        throw notFound('Category not found');
-      }
-      if (!assetCategory.isActive) {
-        throw badRequest('Category is inactive');
-      }
+      const target = await resolveSubmissionTarget(tx, input);
 
-      // Same-key retry AFTER the asset lock: a concurrent same-key winner may
+      // Same-key retry AFTER the target lock: a concurrent same-key winner may
       // have committed while this transaction waited on the lock — replay it
       // with NO new ticket/event/job instead of misreading it as a duplicate.
       const existing = await findReportByKey(tx, key);
@@ -531,16 +680,20 @@ export async function createReport(
         };
       }
 
-      // Duplicate-first: same reporter + same asset + ACTIVE → block BEFORE
+      // Duplicate-first: same reporter + same target + ACTIVE → block BEFORE
       // the ticket counter moves, so the failure consumes no ticket.
-      const sameReporterActive = await findEarliestActiveOnAsset(
+      const sameReporterActive = await findActiveForTarget(
         tx,
-        input.assetId,
+        input.locationId,
         input.reporterId,
+        target,
         true,
       );
       if (sameReporterActive !== undefined) {
-        throw new DuplicateActiveError(sameReporterActive.ticketNumber);
+        throw new DuplicateActiveError(
+          sameReporterActive.ticketNumber,
+          target.assetId === null ? SERVICE_DUPLICATE_MESSAGE : undefined,
+        );
       }
 
       // Lock/increment the per-year ticket counter atomically.
@@ -568,8 +721,8 @@ export async function createReport(
           idempotencyKey: key,
           reporterId: input.reporterId,
           locationId: input.locationId,
-          assetId: input.assetId,
-          submittedCategoryId: asset.categoryId,
+          assetId: target.assetId,
+          submittedCategoryId: target.categoryId,
           submittedIssueTypeId: null,
           description: input.description.trim(),
           occurredAt,
@@ -599,10 +752,11 @@ export async function createReport(
       // Auto-gabung: a different reporter's ACTIVE report on the same asset
       // absorbs this row as SUPPORTING in the SAME transaction — no extra
       // job, no admin action, and verification later leaves the link alone.
-      const otherReporterActive = await findEarliestActiveOnAsset(
+      const otherReporterActive = await findActiveForTarget(
         tx,
-        input.assetId,
+        input.locationId,
         input.reporterId,
+        target,
         false,
       );
       let relation: SupportingRelationRef | null = null;

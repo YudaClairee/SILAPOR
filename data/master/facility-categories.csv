@@ -1,16 +1,18 @@
-code,name,is_active,verification_status
-ELECTRICAL,Listrik dan lampu,true,CONFIRMED
-HVAC,AC dan pendingin,true,CONFIRMED
-FURNITURE,Furniture pintu dan jendela,true,CONFIRMED
-ELECTRONIC,Elektronik komputer dan jaringan,true,CONFIRMED
-PLUMBING,Toilet dan sanitasi,true,CONFIRMED
-OTHER,Lainnya,true,CONFIRMED
-AC,AC,false,PROVISIONAL
-LIGHTING,Lampu,false,PROVISIONAL
-NETWORK,Jaringan atau internet,false,PROVISIONAL
-COMPUTER,Komputer,false,PROVISIONAL
-PROJECTOR,Proyektor,false,PROVISIONAL
-TOILET,Toilet,false,PROVISIONAL
-ELEVATOR,Lift,false,PROVISIONAL
-DOOR_WINDOW,Pintu atau jendela,false,PROVISIONAL
-ROOM_FACILITY,Fasilitas ruangan,false,PROVISIONAL
+code,name,is_active,verification_status,requires_asset
+ELECTRICAL,Listrik dan lampu,true,CONFIRMED,true
+HVAC,AC dan pendingin,true,CONFIRMED,true
+FURNITURE,Furniture pintu dan jendela,true,CONFIRMED,true
+ELECTRONIC,Elektronik komputer dan jaringan,true,CONFIRMED,true
+PLUMBING,Toilet dan sanitasi,true,CONFIRMED,true
+OTHER,Lainnya,true,CONFIRMED,true
+AC,AC,false,PROVISIONAL,true
+LIGHTING,Lampu,false,PROVISIONAL,true
+NETWORK,Jaringan atau internet,false,PROVISIONAL,true
+COMPUTER,Komputer,false,PROVISIONAL,true
+PROJECTOR,Proyektor,false,PROVISIONAL,true
+TOILET,Toilet,false,PROVISIONAL,true
+ELEVATOR,Lift,false,PROVISIONAL,true
+DOOR_WINDOW,Pintu atau jendela,false,PROVISIONAL,true
+ROOM_FACILITY,Fasilitas ruangan,false,PROVISIONAL,true
+ACCESS,Akses & Kunci,true,PROVISIONAL,false
+SECURITY,Keamanan,true,PROVISIONAL,false

@@ -10,3 +10,4 @@ NOT_COOLING,Tidak dingin,AC,false,PROVISIONAL
 LIGHT_OFF,Lampu mati,LIGHTING,false,PROVISIONAL
 POWER_FAILURE,Gangguan listrik,ELECTRICAL,false,PROVISIONAL
 NO_CONNECTION,Tidak tersambung,NETWORK,false,PROVISIONAL
+LOCKED,Terkunci / tidak bisa diakses,ACCESS,true,PROVISIONAL

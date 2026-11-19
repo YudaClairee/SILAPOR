@@ -160,6 +160,46 @@ describe('validateCreateReportInput (pure)', () => {
   });
 });
 
+describe('validateCreateReportInput service target (pure)', () => {
+  // Service report: no asset, a service category instead.
+  const serviceInput = (overrides: Record<string, unknown> = {}): Record<string, unknown> => {
+    const input = validInput();
+    delete input['assetId'];
+    return { ...input, serviceCategoryId: VALID_UUID_C, ...overrides };
+  };
+
+  it('accepts a service input with serviceCategoryId and no assetId', () => {
+    expect(validateCreateReportInput(serviceInput())).toEqual([]);
+  });
+
+  it('rejects an asset and a service category sent together', () => {
+    expect(
+      validateCreateReportInput(validInput({ serviceCategoryId: VALID_UUID_A })).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('rejects input with neither an asset nor a service category', () => {
+    const input = validInput();
+    delete input['assetId'];
+    expect(validateCreateReportInput(input).length).toBeGreaterThan(0);
+  });
+
+  it('rejects a malformed or null serviceCategoryId', () => {
+    expect(
+      validateCreateReportInput(serviceInput({ serviceCategoryId: 'not-a-uuid' })).length,
+    ).toBeGreaterThan(0);
+    expect(
+      validateCreateReportInput(serviceInput({ serviceCategoryId: null })).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('still rejects reporter-supplied classification on a service input', () => {
+    expect(
+      validateCreateReportInput(serviceInput({ submittedCategoryId: VALID_UUID_A })).length,
+    ).toBeGreaterThan(0);
+  });
+});
+
 describe('getJakartaYear (pure)', () => {
   it('resolves the Asia/Jakarta calendar year (UTC New Year eve is already next year in Jakarta)', () => {
     // 2025-12-31T18:00:00Z == 2026-01-01T01:00:00+07:00.
@@ -235,6 +275,11 @@ describe.skipIf(!enabled)(
     let catElec = '';
     let catHvac = '';
     let catInactive = '';
+    let catAccess = '';
+    let catSecurity = '';
+    let catServiceOff = '';
+    let locC = '';
+    let svcFirstTicket = '';
     let itElec = '';
     let itHvac = '';
     let assetElec1 = '';
@@ -310,11 +355,16 @@ describe.skipIf(!enabled)(
       };
       locA = await insertLocation('T3-ROOM-A');
       locB = await insertLocation('T3-ROOM-B');
+      locC = await insertLocation('T3-ROOM-C');
 
-      const insertCategory = async (code: string, isActive: boolean): Promise<string> => {
+      const insertCategory = async (
+        code: string,
+        isActive: boolean,
+        requiresAsset = true,
+      ): Promise<string> => {
         const rows = await db!
           .insert(facilityCategories)
-          .values({ code, name: `T3 ${code}`, isActive })
+          .values({ code, name: `T3 ${code}`, isActive, requiresAsset })
           .returning({ id: facilityCategories.id });
         const id = rows[0]?.id;
         if (id === undefined) {
@@ -325,6 +375,9 @@ describe.skipIf(!enabled)(
       catElec = await insertCategory('T3-ELEC', true);
       catHvac = await insertCategory('T3-HVAC', true);
       catInactive = await insertCategory('T3-OFF', false);
+      catAccess = await insertCategory('T3-ACCESS', true, false);
+      catSecurity = await insertCategory('T3-SECURITY', true, false);
+      catServiceOff = await insertCategory('T3-SVC-OFF', false, false);
 
       const insertIssueType = async (code: string, categoryId: string | null): Promise<string> => {
         const rows = await db!
@@ -1274,6 +1327,191 @@ describe.skipIf(!enabled)(
       // Audit visibility: without a status filter the merged row still exists.
       const unfiltered = await listAllReports(db!, { reporterId: reporterC });
       expect(unfiltered.items.map((r) => r.ticketNumber)).toContain(merged.report.ticketNumber);
+    });
+
+    // -----------------------------------------------------------------
+    // Service reports (no asset): keyed by location + category.
+    // -----------------------------------------------------------------
+
+    it('creates a service report without an asset, filed under the service category', async () => {
+      const result = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locC,
+          serviceCategoryId: catAccess,
+          description: longDescription('layanan akses pertama'),
+        },
+        randomUUID(),
+      );
+      expect(result.idempotentReplay).toBe(false);
+      expect(result.relation).toBeNull();
+      expect(result.report.assetId).toBeNull();
+      expect(result.report.submittedCategoryId).toBe(catAccess);
+      expect(result.report.locationId).toBe(locC);
+      expect(result.report.status).toBe('REPORTED');
+      svcFirstTicket = result.report.ticketNumber;
+    });
+
+    it('blocks a second service report by the same reporter, location and category (409, no ticket)', async () => {
+      const seqBefore = await counterForYear();
+      const blocked = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locC,
+          serviceCategoryId: catAccess,
+          description: longDescription('layanan akses kedua diblokir'),
+        },
+        randomUUID(),
+      ).then(
+        () => {
+          throw new Error('test: blocked service submit unexpectedly succeeded');
+        },
+        (error: unknown) => error,
+      );
+      expect(blocked).toMatchObject({
+        code: 'DUPLICATE_ACTIVE',
+        status: 409,
+        details: { ticketNumber: svcFirstTicket },
+      });
+      expect(
+        await db!.select().from(maintenanceReports).where(eq(maintenanceReports.locationId, locC)),
+      ).toHaveLength(1);
+      expect(await counterForYear()).toBe(seqBefore);
+    });
+
+    it('auto-merges another reporter’s service report as SUPPORTING', async () => {
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locC,
+          serviceCategoryId: catAccess,
+          description: longDescription('layanan akses dari pelapor lain'),
+        },
+        randomUUID(),
+      );
+      expect(merged.relation).toEqual({ type: 'SUPPORTING', targetTicket: svcFirstTicket });
+      expect(merged.report.assetId).toBeNull();
+    });
+
+    it('creates a separate report for the same location with a different service category', async () => {
+      const other = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locC,
+          serviceCategoryId: catSecurity,
+          description: longDescription('layanan keamanan di ruangan yang sama'),
+        },
+        randomUUID(),
+      );
+      expect(other.relation).toBeNull();
+      expect(other.report.submittedCategoryId).toBe(catSecurity);
+      expect(other.report.ticketNumber).not.toBe(svcFirstTicket);
+    });
+
+    it('never mixes service and damage reports at the same location', async () => {
+      const freshAsset = await createAsset('T3-ASSET-SVC-ISO', catElec);
+      const damage = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: freshAsset,
+          description: longDescription('kerusakan aset terpisah'),
+        },
+        randomUUID(),
+      );
+      const service = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          serviceCategoryId: catAccess,
+          description: longDescription('layanan akses di ruangan yang sama dengan kerusakan'),
+        },
+        randomUUID(),
+      );
+      expect(service.relation).toBeNull();
+      expect(service.duplicateCandidates).toEqual([]);
+      expect(service.report.ticketNumber).not.toBe(damage.report.ticketNumber);
+
+      // A later damage report on the same asset merges with the damage ticket,
+      // never with the service report at the location.
+      const damageLater = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locA,
+          assetId: freshAsset,
+          description: longDescription('kerusakan aset yang sama dari pelapor lain'),
+        },
+        randomUUID(),
+      );
+      expect(damageLater.relation).toEqual({
+        type: 'SUPPORTING',
+        targetTicket: damage.report.ticketNumber,
+      });
+    });
+
+    it('rejects an asset and a service category sent together with 400', async () => {
+      await expect(
+        createReport(
+          db!,
+          {
+            reporterId: reporterA,
+            locationId: locC,
+            assetId: assetElec1,
+            serviceCategoryId: catAccess,
+            description: longDescription('dua target sekaligus'),
+          },
+          randomUUID(),
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+    });
+
+    it('rejects a damage category (requiresAsset=true) submitted without an asset with 400', async () => {
+      await expect(
+        createReport(
+          db!,
+          {
+            reporterId: reporterA,
+            locationId: locC,
+            serviceCategoryId: catElec,
+            description: longDescription('kategori kerusakan tanpa aset'),
+          },
+          randomUUID(),
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+    });
+
+    it('rejects an inactive service category with 400 and an unknown one with 404', async () => {
+      await expect(
+        createReport(
+          db!,
+          {
+            reporterId: reporterA,
+            locationId: locC,
+            serviceCategoryId: catServiceOff,
+            description: longDescription('kategori layanan nonaktif'),
+          },
+          randomUUID(),
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        createReport(
+          db!,
+          {
+            reporterId: reporterA,
+            locationId: locC,
+            serviceCategoryId: randomUUID(),
+            description: longDescription('kategori layanan tidak ada'),
+          },
+          randomUUID(),
+        ),
+      ).rejects.toMatchObject({ status: 404 });
     });
   },
 );

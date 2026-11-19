@@ -1,0 +1,2 @@
+ALTER TABLE "facility_categories" ADD COLUMN "requires_asset" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+CREATE INDEX "maintenance_reports_location_category_status_idx" ON "maintenance_reports" USING btree ("location_id","submitted_category_id","status");

@@ -85,6 +85,13 @@
       "when": 1792332000000,
       "tag": "0011_managerial_role",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795055486893,
+      "tag": "0012_service_categories",
+      "breakpoints": true
     }
   ]
 }
