@@ -429,6 +429,8 @@ describe.skipIf(!enabled)('notification queries (requires reachable PostgreSQL)'
     expect(newest.ticketNumber).toBe('MNT-2026-000210');
     expect(newest.reportStatus).toBe('REPORTED');
     expect(newest.assetName).toBeNull();
+    // Asset-less report: the submitted category is the label instead.
+    expect(newest.submittedCategoryName).toBe('Elektronik');
     expect(newest.locationName).toBe('Kampus');
     expect(newest.locationBuildingCode).toBeNull();
     expect(newest.locationFloorNumber).toBeNull();
@@ -437,6 +439,7 @@ describe.skipIf(!enabled)('notification queries (requires reachable PostgreSQL)'
     expect(noReport.ticketNumber).toBeNull();
     expect(noReport.reportStatus).toBeNull();
     expect(noReport.assetName).toBeNull();
+    expect(noReport.submittedCategoryName).toBeNull();
     expect(noReport.locationName).toBeNull();
   });
 

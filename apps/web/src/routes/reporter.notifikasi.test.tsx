@@ -178,6 +178,37 @@ describe('halaman notifikasi', () => {
     }
   });
 
+  it('labels an asset-less service report with its category instead of a blank place', async () => {
+    stubFetch({
+      items: [
+        {
+          id: 'n4',
+          type: 'STATUS_CHANGED',
+          title: 'Status laporan diperbarui',
+          message: 'Status penanganan Tiket MNT-2026-000212 telah diperbarui.',
+          reportId: 'r4',
+          ticketNumber: 'MNT-2026-000212',
+          reportStatus: 'ASSIGNED',
+          assetName: null,
+          submittedCategoryName: 'Akses & Kunci',
+          locationName: 'R. Kuliah 12',
+          locationBuildingCode: 'C',
+          locationFloorNumber: 3,
+          readAt: null,
+          createdAt: '2026-01-04T10:00:00.000Z',
+        },
+      ],
+      total: 1,
+      unreadCount: 1,
+    });
+    renderPage();
+
+    expect(
+      await screen.findByText('Akses & Kunci · R. Kuliah 12 · Gedung C · Lt. 3'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/null/)).not.toBeInTheDocument();
+  });
+
   it('shows the empty state when the reporter has no notifications', async () => {
     stubFetch({ items: [], total: 0, unreadCount: 0 });
     renderPage();

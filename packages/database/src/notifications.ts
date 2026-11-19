@@ -202,6 +202,9 @@ export interface NotificationListItem {
   readonly reportStatus: schema.Report['status'] | null;
   /** Asset display name; null when the report has no asset or it was deleted. */
   readonly assetName: string | null;
+  /** Name of the report's submitted category: the label for asset-less service
+   *  reports, where `assetName` is null. Null when the report row is gone. */
+  readonly submittedCategoryName: string | null;
   // Reporter-facing location display fields. Null when the report is gone, has
   // no location, or the location is inactive/reporterHidden (lift rooms) — the
   // same visibility rule as the campus report list.
@@ -243,6 +246,7 @@ export async function listNotificationsForUser(
       ticketNumber: schema.maintenanceReports.ticketNumber,
       reportStatus: schema.maintenanceReports.status,
       reportAssetId: schema.maintenanceReports.assetId,
+      reportCategoryId: schema.maintenanceReports.submittedCategoryId,
       reportLocationId: schema.maintenanceReports.locationId,
       readAt: schema.notifications.readAt,
       createdAt: schema.notifications.createdAt,
@@ -262,6 +266,11 @@ export async function listNotificationsForUser(
       rows.map((row) => row.reportAssetId).filter((value): value is string => value !== null),
     ),
   ];
+  const categoryIds = [
+    ...new Set(
+      rows.map((row) => row.reportCategoryId).filter((value): value is string => value !== null),
+    ),
+  ];
   const locationIds = [
     ...new Set(
       rows.map((row) => row.reportLocationId).filter((value): value is string => value !== null),
@@ -274,6 +283,13 @@ export async function listNotificationsForUser(
           .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
           .from(schema.facilityAssets)
           .where(inArray(schema.facilityAssets.id, assetIds));
+  const categoryRows =
+    categoryIds.length === 0
+      ? []
+      : await db
+          .select({ id: schema.facilityCategories.id, name: schema.facilityCategories.name })
+          .from(schema.facilityCategories)
+          .where(inArray(schema.facilityCategories.id, categoryIds));
   const locationRows =
     locationIds.length === 0
       ? []
@@ -289,6 +305,7 @@ export async function listNotificationsForUser(
           .from(schema.locations)
           .where(inArray(schema.locations.id, locationIds));
   const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
+  const categoryNames = new Map(categoryRows.map((row) => [row.id, row.name] as const));
   const locationsById = new Map(locationRows.map((row) => [row.id, row] as const));
   const totalRows = await db
     .select({ value: count() })
@@ -299,13 +316,15 @@ export async function listNotificationsForUser(
     .from(schema.notifications)
     .where(and(eq(schema.notifications.userId, userId), isNull(schema.notifications.readAt)));
   return {
-    items: rows.map(({ reportAssetId, reportLocationId, ...row }) => {
+    items: rows.map(({ reportAssetId, reportCategoryId, reportLocationId, ...row }) => {
       const location = reportLocationId === null ? undefined : locationsById.get(reportLocationId);
       const visibleLocation =
         location !== undefined && location.isActive && !location.reporterHidden ? location : null;
       return {
         ...row,
         assetName: reportAssetId === null ? null : (assetNames.get(reportAssetId) ?? null),
+        submittedCategoryName:
+          reportCategoryId === null ? null : (categoryNames.get(reportCategoryId) ?? null),
         locationName: visibleLocation?.name ?? null,
         locationBuildingCode: visibleLocation?.buildingCode ?? null,
         locationFloorNumber: visibleLocation?.floorNumber ?? null,
