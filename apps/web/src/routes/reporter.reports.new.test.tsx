@@ -350,6 +350,7 @@ describe('reporter form render', () => {
       photoKeys: unknown;
     };
     expect(body.photoKeys).toEqual(['staging_testkey']);
+    expect(screen.getByText('1 foto terlampir.')).toBeInTheDocument();
     // Post-submit CTA returns to the V2 monitoring list, not the legacy
     // "Tiket Kampus" page at /reporter/reports.
     const mineLink = screen.getByRole('link', { name: 'Laporan Saya' });
@@ -383,6 +384,8 @@ describe('reporter form render', () => {
     fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
     expect(await screen.findByText('MNT-2026-000009')).toBeInTheDocument();
     expect(await screen.findByText('Laporan menunggu pemeriksaan.')).toBeInTheDocument();
+    // The form clears its photo list on submit; the result must still count it.
+    expect(screen.getByText('1 foto terlampir.')).toBeInTheDocument();
   });
 
   it('switches to a service report: category instead of asset, and a body without assetId', async () => {

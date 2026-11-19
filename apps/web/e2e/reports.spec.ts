@@ -47,6 +47,11 @@ interface E2eLocation {
 interface E2eFormOptions {
   readonly locations: E2eLocation[];
   readonly assets: ReadonlyArray<{ readonly id: string; readonly locationId: string | null }>;
+  readonly serviceCategories?: ReadonlyArray<{
+    readonly id: string;
+    readonly code: string;
+    readonly name: string;
+  }>;
 }
 
 interface E2eFillOptions {
@@ -79,6 +84,38 @@ async function firstFreeAssetIndex(
     throw new Error('E2E: every seeded asset has a reporter-active ticket; reseed the dev DB');
   }
   return index;
+}
+
+// Pick building → optional floor → room in the reporter cascade. Works for both
+// kinds of report: the room (ROOM row) is what enables the asset/category field.
+async function selectRoomCascade(
+  page: Page,
+  options: E2eFormOptions,
+  room: E2eLocation,
+): Promise<void> {
+  const parent = options.locations.find((location) => location.id === room.parentId);
+  const floor = parent?.type === 'FLOOR' ? parent : undefined;
+  const building =
+    floor === undefined
+      ? parent
+      : options.locations.find((location) => location.id === floor.parentId);
+  if (building === undefined) {
+    throw new Error('E2E: room building missing from form options');
+  }
+
+  // v2 labels append a generated "*" (CSS content) and the photo label is
+  // duplicated for the drop zone, so target the stable control ids instead.
+  const buildingSelect = page.locator('#report-building');
+  await expect(buildingSelect.locator(`option[value="${building.id}"]`)).toBeAttached();
+  await buildingSelect.selectOption(building.id);
+  if (floor !== undefined) {
+    const floorSelect = page.locator('#report-floor');
+    await expect(floorSelect.locator(`option[value="${floor.id}"]`)).toBeAttached();
+    await floorSelect.selectOption(floor.id);
+  }
+  const roomSelect = page.locator('#report-room');
+  await expect(roomSelect.locator(`option[value="${room.id}"]`)).toBeAttached();
+  await roomSelect.selectOption(room.id);
 }
 
 // Fill the current cascade using a real asset from the seeded form options
@@ -118,29 +155,7 @@ async function fillReportForm(
   if (room === undefined) {
     throw new Error('E2E: asset room missing from form options');
   }
-  const parent = options.locations.find((location) => location.id === room.parentId);
-  const floor = parent?.type === 'FLOOR' ? parent : undefined;
-  const building =
-    floor === undefined
-      ? parent
-      : options.locations.find((location) => location.id === floor.parentId);
-  if (building === undefined) {
-    throw new Error('E2E: asset building missing from form options');
-  }
-
-  // v2 labels append a generated "*" (CSS content) and the photo label is
-  // duplicated for the drop zone, so target the stable control ids instead.
-  const buildingSelect = page.locator('#report-building');
-  await expect(buildingSelect.locator(`option[value="${building.id}"]`)).toBeAttached();
-  await buildingSelect.selectOption(building.id);
-  if (floor !== undefined) {
-    const floorSelect = page.locator('#report-floor');
-    await expect(floorSelect.locator(`option[value="${floor.id}"]`)).toBeAttached();
-    await floorSelect.selectOption(floor.id);
-  }
-  const roomSelect = page.locator('#report-room');
-  await expect(roomSelect.locator(`option[value="${room.id}"]`)).toBeAttached();
-  await roomSelect.selectOption(room.id);
+  await selectRoomCascade(page, options, room);
   const assetSelect = page.locator('#report-asset');
   await expect(assetSelect.locator(`option[value="${asset.id}"]`)).toBeAttached();
   await assetSelect.selectOption(asset.id);
@@ -172,6 +187,88 @@ async function submitFromReview(page: Page): Promise<string> {
     throw new Error('ticket number missing from success status');
   }
   return match[0];
+}
+
+// ---------------------------------------------------------------------------
+// Laporan layanan (asset-less service report, Langkah 12). The reporter picks
+// "Kendala akses atau keamanan" → room → "Akses & Kunci" instead of an asset.
+// ---------------------------------------------------------------------------
+
+const SERVICE_CATEGORY_NAME = 'Akses & Kunci';
+const SERVICE_CATEGORY_CODE = 'ACCESS';
+const SERVICE_ISSUE_CODE = 'LOCKED';
+// Seeded technician TECH-006, specialty "Bagian Umum".
+const SERVICE_TECHNICIAN = 'Fajar Nugroho';
+
+function uniqueServiceDescription(tag: string): string {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `E2E layanan ${tag} ${suffix} pintu ruang kelas terkunci, kelas jam 08.00 tidak bisa masuk`;
+}
+
+// A room where this reporter has no active service ticket for the category, so
+// reruns against the persistent dev DB do not hit the same-location block.
+async function freeServiceRoom(
+  page: Page,
+  options: E2eFormOptions,
+  categoryId: string,
+): Promise<E2eLocation> {
+  const response = await page.request.get(`${BASE_URL}/api/reports?mine=true&limit=100`);
+  expect(response.ok()).toBe(true);
+  const body = (await response.json()) as {
+    items: ReadonlyArray<{
+      readonly locationId: string;
+      readonly assetId: string | null;
+      readonly submittedCategoryId: string;
+      readonly status: string;
+    }>;
+  };
+  const occupied = new Set(
+    body.items
+      .filter(
+        (item) =>
+          item.assetId === null &&
+          item.submittedCategoryId === categoryId &&
+          ACTIVE_STATUSES.includes(item.status),
+      )
+      .map((item) => item.locationId),
+  );
+  const room = options.locations.find(
+    (location) => location.type === 'ROOM' && !occupied.has(location.id),
+  );
+  if (room === undefined) {
+    throw new Error('E2E: every seeded room already has an active service ticket; reseed the dev DB');
+  }
+  return room;
+}
+
+// Fill the service branch of the reporter form: kind → room → category → description → photo.
+async function fillServiceReportForm(page: Page, description: string): Promise<void> {
+  await page.goto('/reporter/reports/new');
+  await expect(page.getByRole('heading', { name: /Buat Laporan (Baru|Kerusakan)/ })).toBeVisible();
+
+  const optionsResponse = await page.request.get(`${BASE_URL}/api/reports/form-options`);
+  expect(optionsResponse.ok()).toBe(true);
+  const options = (await optionsResponse.json()) as E2eFormOptions;
+  const category = options.serviceCategories?.find(
+    (entry) => entry.name === SERVICE_CATEGORY_NAME,
+  );
+  if (category === undefined) {
+    throw new Error(`E2E: service category "${SERVICE_CATEGORY_NAME}" missing from form options`);
+  }
+  const room = await freeServiceRoom(page, options, category.id);
+
+  await page.getByRole('radio', { name: /Kendala akses atau keamanan/ }).check();
+  await selectRoomCascade(page, options, room);
+  const serviceSelect = page.locator('#report-service-category');
+  await expect(serviceSelect.locator(`option[value="${category.id}"]`)).toBeAttached();
+  await serviceSelect.selectOption(category.id);
+  // No asset control exists on the service branch.
+  await expect(page.locator('#report-asset')).toHaveCount(0);
+
+  await page.locator('#report-description').fill(description);
+  await page
+    .locator('#report-photos')
+    .setInputFiles([{ name: 'pintu-terkunci.png', mimeType: 'image/png', buffer: PNG }]);
 }
 
 // Shared gate state: ticketA/descriptionA + assetIndexA created by scenario 1,
@@ -215,9 +312,11 @@ test('2 list/detail: reporter sees the ticket in the list with REPORTED status',
 
     await expect(page.getByRole('heading', { name: new RegExp(ticketA) })).toBeVisible();
     await expect(page.getByText(descriptionA)).toBeVisible();
-    // REPORTED renders as "Dilaporkan" (P3-5 copy); scoped to the definition
-    // list so the list-page status <select> options cannot collide.
-    await expect(page.locator('dd', { hasText: 'Dilaporkan' })).toBeVisible();
+    // REPORTED renders as "Dilaporkan" (P3-5 copy); scoped to the "Status
+    // Penanganan" region so the list-page status <select> options cannot collide.
+    await expect(
+      page.getByRole('region', { name: 'Status Penanganan' }).getByText('Dilaporkan', { exact: true }),
+    ).toBeVisible();
   } finally {
     await context.close();
   }
@@ -282,12 +381,12 @@ test('4 admin sees the same ticket and description', async ({ browser }) => {
   const page = await context.newPage();
   try {
     await page.goto('/admin/reports');
-    await expect(page.getByRole('heading', { name: 'Semua Laporan' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Kelola Laporan' })).toBeVisible();
     const rowLink = page.getByRole('link', { name: ticketA });
     await expect(rowLink).toBeVisible();
     await rowLink.click();
 
-    await expect(page.getByRole('heading', { name: 'Detail Laporan' })).toBeVisible();
+    // "Detail Laporan" is only the loading title; the loaded page shows the ticket.
     await expect(page.getByText(ticketA).first()).toBeVisible();
     await expect(page.getByText(descriptionA)).toBeVisible();
   } finally {
@@ -465,5 +564,94 @@ test('9 attachments: reporter uploads a photo, sees the thumbnail, broken image 
     await expect(page.getByText('Gambar tidak dapat dimuat')).toBeVisible();
   } finally {
     await context.close();
+  }
+});
+
+// Release gate for Langkah 12: a service report (no asset) runs the whole
+// lifecycle. Submit → held ticket (no AI key) → admin verifies → admin assigns
+// the Bagian Umum technician → progress to CLOSED → reporter sees the closed
+// ticket labelled with its category instead of an asset.
+test('10 layanan: access report goes from submit to closed with no asset', async ({ browser }) => {
+  // 230002: the mock SSO only accepts 230001/230002 without a password.
+  const reporterContext = await loginContext(browser, '230002');
+  const reporterPage = await reporterContext.newPage();
+  const adminContext = await loginContext(browser, 'admin');
+  const adminPage = await adminContext.newPage();
+  try {
+    const description = uniqueServiceDescription('lifecycle');
+    await fillServiceReportForm(reporterPage, description);
+    const ticket = await submitFromReview(reporterPage);
+    expect(ticket).toMatch(TICKET_PATTERN);
+
+    // No AI key → the service report is held for admin verification. The
+    // held verify has no admin screen yet, so the admin decision goes through
+    // its API (same contract the held queue uses).
+    const detail = await adminContext.request.get(`${BASE_URL}/api/admin/reports/${ticket}`);
+    expect(detail.ok()).toBe(true);
+    const detailBody = (await detail.json()) as {
+      report: { version: number; status: string; assetId: string | null };
+    };
+    expect(detailBody.report.assetId, 'service report carries no asset').toBeNull();
+    expect(detailBody.report.status).toBe('REPORTED');
+    const verify = await adminContext.request.post(
+      `${BASE_URL}/api/admin/reports/${ticket}/verify`,
+      {
+        data: {
+          expectedVersion: detailBody.report.version,
+          category: SERVICE_CATEGORY_CODE,
+          issueType: SERVICE_ISSUE_CODE,
+          priority: 'MEDIUM',
+        },
+      },
+    );
+    expect(verify.ok(), 'admin verifies the held service report').toBe(true);
+
+    // Admin sees the ticket in the queue, labelled as a service report.
+    await adminPage.goto('/admin/reports');
+    await expect(adminPage.getByRole('heading', { name: 'Kelola Laporan' })).toBeVisible();
+    await adminPage.getByRole('link', { name: ticket }).click();
+    await expect(adminPage.getByText('Laporan layanan — tidak terkait aset')).toBeVisible();
+    await expect(adminPage.getByText(description)).toBeVisible();
+
+    // Assign the technician.
+    await adminPage.getByRole('tab', { name: 'Penugasan dan Progres' }).click();
+    const assignCard = adminPage.getByRole('region', { name: 'Penugasan Teknisi' });
+    await assignCard.getByRole('combobox').selectOption({ label: SERVICE_TECHNICIAN });
+    await assignCard.getByRole('button', { name: 'Tugaskan Teknisi' }).click();
+    await expect(assignCard.getByText('Ditugaskan', { exact: true })).toBeVisible();
+
+    // Progress through the workflow to CLOSED. INSPECTION, IN_REPAIR and
+    // RESOLVED require a note, and each success clears it.
+    const progressCard = adminPage.getByRole('region', {
+      name: 'Catatan Progres & Transisi Status',
+    });
+    const steps: ReadonlyArray<readonly [string, string, string]> = [
+      ['INSPECTION', 'Teknisi meninjau pintu ruang kelas.', 'Inspeksi'],
+      ['IN_REPAIR', 'Kunci pintu diganti dan sedang dipasang.', 'Dalam perbaikan'],
+      ['RESOLVED', 'Pintu sudah bisa dibuka dengan kunci baru.', 'Selesai'],
+    ];
+    for (const [next, note, expectedLabel] of steps) {
+      await progressCard.getByLabel('Catatan progres').fill(note);
+      await progressCard.getByRole('button', { name: `Lanjut ke ${next}` }).click();
+      await expect(assignCard.getByText(expectedLabel, { exact: true })).toBeVisible();
+    }
+    await progressCard.getByLabel('Catatan progres').fill('Perbaikan selesai dan sudah dicek.');
+    await progressCard.getByRole('button', { name: 'Konfirmasi Penyelesaian' }).click();
+    await expect(assignCard.getByText('Ditutup', { exact: true })).toBeVisible();
+
+    // Reporter sees the closed ticket: category in place of an asset.
+    await reporterPage.goto(`/reporter/reports/${ticket}`);
+    await expect(reporterPage.getByRole('heading', { name: new RegExp(ticket) })).toBeVisible();
+    await expect(reporterPage.getByText(description)).toBeVisible();
+    await expect(reporterPage.getByText(SERVICE_CATEGORY_NAME).first()).toBeVisible();
+    await expect(
+      reporterPage.getByRole('region', { name: 'Status Penanganan' }).getByText('Ditutup', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(reporterPage.getByText('null', { exact: true })).toHaveCount(0);
+  } finally {
+    await reporterContext.close();
+    await adminContext.close();
   }
 });
