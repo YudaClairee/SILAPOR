@@ -396,6 +396,8 @@ describe('reporter form render', () => {
     expect(screen.getByRole('heading', { name: 'Buat Laporan Layanan' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Aset')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Jenis kendala')).toBeInTheDocument();
+    expect(screen.getByText('Foto Bukti Kendala')).toBeInTheDocument();
+    expect(screen.queryByText('Foto Bukti Kerusakan')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Gedung'), { target: { value: BUILDING } });
     fireEvent.change(screen.getByLabelText('Lantai'), { target: { value: FLOOR_1 } });

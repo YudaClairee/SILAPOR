@@ -1268,7 +1268,7 @@ function NewReportPage() {
           <div className="md:col-span-2">
             <div className="mb-1.5 flex items-center justify-between gap-3">
               <label htmlFor="report-photos" className="text-xs font-semibold tracking-[0.02em] text-[#202a33]">
-                Foto Bukti Kerusakan
+                {isService ? 'Foto Bukti Kendala' : 'Foto Bukti Kerusakan'}
               </label>
               <span className="text-[11px] text-muted">
                 Opsional · {photoFiles.length} / 3 foto terlampir
