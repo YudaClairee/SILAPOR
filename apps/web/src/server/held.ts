@@ -115,7 +115,11 @@ export async function verifyHeldReport(
   const codesPath = 'category' in decision || 'issueType' in decision;
   const conn = getDb();
   try {
-    const categories: { readonly id: string; readonly code: string }[] = [];
+    const categories: {
+      readonly id: string;
+      readonly code: string;
+      readonly requiresAsset: boolean;
+    }[] = [];
     let offset = 0;
     for (;;) {
       const rows = await repoListCategories(conn.db, {
@@ -209,17 +213,26 @@ export async function verifyHeldReport(
       throw conflict('Report was modified by another admin; refresh and retry');
     }
     if (report.assetId === null) {
-      throw badRequest('Report has no asset');
-    }
-    const asset = await repoGetAsset(conn.db, report.assetId);
-    if (asset === undefined) {
-      throw notFound('Asset not found');
-    }
-    if (asset.categoryId === null) {
-      throw badRequest('Asset has no category');
-    }
-    if (asset.categoryId !== finalCategoryId) {
-      throw badRequest('Final category does not match asset category');
+      // Service report (no asset): the final category must be the one the
+      // reporter chose, and that category must itself be asset-less.
+      const finalCategory = categories.find((entry) => entry.id === finalCategoryId);
+      if (finalCategoryId !== report.submittedCategoryId) {
+        throw badRequest('Final category does not match the reported service category');
+      }
+      if (finalCategory === undefined || finalCategory.requiresAsset) {
+        throw badRequest('Category requires an asset');
+      }
+    } else {
+      const asset = await repoGetAsset(conn.db, report.assetId);
+      if (asset === undefined) {
+        throw notFound('Asset not found');
+      }
+      if (asset.categoryId === null) {
+        throw badRequest('Asset has no category');
+      }
+      if (asset.categoryId !== finalCategoryId) {
+        throw badRequest('Final category does not match asset category');
+      }
     }
     return await repoApplyVerification(
       conn.db,
