@@ -148,7 +148,7 @@ describe('admin kelola aset', () => {
     renderPage();
     await screen.findByText('AST-ELK-014');
 
-    const blocked = screen.getByTitle('Aset memiliki tiket aktif');
+    const blocked = screen.getByTitle('Aset memiliki laporan aktif');
     expect(blocked).toHaveTextContent('Nonaktifkan');
     expect(blocked.tagName).toBe('SPAN');
   });

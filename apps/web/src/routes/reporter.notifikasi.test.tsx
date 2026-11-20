@@ -34,7 +34,7 @@ const LIST = {
       id: 'n1',
       type: 'STATUS_CHANGED',
       title: 'Status laporan diperbarui',
-      message: 'Status penanganan Tiket MNT-2026-000210 telah diperbarui.',
+      message: 'Status penanganan Laporan MNT-2026-000210 telah diperbarui.',
       reportId: 'r1',
       ticketNumber: 'MNT-2026-000210',
       reportStatus: 'IN_REPAIR',
@@ -49,7 +49,7 @@ const LIST = {
       id: 'n2',
       type: 'REPORT_VERIFIED',
       title: 'Laporan diverifikasi',
-      message: 'Tiket MNT-2026-000209 telah diverifikasi admin.',
+      message: 'Laporan MNT-2026-000209 telah diverifikasi admin.',
       reportId: null,
       ticketNumber: null,
       reportStatus: null,
@@ -121,7 +121,7 @@ describe('halaman notifikasi', () => {
     expect(screen.getByText('3 Jan 2026, 17:00 WIB')).toBeInTheDocument();
 
     // Only rows that carry a ticket expose the detail affordance.
-    expect(screen.getAllByRole('link', { name: /buka detail tiket/i })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: /buka detail laporan/i })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Tandai dibaca' })).toHaveLength(1);
   });
 
@@ -185,7 +185,7 @@ describe('halaman notifikasi', () => {
           id: 'n4',
           type: 'STATUS_CHANGED',
           title: 'Status laporan diperbarui',
-          message: 'Status penanganan Tiket MNT-2026-000212 telah diperbarui.',
+          message: 'Status penanganan Laporan MNT-2026-000212 telah diperbarui.',
           reportId: 'r4',
           ticketNumber: 'MNT-2026-000212',
           reportStatus: 'ASSIGNED',

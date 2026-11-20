@@ -362,7 +362,7 @@ function AssetHistoryPage() {
         Histori Perbaikan Aset
       </h1>
       <p className="mt-1 text-sm text-muted">
-        Telusuri riwayat tiket perbaikan dan durasi penanganan berdasarkan unit aset.
+        Telusuri riwayat laporan perbaikan dan durasi penanganan berdasarkan unit aset.
       </p>
 
       <form
@@ -443,7 +443,7 @@ function AssetHistoryPage() {
         <div className="mt-4">
           <EmptyState
             title="Pilih aset untuk melihat histori"
-            description="Pilih unit aset pada formulir di atas lalu tekan Tampilkan untuk memuat riwayat tiket perbaikannya."
+            description="Pilih unit aset pada formulir di atas lalu tekan Tampilkan untuk memuat riwayat laporan perbaikannya."
           />
         </div>
       ) : historyPending ? (
@@ -549,7 +549,7 @@ function SummaryCard({
       </div>
       <div className="md:text-right">
         <p className="text-xs font-semibold tracking-wide text-muted uppercase md:text-right">Perbaikan</p>
-        <p className="mt-1 text-sm font-semibold text-text">{`${count} Tiket`}</p>
+        <p className="mt-1 text-sm font-semibold text-text">{`${count} Laporan`}</p>
       </div>
     </section>
   );
@@ -570,9 +570,9 @@ function TicketTable({
     >
       <div className="p-4 md:p-5">
         <h2 id="asset-history-table-title" className="flex flex-wrap items-center gap-2 text-lg font-semibold text-text">
-          Daftar Tiket Penanganan Kerusakan{' '}
+          Daftar Laporan Penanganan Kerusakan{' '}
           <span className="rounded-full bg-[#e8eefb] px-2.5 py-1 text-xs font-medium text-muted">
-            {`Menampilkan ${tickets.length} dari ${total} tiket`}
+            {`Menampilkan ${tickets.length} dari ${total} laporan`}
           </span>
         </h2>
         <p className="mt-1 text-sm text-muted">
@@ -582,7 +582,7 @@ function TicketTable({
       {tickets.length === 0 ? (
         <div className="px-4 pb-5 md:px-5">
           <EmptyState
-            title="Tidak ada tiket pada periode ini"
+            title="Tidak ada laporan pada periode ini"
             description="Coba pilih periode lain atau aset yang berbeda."
           />
         </div>

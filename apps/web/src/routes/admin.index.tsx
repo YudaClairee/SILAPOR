@@ -352,8 +352,8 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       key: 'total',
       label: 'Total Laporan',
       value: formatNumberId(total),
-      unit: 'tiket',
-      caption: 'Tiket pada periode terpilih',
+      unit: 'laporan',
+      caption: 'Laporan pada periode terpilih',
       Icon: ClipboardIcon,
       tone: 'accent',
       search: {},
@@ -362,7 +362,7 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       key: 'active',
       label: 'Laporan Aktif',
       value: formatNumberId(active),
-      unit: 'tiket',
+      unit: 'laporan',
       caption: `${formatPercent(active, total)} dari total periode · ${formatNumberId(
         data.cards.highPriorityActive,
       )} prioritas tinggi`,
@@ -375,7 +375,7 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       key: 'in-repair',
       label: 'Dalam Perbaikan',
       value: formatNumberId(data.cards.inRepair),
-      unit: 'tiket',
+      unit: 'laporan',
       caption: `${formatPercent(data.cards.inRepair, total)} dari total periode`,
       Icon: WrenchIcon,
       tone: 'warning',
@@ -386,7 +386,7 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
       key: 'resolved',
       label: 'Selesai',
       value: formatNumberId(resolved),
-      unit: 'tiket',
+      unit: 'laporan',
       caption: `${formatPercent(resolved, total)} dari total periode`,
       Icon: CheckCircleIcon,
       tone: 'success',
@@ -403,7 +403,7 @@ function kpiCards(data: DashboardData): readonly KpiCard[] {
           ? 'Historis REPORTED ke RESOLVED'
           : `Median ${formatHours(median)} jam · ${formatNumberId(
               data.resolutionTime.sampleSize,
-            )} tiket selesai`,
+            )} laporan selesai`,
       Icon: ClockIcon,
       tone: 'secondary',
     },
@@ -614,7 +614,7 @@ function AdminDashboardPage() {
           <div className="mt-6">
             <TrendChart
               title="Tren Laporan dan Durasi Penanganan"
-              subtitle="Korelasi volume tiket masuk terhadap kecepatan penyelesaian historis"
+              subtitle="Korelasi volume laporan masuk terhadap kecepatan penyelesaian historis"
               data={buildTrendBuckets(data.trend ?? [], granularity, range)}
               aside={<TrendAside granularity={granularity} onChange={setGranularity} />}
               emptyMessage="Belum ada laporan pada periode ini."
@@ -623,19 +623,19 @@ function AdminDashboardPage() {
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <StatusBarChart
-              title="Alur Status Tiket"
-              subtitle="Sebaran tiket pada setiap tahap penanganan, dari laporan masuk hingga ditutup"
+              title="Alur Status Laporan"
+              subtitle="Sebaran laporan pada setiap tahap penanganan, dari laporan masuk hingga ditutup"
               titleId="admin-dashboard-status-title"
               data={statusBars(data)}
               aside={<StatusLegend />}
-              emptyMessage="Belum ada tiket pada periode ini."
+              emptyMessage="Belum ada laporan pada alur status periode ini."
             />
             <CategoryDonut
               title="Kerusakan per Kategori Fasilitas"
               subtitle={`Distribusi ${formatNumberId(
                 data.cards.totalReports,
               )} laporan berdasarkan disiplin penanganan teknis`}
-              centerLabel="TOTAL TIKET"
+              centerLabel="TOTAL LAPORAN"
               titleId="admin-dashboard-category-title"
               data={categorySlices(data)}
             />
@@ -651,7 +651,7 @@ function AdminDashboardPage() {
                 id: building.buildingCode,
                 label: building.buildingName,
                 value: building.count,
-                valueLabel: `${formatNumberId(building.count)} tiket (${formatPercent(
+                valueLabel: `${formatNumberId(building.count)} laporan (${formatPercent(
                   building.count,
                   data.cards.totalReports,
                 )})`,
@@ -675,7 +675,7 @@ function AdminDashboardPage() {
             <AssetHotspots assets={data.topAssets ?? []} />
             <RankedBarList
               title="Perbaikan Selesai per Teknisi"
-              subtitle="Jumlah tiket berstatus RESOLVED atau CLOSED dalam periode ini"
+              subtitle="Jumlah laporan berstatus RESOLVED atau CLOSED dalam periode ini"
               titleId="admin-dashboard-technician-title"
               aside={
                 <span className="inline-flex rounded-full bg-[#dceef3] px-3 py-1 text-xs font-medium text-[#0a3947]">
@@ -748,7 +748,7 @@ function TrendAside({
       >
         <li className="flex items-center gap-2">
           <span aria-hidden="true" className="h-[3px] w-5 rounded-full bg-accent" />
-          Laporan Masuk (Tiket)
+          Laporan Masuk
         </li>
         <li className="flex items-center gap-2">
           <span aria-hidden="true" className="w-5 border-t-2 border-dashed border-[#3d6d7a]" />

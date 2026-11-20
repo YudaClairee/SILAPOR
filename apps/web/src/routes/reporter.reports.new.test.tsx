@@ -440,6 +440,6 @@ describe('reporter form render', () => {
     fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
     fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
     expect(await screen.findByText(SERVICE_DUPLICATE_COPY)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Buka tiket yang sudah ada' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Buka laporan yang sudah ada' })).toBeInTheDocument();
   });
 });

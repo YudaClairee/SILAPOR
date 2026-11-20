@@ -100,7 +100,7 @@ export function StatusBarChart({
   data,
   aside,
   titleId = 'status-bar-title',
-  emptyMessage = 'Belum ada tiket pada periode ini.',
+  emptyMessage = 'Belum ada laporan pada alur status periode ini.',
 }: StatusBarChartProps) {
   const rows = data.filter((datum) => datum.value > 0);
   const total = rows.reduce((sum, datum) => sum + datum.value, 0);
@@ -155,7 +155,7 @@ function StatusBarPlot({ title, rows, total }: StatusBarPlotProps) {
             className="h-auto w-full min-w-[440px]"
           >
             <text x={2} y={14} fill="#697784" fontSize="10" letterSpacing="0.6">
-              TIKET
+              LAPORAN
             </text>
 
             {ticks.map((tick) => {
@@ -198,7 +198,7 @@ function StatusBarPlot({ title, rows, total }: StatusBarPlotProps) {
                       <TooltipBody
                         title={label}
                         lines={[
-                          `${formatNumberId(datum.value)} tiket (${formatPercent(datum.value, total)})`,
+                          `${formatNumberId(datum.value)} laporan (${formatPercent(datum.value, total)})`,
                         ]}
                       />,
                     )}
@@ -247,7 +247,7 @@ function StatusBarPlot({ title, rows, total }: StatusBarPlotProps) {
         <thead>
           <tr>
             <th scope="col">Status</th>
-            <th scope="col">Tiket</th>
+            <th scope="col">Laporan</th>
             <th scope="col">Porsi</th>
           </tr>
         </thead>

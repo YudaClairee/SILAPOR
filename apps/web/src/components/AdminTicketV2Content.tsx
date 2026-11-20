@@ -76,7 +76,7 @@ export function AdminTicketV2Content(props: {
               confidence={detail.aiAnalysis?.confidence ?? null}
               score={detail.report.priorityScore}
               priority={detail.report.finalPriority}
-              scoreExplanation={detail.report.priorityScore === null ? 'Skor prioritas belum tersedia untuk tiket ini.' : `Dihitung dari kategori ${categoryName}, lokasi ${locationNames.get(detail.report.locationId) ?? detail.report.locationId}, dan ${related.length + 1} pelapor.`}
+              scoreExplanation={detail.report.priorityScore === null ? 'Skor prioritas belum tersedia untuk laporan ini.' : `Dihitung dari kategori ${categoryName}, lokasi ${locationNames.get(detail.report.locationId) ?? detail.report.locationId}, dan ${related.length + 1} pelapor.`}
             />
             <AdminReporterQuotesCard quotes={quotes} totalLabel={totalLabel} />
             <AdminPhotoPagerCard ticket={detail.report.ticketNumber} attachments={detail.attachments} />

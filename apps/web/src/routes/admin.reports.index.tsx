@@ -598,7 +598,7 @@ function AdminReportsPage() {
         Kelola Laporan
       </h1>
       <p className="mt-2 max-w-[920px] text-[15px] leading-relaxed text-[#5c6b7a]">
-        Pusat penemuan, penyaringan, perbandingan prioritas otomatis, dan pengelolaan tiket laporan
+        Pusat penemuan, penyaringan, perbandingan prioritas otomatis, dan pengelolaan laporan
         fasilitas kampus.
       </p>
 
@@ -820,7 +820,7 @@ function AdminReportsPage() {
               >
                 Buka antrian verifikasi manual (REPORTED)
               </Link>{' '}
-              — tiket yang ditahan karena layanan AI tidak tersedia.
+              — laporan yang ditahan karena layanan AI tidak tersedia.
             </p>
           </div>
         ) : null}
@@ -927,7 +927,7 @@ function AdminReportsPage() {
             </div>
             <div className="flex flex-col gap-3 border-t border-[#e8edf3] px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[14px] text-[#5c6b7a]">
-                Menampilkan {range.from}–{range.to} dari {total} tiket
+                Menampilkan {range.from}–{range.to} dari {total} laporan
               </p>
               <Pagination
                 current={currentPage}

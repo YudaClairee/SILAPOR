@@ -39,7 +39,7 @@ const LIST_RESULT = {
       id: notificationId,
       type: 'REPORT_VERIFIED',
       title: 'Laporan diverifikasi',
-      message: 'Tiket MNT-2026-000210 telah diverifikasi admin.',
+      message: 'Laporan MNT-2026-000210 telah diverifikasi admin.',
       reportId: '44444444-4444-4444-4444-444444444444',
       ticketNumber: 'MNT-2026-000210',
       readAt: null,

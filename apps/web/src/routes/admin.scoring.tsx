@@ -432,7 +432,7 @@ function Page() {
       const ok = await persistScores();
       if (ok) {
         setSaveNote(
-          'Pengaturan tersimpan. Bobot, ambang, dan C_maks berlaku untuk tiket baru ' +
+          'Pengaturan tersimpan. Bobot, ambang, dan C_maks berlaku untuk laporan baru ' +
             'berikutnya; skor kategori/lokasi yang diubah sudah tersimpan ke master data.',
         );
       }
@@ -451,7 +451,7 @@ function Page() {
           </h1>
           <p className="mt-1 text-[14px] text-[#5c6b7a]">
             Atur bobot kriteria, ambang prioritas, serta nilai skor kategori fasilitas dan ruangan
-            untuk tiket baru.
+            untuk laporan baru.
           </p>
         </div>
         <Button
@@ -512,7 +512,7 @@ function Page() {
           <div className="grid gap-4 xl:grid-cols-3">
             <div className={CARD}>
               <h2 className={CARD_T}>Bobot Kriteria</h2>
-              <p className={CARD_S}>Proporsi bobot tiga kriteria penilaian prioritas tiket.</p>
+              <p className={CARD_S}>Proporsi bobot tiga kriteria penilaian prioritas laporan.</p>
               <div className="mt-4 space-y-3">
                 <div>
                   <label htmlFor="sc-bobot-aset" className={FLABEL}>
@@ -626,7 +626,7 @@ function Page() {
                   FORMULA ALGORITMA
                 </p>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-[#33567d]">
-                  Skor akhir tiket dihitung otomatis saat dilaporkan: (Bobot Aset × Skor Aset) +
+                  Skor akhir laporan dihitung otomatis saat dilaporkan: (Bobot Aset × Skor Aset) +
                   (Bobot Ruang × Skor Ruang) + (Bobot Pelapor × Skor Pelapor).
                 </p>
               </div>
@@ -634,7 +634,7 @@ function Page() {
 
             <div className={CARD}>
               <h2 className={CARD_T}>Ambang Tingkat Prioritas</h2>
-              <p className={CARD_S}>Klasifikasi otomatis tiket pada rentang skala 0–100.</p>
+              <p className={CARD_S}>Klasifikasi otomatis laporan pada rentang skala 0–100.</p>
               <div className="mt-4 space-y-2.5">
                 <div className="flex items-center justify-between gap-2 rounded-lg bg-[#eef4fb] px-3 py-2.5">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e0f2e7] px-2.5 py-1 text-[12px] font-semibold text-[#1c6b46]">
@@ -774,7 +774,7 @@ function Page() {
               ) : null}
               <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5">
                 <p className="text-[12px] text-[#8a97a3]">
-                  Perubahan skor hanya berlaku untuk tiket baru berikutnya.
+                  Perubahan skor hanya berlaku untuk laporan baru berikutnya.
                 </p>
                 <p className="text-[12px] font-semibold text-[#33567d]">
                   {activeCatCount} dari {activeCatCount} Aktif

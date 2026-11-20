@@ -204,7 +204,7 @@ describe('admin dashboard', () => {
     expect(
       await screen.findByRole('heading', { name: 'Tren Laporan dan Durasi Penanganan' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Laporan Masuk (Tiket)')).toBeInTheDocument();
+    expect(screen.getByText('Laporan Masuk')).toBeInTheDocument();
     expect(screen.getByText('Rata-rata Durasi (Jam)')).toBeInTheDocument();
 
     const weekly = screen.getByRole('tab', { name: 'Mingguan' });
@@ -240,7 +240,7 @@ describe('admin dashboard', () => {
     // 48 - (16 + 12 + 9 + 7) = 4 unsliced tickets, 8,3% of the donut total.
     expect(await screen.findByText('Kategori lainnya')).toBeInTheDocument();
     expect(screen.getByText('(8,3%)')).toBeInTheDocument();
-    expect(screen.getByText('TOTAL TIKET')).toBeInTheDocument();
+    expect(screen.getByText('TOTAL LAPORAN')).toBeInTheDocument();
     expect(screen.getAllByText('48').length).toBe(2);
   });
 
@@ -250,7 +250,7 @@ describe('admin dashboard', () => {
 
     expect(await screen.findByText('Lokasi Rawan Gangguan')).toBeInTheDocument();
     expect(screen.getByText('Gedung C')).toBeInTheDocument();
-    expect(screen.getByText('22 tiket (45,8%)')).toBeInTheDocument();
+    expect(screen.getByText('22 laporan (45,8%)')).toBeInTheDocument();
     expect(screen.getByText('Gedung Dr. Sutomo')).toBeInTheDocument();
   });
 
@@ -278,8 +278,8 @@ describe('admin dashboard', () => {
     stubFetch(overviewResponse());
     renderPage();
 
-    expect(await screen.findByRole('heading', { name: 'Alur Status Tiket' })).toBeInTheDocument();
-    expect(screen.getByRole('table', { name: 'Alur Status Tiket' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Alur Status Laporan' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Alur Status Laporan' })).toBeInTheDocument();
     // REPORTED is zero in the fixture, so its column is omitted from the plot.
     expect(screen.queryByText('Dilaporkan')).not.toBeInTheDocument();
     expect(screen.getByText('Selesai / ditutup')).toBeInTheDocument();
@@ -295,7 +295,7 @@ describe('admin dashboard', () => {
     renderPage();
 
     expect(await screen.findByRole('link', { name: /Total Laporan/ })).toHaveTextContent('0');
-    expect(screen.getByText('Belum ada tiket pada periode ini.')).toBeInTheDocument();
+    expect(screen.getByText('Belum ada laporan pada alur status periode ini.')).toBeInTheDocument();
     expect(
       screen.getByText('Belum ada laporan per ruang pada periode ini.'),
     ).toBeInTheDocument();

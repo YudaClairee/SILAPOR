@@ -3,7 +3,7 @@ import { ADMIN_DETAIL_TAB_LABELS, ADMIN_DETAIL_TABS, type AdminDetailTab } from 
 
 export function AdminTicketTabs(props: { readonly active: AdminDetailTab; readonly reporterCount: number; readonly onChange: (tab: AdminDetailTab) => void }) {
   return (
-    <div role="tablist" aria-label="Bagian detail tiket" className="mt-4 flex gap-1 overflow-x-auto border-b border-border">
+    <div role="tablist" aria-label="Bagian detail laporan" className="mt-4 flex gap-1 overflow-x-auto border-b border-border">
       {ADMIN_DETAIL_TABS.map((tab) => {
         const selected = tab === props.active;
         return (

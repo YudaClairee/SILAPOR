@@ -118,12 +118,12 @@ describe('histori perbaikan aset', () => {
     });
     renderPage([`/admin/facilities/history?assetId=${ASSET_ID}&period=all`]);
     expect(await screen.findByText('Proyektor Epson EB-X400')).toBeInTheDocument();
-    expect(screen.getByText('Menampilkan 2 dari 2 tiket')).toBeInTheDocument();
+    expect(screen.getByText('Menampilkan 2 dari 2 laporan')).toBeInTheDocument();
     expect(screen.getByText('Proyektor tidak menyala')).toBeInTheDocument();
     expect(screen.getAllByText('Budi Santoso').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('1 hari 1 jam')).toBeInTheDocument();
     expect(screen.getByText('IN_REPAIR')).toBeInTheDocument();
-    expect(screen.getByText('2 Tiket')).toBeInTheDocument();
+    expect(screen.getByText('2 Laporan')).toBeInTheDocument();
   });
 
   it('shows the forbidden panel for non-admin responses', async () => {

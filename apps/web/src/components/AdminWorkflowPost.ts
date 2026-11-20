@@ -18,7 +18,7 @@ export async function postAdminWorkflow(
   }
   if (response.ok) return { ok: true, status: response.status, message: '' };
   if (response.status === 409) {
-    return { ok: false, status: 409, message: 'Tiket diperbarui admin lain — muat ulang data.' };
+    return { ok: false, status: 409, message: 'Laporan diperbarui admin lain — muat ulang data.' };
   }
   try {
     const data = (await response.json()) as { error?: { message?: unknown } };

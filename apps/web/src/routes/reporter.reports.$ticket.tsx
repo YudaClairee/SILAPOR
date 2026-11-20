@@ -411,10 +411,10 @@ function ReportDetailPage() {
               search={{ search: '', mine: false, status: '', priority: '', offset: 0 }}
               className="hover:text-accent hover:underline"
             >
-              Pemantauan Tiket
+              Pemantauan Laporan
             </Link>
             <span aria-hidden="true"> / </span>
-            <span>Detail Tiket</span>
+            <span>Detail Laporan</span>
           </nav>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h1
@@ -448,7 +448,7 @@ function ReportDetailPage() {
           className={`${buttonBaseClasses} ${buttonVariantClasses.secondary} gap-2 rounded-full`}
         >
           <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
-          Kembali ke Pemantauan Tiket
+          Kembali ke Pemantauan Laporan
         </Link>
       </div>
 
@@ -462,7 +462,7 @@ function ReportDetailPage() {
         <div className="mt-6">
           <EmptyState
             title="Laporan tidak ditemukan"
-            description="Periksa kembali nomor tiket pada URL."
+            description="Periksa kembali nomor laporan pada URL."
           />
         </div>
       ) : null}
@@ -633,7 +633,7 @@ function ReportDetailPage() {
               <p className="mt-1 text-sm text-muted">
                 {relatedCount === 0
                   ? 'Belum ada laporan pendukung yang dikelompokkan.'
-                  : `${relatedCount} laporan mendukung tiket ini`}
+                  : `${relatedCount} laporan lain mendukung laporan ini`}
               </p>
               <p className="mt-1 text-xs text-muted">
                 Dikelompokkan otomatis berdasarkan kesamaan sarana dan lokasi.

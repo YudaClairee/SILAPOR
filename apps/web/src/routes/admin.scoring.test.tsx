@@ -93,7 +93,7 @@ describe('pengaturan scoring prioritas', () => {
     )) as HTMLInputElement;
     expect(input.value).toBe('5');
     expect(screen.getByText('FORMULA ALGORITMA')).toBeInTheDocument();
-    expect(screen.getByText(/Skor akhir tiket dihitung otomatis/)).toBeInTheDocument();
+    expect(screen.getByText(/Skor akhir laporan dihitung otomatis/)).toBeInTheDocument();
   });
 
   it('menampilkan ambang Rendah/Sedang/Tinggi dengan rentang valid', async () => {

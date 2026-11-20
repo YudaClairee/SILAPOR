@@ -25,9 +25,9 @@ const COLLECTED_DATA: ReadonlyArray<{ readonly label: string; readonly detail: s
     detail: 'Dokumentasi gambar kondisi fasilitas yang diunggah secara langsung oleh pelapor.',
   },
   {
-    label: 'Riwayat Progres Tiket',
+    label: 'Riwayat Progres Laporan',
     detail:
-      'Pencatatan stempel waktu dan pergantian status sejak tiket dibuat hingga selesai ditangani.',
+      'Pencatatan stempel waktu dan pergantian status sejak laporan dibuat hingga selesai ditangani.',
   },
 ];
 
@@ -250,7 +250,7 @@ function KebijakanPrivasiPage() {
             </div>
           </header>
           <p className="policy-lede">
-            Setiap tiket pelaporan beserta pergantian statusnya dicatat secara berurutan dan
+            Setiap laporan beserta pergantian statusnya dicatat secara berurutan dan
             kronologis di dalam basis data sistem SCMS.
           </p>
           <p className="policy-lede">

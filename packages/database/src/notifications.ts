@@ -44,7 +44,7 @@ export function buildNotificationContent(
   kind: string,
   ticketNumber: string,
 ): NotificationContent | null {
-  const ticket = `Tiket ${ticketNumber}`;
+  const ticket = `Laporan ${ticketNumber}`;
   switch (kind) {
     case 'REPORT_VERIFIED':
       return {
@@ -62,7 +62,7 @@ export function buildNotificationContent(
       return {
         type: kind,
         title: 'Laporan digabungkan',
-        message: `${ticket} ditandai sebagai duplikat; pantau tiket utama yang dirujuk.`,
+        message: `${ticket} ditandai sebagai duplikat; pantau laporan utama yang dirujuk.`,
       };
     case 'REPORT_ASSIGNED':
       return {

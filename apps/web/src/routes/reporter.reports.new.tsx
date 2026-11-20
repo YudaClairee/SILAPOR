@@ -245,14 +245,14 @@ export function toSubmitOutcome(status: number, body: unknown): SubmitOutcome {
   if (status === 201 || status === 200) {
     const ticketNumber = stringField(body, 'ticketNumber');
     if (ticketNumber === null) {
-      return { kind: 'error', message: 'Tiket tidak ditemukan pada respons server.' };
+      return { kind: 'error', message: 'Laporan tidak ditemukan pada respons server.' };
     }
     return { kind: 'verified', ticketNumber, replay: body['idempotentReplay'] === true };
   }
   if (status === 202) {
     const ticketNumber = stringField(body, 'ticketNumber');
     if (ticketNumber === null) {
-      return { kind: 'error', message: 'Tiket tidak ditemukan pada respons server.' };
+      return { kind: 'error', message: 'Laporan tidak ditemukan pada respons server.' };
     }
     const message =
       stringField(body, 'message') ?? 'Laporan tersimpan dan menunggu pemeriksaan.';
@@ -848,7 +848,7 @@ function NewReportPage() {
                 params={{ ticket: duplicateTicket }}
                 className={`${buttonBaseClasses} ${buttonVariantClasses.primary}`}
               >
-                Buka tiket yang sudah ada
+                Buka laporan yang sudah ada
               </Link>
             </p>
           ) : null}
@@ -877,7 +877,7 @@ function NewReportPage() {
             Laporan menunggu pemeriksaan
           </h1>
           <p role="status" className="mt-4 text-sm text-muted">
-            Nomor tiket Anda:{' '}
+            Nomor laporan Anda:{' '}
             <TicketMono className="block pt-2 text-3xl font-medium text-text">
               {ticket}
             </TicketMono>
@@ -898,14 +898,14 @@ function NewReportPage() {
             Laporan berhasil dikirim
           </h1>
           <p role="status" className="mt-4 text-sm text-muted">
-            Nomor tiket Anda:{' '}
+            Nomor laporan Anda:{' '}
             <TicketMono className="block pt-2 text-3xl font-medium text-text">
               {ticket}
             </TicketMono>
           </p>
           {replay ? (
             <p className="mt-2 text-sm text-muted">
-              Laporan sudah tercatat dengan nomor tiket tersebut.
+              Laporan sudah tercatat dengan nomor laporan tersebut.
             </p>
           ) : null}
           {photoCountLine(resultPhotoCount)}

@@ -305,7 +305,7 @@ test('2 list/detail: reporter sees the ticket in the list with REPORTED status',
   const page = await context.newPage();
   try {
     await page.goto('/reporter');
-    await expect(page.getByRole('heading', { name: 'Pemantauan Tiket' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Pemantauan Laporan' })).toBeVisible();
     const rowLink = page.getByRole('link', { name: ticketA });
     await expect(rowLink).toBeVisible();
     await rowLink.click();
@@ -335,7 +335,7 @@ test('3 campus visibility: reporter-B opens reporter-A ticket in sanitized form'
     // Campus transparency: reporter-B sees reporter-A's photo evidence.
     await expect(page.getByRole('img', { name: 'bukti.png' })).toBeVisible();
     await expect(
-      page.getByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.'),
+      page.getByText('Lampiran hanya dapat dilihat oleh pelapor laporan ini.'),
     ).toHaveCount(0);
     await expect(page.getByText('Laporan tidak ditemukan')).toHaveCount(0);
 
@@ -470,7 +470,7 @@ test('6 double-submit guard: two fast submits create exactly one ticket', async 
 
     // Exactly one new row for the ticket in the reporter's campus list.
     await page.goto('/reporter');
-    await expect(page.getByRole('heading', { name: 'Pemantauan Tiket' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Pemantauan Laporan' })).toBeVisible();
     await expect(page.getByRole('link', { name: ticketB })).toHaveCount(1);
   } finally {
     await context.close();
@@ -492,7 +492,7 @@ test('7 duplicate block: same reporter + active asset is blocked with the existi
     await page.getByRole('button', { name: 'Kirim laporan', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'Laporan serupa sudah tercatat' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Buka tiket yang sudah ada' })).toHaveAttribute(
+    await expect(page.getByRole('link', { name: 'Buka laporan yang sudah ada' })).toHaveAttribute(
       'href',
       `/reporter/reports/${ticketA}`,
     );

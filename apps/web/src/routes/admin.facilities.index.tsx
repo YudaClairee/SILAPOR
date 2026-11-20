@@ -405,7 +405,7 @@ function Page() {
     if (actionId !== null) return;
     if (row.isActive && row.activeReportCount > 0) {
       setActionError(
-        `Aset ${row.assetCode} masih memiliki ${row.activeReportCount} tiket aktif.`,
+        `Aset ${row.assetCode} masih memiliki ${row.activeReportCount} laporan aktif.`,
       );
       return;
     }
@@ -442,7 +442,7 @@ function Page() {
           </h1>
           <p className="mt-1 max-w-[90ch] text-[14px] text-muted">
             Kelola data aset dan pantau status kondisi fasilitas kampus yang diperbarui otomatis
-            berdasarkan tiket aktif.
+            berdasarkan laporan aktif.
           </p>
         </div>
         <Button type="button" onClick={openCreate} className="shrink-0">
@@ -798,7 +798,7 @@ function AssetRow({
         </span>
         {blocked ? (
           <span
-            title="Aset memiliki tiket aktif"
+            title="Aset memiliki laporan aktif"
             className="inline-flex cursor-not-allowed items-center gap-1 font-medium text-subtle"
           >
             Nonaktifkan
@@ -979,7 +979,7 @@ function AssetModal({
             </h2>
             <p className="mt-1 text-sm text-muted">
               {modal.kind === 'create'
-                ? 'Kode aset harus unik; status fasilitas dihitung otomatis dari tiket aktif.'
+                ? 'Kode aset harus unik; status fasilitas dihitung otomatis dari laporan aktif.'
                 : `Menyunting ${modal.row.assetCode} — ${modal.row.assetName}.`}
             </p>
           </div>

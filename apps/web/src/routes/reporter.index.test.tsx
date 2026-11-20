@@ -74,13 +74,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('pemantauan tiket', () => {
+describe('pemantauan laporan', () => {
   it('renders KPI cards, the campus table, and the owner badge', async () => {
     stubFetch({ items: [ROW], total: 1 });
     renderPage();
 
     expect(
-      await screen.findByRole('heading', { name: 'Pemantauan Tiket' }),
+      await screen.findByRole('heading', { name: 'Pemantauan Laporan' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Total Laporan')).toBeInTheDocument();
     const totalCard = screen.getByText('Total Laporan').closest('article');

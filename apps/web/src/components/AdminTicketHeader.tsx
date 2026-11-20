@@ -48,10 +48,10 @@ export function AdminTicketHeader(props: AdminTicketHeaderProps) {
               >
                 Kelola Laporan
               </Link>{' '}
-              › Detail Tiket
+              › Detail Laporan
             </>
           ) : (
-            (props.breadcrumb ?? 'Detail Tiket')
+            (props.breadcrumb ?? 'Detail Laporan')
           )}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">

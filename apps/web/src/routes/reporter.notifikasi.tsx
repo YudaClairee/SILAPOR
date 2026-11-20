@@ -555,7 +555,7 @@ function NotificationRow({ item, marking, onMarkRead }: NotificationRowProps) {
             }}
             className="inline-flex min-h-[32px] items-center gap-1 text-sm font-semibold text-[#0a6b74] hover:underline"
           >
-            Buka Detail Tiket
+            Buka Detail Laporan
             <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
           </Link>
         )}
