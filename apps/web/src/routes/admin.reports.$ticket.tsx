@@ -238,7 +238,7 @@ function AdminReportDetailPage() {
   return (
     <section aria-labelledby="admin-report-detail-title" className="mx-auto w-full max-w-[1200px]">
       <h1 id="admin-report-detail-title" className="sr-only">
-        Detail Tiket {ticket}
+        Detail Laporan {ticket}
       </h1>
 
       {clientPending ? (

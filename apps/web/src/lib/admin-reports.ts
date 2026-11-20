@@ -25,8 +25,8 @@ export const ADMIN_SORT_LABELS: Readonly<Record<AdminSort, string>> = {
   priority_desc: 'Skor Prioritas Tertinggi',
   reported_desc: 'Terbaru Dulu',
   reported_asc: 'Terlama Dulu',
-  ticket_asc: 'Nomor Tiket A–Z',
-  ticket_desc: 'Nomor Tiket Z–A',
+  ticket_asc: 'Nomor Laporan A–Z',
+  ticket_desc: 'Nomor Laporan Z–A',
 };
 
 export const ADMIN_SORT_OPTIONS: ReadonlyArray<{ value: AdminSort; label: string }> =

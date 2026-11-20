@@ -13,8 +13,8 @@ describe('StatusBarChart', () => {
   it('renders a column per active stage plus an accessible table', () => {
     render(
       <StatusBarChart
-        title="Alur Status Tiket"
-        subtitle="Sebaran tiket per tahap"
+        title="Alur Status Laporan"
+        subtitle="Sebaran laporan per tahap"
         data={[
           { status: 'REPORTED', value: 0 },
           { status: 'VERIFIED', value: 3 },
@@ -24,8 +24,8 @@ describe('StatusBarChart', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: 'Alur Status Tiket' })).toBeInTheDocument();
-    expect(screen.getByText('Sebaran tiket per tahap')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Alur Status Laporan' })).toBeInTheDocument();
+    expect(screen.getByText('Sebaran laporan per tahap')).toBeInTheDocument();
     // Labels print in the plot and again in the hidden table.
     expect(screen.getAllByText('Terverifikasi')).toHaveLength(2);
     expect(screen.getByText('Dalam')).toBeInTheDocument();
@@ -34,7 +34,7 @@ describe('StatusBarChart', () => {
     // The zero-count stage disappears from the plot and the table.
     expect(screen.queryByText('Dilaporkan')).not.toBeInTheDocument();
 
-    const table = screen.getByRole('table', { name: 'Alur Status Tiket' });
+    const table = screen.getByRole('table', { name: 'Alur Status Laporan' });
     expect(within(table).getAllByRole('row')).toHaveLength(4); // header + 3 stages
     expect(within(table).getByText('77,4%')).toBeInTheDocument(); // 24 / 31
   });
@@ -56,10 +56,10 @@ describe('StatusBarChart', () => {
           { status: 'REPORTED', value: 0 },
           { status: 'CLOSED', value: 0 },
         ]}
-        emptyMessage="Belum ada tiket pada periode ini."
+        emptyMessage="Belum ada laporan pada alur status periode ini."
       />,
     );
-    expect(screen.getByText('Belum ada tiket pada periode ini.')).toBeInTheDocument();
+    expect(screen.getByText('Belum ada laporan pada alur status periode ini.')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 

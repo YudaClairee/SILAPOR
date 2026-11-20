@@ -139,7 +139,7 @@ describe('admin kelola laporan', () => {
     expect(screen.getByText('Belum ditugaskan')).toBeInTheDocument();
 
     expect(screen.getByRole('combobox', { name: 'Urutan laporan' })).toHaveValue('priority_desc');
-    expect(screen.getByText('Menampilkan 1–2 dari 2 tiket')).toBeInTheDocument();
+    expect(screen.getByText('Menampilkan 1–2 dari 2 laporan')).toBeInTheDocument();
   });
 
   it('names the category and marks a service report row, and offers the kind filter', async () => {

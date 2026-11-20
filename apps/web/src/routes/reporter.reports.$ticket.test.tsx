@@ -166,7 +166,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('detail tiket pelapor', () => {
+describe('detail laporan pelapor', () => {
   it('renders the ticket header, status, priority, and report time', async () => {
     stubFetch();
     renderPage();
@@ -180,13 +180,13 @@ describe('detail tiket pelapor', () => {
   it('points the breadcrumb and back link at the V2 monitoring page', async () => {
     stubFetch();
     renderPage();
-    const back = await screen.findByRole('link', { name: /Kembali ke Pemantauan Tiket/ });
+    const back = await screen.findByRole('link', { name: /Kembali ke Pemantauan Laporan/ });
     // /reporter is the V2 "Pemantauan Tiket" page; /reporter/reports is the
     // legacy "Tiket Kampus" list and must not be the back target.
     expect(back.getAttribute('href')?.startsWith('/reporter')).toBe(true);
     expect(back.getAttribute('href')).not.toContain('/reporter/reports');
     const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    const crumb = within(breadcrumb).getByRole('link', { name: 'Pemantauan Tiket' });
+    const crumb = within(breadcrumb).getByRole('link', { name: 'Pemantauan Laporan' });
     expect(crumb.getAttribute('href')?.startsWith('/reporter')).toBe(true);
     expect(crumb.getAttribute('href')).not.toContain('/reporter/reports');
   });
@@ -242,7 +242,7 @@ describe('detail tiket pelapor', () => {
     stubFetch();
     renderPage();
     await screen.findByRole('heading', { name: 'Laporan Pendukung' });
-    expect(screen.getByText('1 laporan mendukung tiket ini')).toBeInTheDocument();
+    expect(screen.getByText('1 laporan lain mendukung laporan ini')).toBeInTheDocument();
     expect(screen.getByText('“Proyektor ruang sebelah juga mati.”')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'MNT-2026-000008' })).toHaveAttribute(
       'href',
@@ -315,7 +315,7 @@ describe('detail tiket pelapor', () => {
       `/api/reports/MNT-2026-000007/attachments/${ATTACHMENT}`,
     );
     expect(
-      screen.queryByText('Lampiran hanya dapat dilihat oleh pelapor tiket ini.'),
+      screen.queryByText('Lampiran hanya dapat dilihat oleh pelapor laporan ini.'),
     ).not.toBeInTheDocument();
   });
 });

@@ -265,7 +265,7 @@ function Pending() {
   return (
     <section aria-labelledby="monitor-title">
       <h1 id="monitor-title" className="text-3xl font-bold tracking-tight text-text">
-        Pemantauan Tiket
+        Pemantauan Laporan
       </h1>
       <div className="mt-6">
         <LoadingState message="Memuat laporan…" />
@@ -443,7 +443,7 @@ function Page() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 id="monitor-title" className="text-3xl font-bold tracking-tight text-text">
-            Pemantauan Tiket
+            Pemantauan Laporan
           </h1>
           <p className="mt-2 max-w-[62ch] text-sm leading-6 text-[#4b5563]">
             Pantau progres penanganan kerusakan sarana dan prasarana kampus UPI Tasikmalaya secara
@@ -463,7 +463,7 @@ function Page() {
         <KpiCard
           label="Total Laporan"
           value={stats?.total ?? 0}
-          description="Semua tiket terdaftar di sistem"
+          description="Semua laporan terdaftar di sistem"
           icon={<BriefcaseIcon className="h-5 w-5" />}
         />
         <KpiCard
@@ -528,7 +528,7 @@ function Page() {
                 value={searchDraft}
                 onChange={(event) => setSearchDraft(event.target.value)}
                 placeholder="Cari Ticket ID, nama aset, atau lokasi..."
-                aria-label="Cari tiket, nama aset, atau lokasi"
+                aria-label="Cari laporan, nama aset, atau lokasi"
                 className="min-h-[44px] w-full rounded-lg border border-[#e1e5e9] bg-white pl-10 pr-12 text-sm text-text placeholder:text-[#8a949c]"
               />
               <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[#e1e5e9] bg-[#f7f9ff] px-1.5 text-[11px] text-[#697784]">

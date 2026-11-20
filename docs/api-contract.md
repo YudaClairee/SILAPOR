@@ -39,7 +39,7 @@
   `UNSUPPORTED_TYPE`, `MIME_MISMATCH`, `CORRUPT_IMAGE`,
   `INVALID_FILENAME`, `EMPTY_FILE`.
 - **409 CONFLICT** = optimistic locking: tiket diubah admin lain.
-  UI wajib menampilkan pesan **"Tiket diperbarui admin lain — muat ulang data"**
+  UI wajib menampilkan pesan **"Laporan diperbarui admin lain — muat ulang data"**
   dengan tombol Refresh, bukan retry diam-diam.
 - **401** memakai pesan generik (`"Kredensial salah"` / `"Belum login"`) —
   tidak boleh dipakai untuk menebak keberadaan akun.
@@ -215,7 +215,7 @@ Data terarsip tidak muncul di pilihan baru, tapi histori lama tetap valid
   statusnya bukan `REPORTED`): hold tidak pernah dioverride, hanya resolve
   sekali.
 - `409` — `expectedVersion` usang (stale): tampilkan panel
-  "Tiket diperbarui admin lain — muat ulang data" dengan tombol Refresh,
+  "Laporan diperbarui admin lain — muat ulang data" dengan tombol Refresh,
   jangan retry diam-diam.
 
 **Aturan UI wajib dari state machine:**
@@ -296,5 +296,5 @@ loading · empty · validation error · forbidden (403) · retryable server erro
 (5xx) · success feedback · responsive · keyboard focus terlihat · label form +
 error message accessible.
 
-Untuk 409: tampilkan "Tiket diperbarui admin lain — muat ulang data" dengan
+Untuk 409: tampilkan "Laporan diperbarui admin lain — muat ulang data" dengan
 aksi refresh eksplisit, **jangan** auto-retry.

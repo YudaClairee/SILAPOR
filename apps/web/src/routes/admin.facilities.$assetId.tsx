@@ -321,7 +321,7 @@ function AdminFacilityDetailPage() {
                   <thead>
                     <tr className="border-b border-border">
                       <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
-                        Tiket
+                        Laporan
                       </th>
                       <th scope="col" className="px-3 py-2 text-xs font-medium text-muted">
                         Status

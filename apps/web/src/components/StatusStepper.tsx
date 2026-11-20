@@ -34,7 +34,7 @@ export function StatusStepper({ status, timestamps, className }: StatusStepperPr
     <div className={className}>
       {offPath ? (
         <p className="mb-4 rounded-md bg-tint-muted px-3 py-2 text-sm text-badge-muted">
-          Tiket berada di luar alur perbaikan normal (status: {statusLabel(status)}).
+          Laporan berada di luar alur perbaikan normal (status: {statusLabel(status)}).
         </p>
       ) : null}
 

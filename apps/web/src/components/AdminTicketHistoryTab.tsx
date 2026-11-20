@@ -169,7 +169,7 @@ export function AdminTicketHistoryTab(props: {
         </h2>
         <p className="mt-1 text-xs text-muted">
           {items.length === 0
-            ? 'Belum ada aktivitas tercatat untuk tiket ini.'
+            ? 'Belum ada aktivitas tercatat untuk laporan ini.'
             : `${items.length} aktivitas tercatat, terbaru di atas.`}
         </p>
         {error === null ? null : (

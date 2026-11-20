@@ -25,7 +25,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: readonly NavItem[] = [
-  { to: '/reporter', label: 'Pemantauan Tiket', Icon: GridIcon },
+  { to: '/reporter', label: 'Pemantauan Laporan', Icon: GridIcon },
   { to: '/reporter/reports/new', label: 'Buat Laporan', Icon: PlusIcon },
   { to: '/reporter/notifikasi', label: 'Notifikasi', Icon: BellIcon },
 ];

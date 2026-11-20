@@ -128,7 +128,7 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
           </defs>
 
           <text x={2} y={12} fill="#697784" fontSize="10" letterSpacing="0.6">
-            TIKET
+            LAPORAN
           </text>
           <text
             x={WIDTH - 2}
@@ -221,7 +221,7 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
                     fill="#ffffff"
                     fontSize="10"
                   >
-                    {`${point.datum.reports} tiket`}
+                    {`${point.datum.reports} laporan`}
                   </text>
                 </g>
               ))
@@ -289,9 +289,9 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
                   <TooltipBody
                     title={`${datum.label} ${datum.sublabel}`.trim()}
                     lines={[
-                      `${datum.reports} tiket masuk`,
+                      `${datum.reports} laporan masuk`,
                       datum.averageSeconds === null
-                        ? 'Belum ada tiket selesai'
+                        ? 'Belum ada laporan selesai'
                         : `Rata-rata durasi ${formatHours(datum.averageSeconds)} jam`,
                     ]}
                   />,
@@ -308,7 +308,7 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
         <thead>
           <tr>
             <th scope="col">Periode</th>
-            <th scope="col">Laporan masuk (tiket)</th>
+            <th scope="col">Laporan masuk</th>
             <th scope="col">Rata-rata durasi (jam)</th>
           </tr>
         </thead>

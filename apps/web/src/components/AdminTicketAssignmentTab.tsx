@@ -153,7 +153,7 @@ export function AdminTicketAssignmentTab(props: {
             </Button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-muted">Konflik versi (409) tampil sebagai “Tiket diperbarui admin lain — muat ulang data”.</p>
+        <p className="mt-2 text-xs text-muted">Konflik versi (409) tampil sebagai “Laporan diperbarui admin lain — muat ulang data”.</p>
       </section>
     </div>
   );
