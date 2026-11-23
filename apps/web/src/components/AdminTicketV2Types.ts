@@ -3,7 +3,14 @@ import type { FormOptions } from '../server/reports.js';
 
 export interface AdminTicketV2Attachment {
   readonly id: string;
+  readonly supporterId?: string | null;
   readonly originalFilename: string;
+}
+
+export interface AdminTicketV2Supporter {
+  readonly id: string;
+  readonly description: string;
+  readonly createdAt: string;
 }
 
 export interface AdminTicketV2Event {
@@ -45,6 +52,7 @@ export interface AdminTicketV2Detail {
   }[];
   readonly duplicateCandidates: readonly { readonly id: string; readonly ticketNumber: string }[];
   readonly aiAnalysis?: { readonly confidence: number | null } | null;
+  readonly supporters?: readonly AdminTicketV2Supporter[];
 }
 
 export type AdminTicketV2Options = FormOptions | null;

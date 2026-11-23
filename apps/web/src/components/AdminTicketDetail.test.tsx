@@ -9,6 +9,8 @@ import { AdminAssetAssignmentCard } from './AdminAssetAssignmentCard';
 import { AdminAiScoreCard } from './AdminAiScoreCard';
 import { AdminReporterQuotesCard } from './AdminReporterQuotesCard';
 import { AdminPhotoPagerCard } from './AdminPhotoPagerCard';
+import { AdminTicketV2Content } from './AdminTicketV2Content';
+import type { AdminTicketV2Detail } from './AdminTicketV2Types';
 
 describe('AdminTicketHeader', () => {
   it('renders the Figma hero: ticket + status pill + priority hero + actions', () => {
@@ -122,27 +124,97 @@ describe('AdminAiScoreCard', () => {
 });
 
 describe('AdminReporterQuotesCard', () => {
-  it('renders consolidated quotes with ticket references instead of invented names', () => {
+  it('renders consolidated quotes without separate supporter ticket numbers', () => {
     const html = renderToStaticMarkup(
       <AdminReporterQuotesCard
         quotes={[
           { key: 'a', position: 0, badge: 'Pelapor Utama', ticketNumber: 'MNT-1', description: 'Mati total.', reportedAt: '2026-10-18T01:30:00.000Z' },
-          { key: 'b', position: 1, badge: 'Pelapor Pendukung 1', ticketNumber: 'MNT-2', description: 'Ikut mati.', reportedAt: null },
+          { key: 'b', position: 1, badge: 'Pelapor Pendukung 1', ticketNumber: null, description: 'Ikut mati.', reportedAt: null },
         ]}
         totalLabel="2 Laporan Tergabung"
       />,
     );
     expect(html).toContain('Terkonsolidasi');
-    expect(html).toContain('Pelapor Utama');
-    expect(html).toContain('MNT-2');
+    expect(html).toContain('Pelapor Utama · MNT-1');
+    expect(html).toContain('Pelapor Pendukung 1');
+    expect(html).not.toContain('Pelapor Pendukung 1 ·');
   });
 });
 
 describe('AdminPhotoPagerCard', () => {
-  it('renders the two-up pager header with the photo count', () => {
+  it('renders the two-up pager header with the photo count and supporter caption', () => {
     const html = renderToStaticMarkup(
-      <AdminPhotoPagerCard ticket="MNT-1" attachments={[{ id: 'p1', originalFilename: 'a.jpg' }]} />,
+      <AdminPhotoPagerCard
+        ticket="MNT-1"
+        attachments={[
+          { id: 'p1', supporterId: null, originalFilename: 'a.jpg' },
+          { id: 'p2', supporterId: 'sup-1', originalFilename: 'b.jpg' },
+        ]}
+      />,
     );
-    expect(html).toContain('Foto Bukti Laporan (1 Foto)');
+    expect(html).toContain('Foto Bukti Laporan (2 Foto)');
+    expect(html).toContain('Bukti pelapor pendukung');
+  });
+});
+
+describe('AdminTicketV2Content with supporters', () => {
+  it('renders 3 quotes, tab counter 3, and supporter attachment from detail.supporters', () => {
+    const detail: AdminTicketV2Detail = {
+      report: {
+        id: 'rep-1',
+        ticketNumber: 'MNT-2026-000001',
+        status: 'VERIFIED',
+        assetId: 'ast-1',
+        locationId: 'loc-1',
+        finalCategoryId: 'cat-1',
+        finalIssueTypeId: 'iss-1',
+        finalPriority: 'HIGH',
+        priorityScore: 88.5,
+        priorityFactors: { affectedReporters: 3 },
+        description: 'Proyektor mati total saat kuliah pagi.',
+        version: 2,
+        reportedAt: '2026-10-18T01:30:00.000Z',
+        verifiedAt: '2026-10-18T01:31:00.000Z',
+        resolvedAt: null,
+        closedAt: null,
+      },
+      attachments: [
+        { id: 'att-1', supporterId: null, originalFilename: 'utama.jpg' },
+        { id: 'att-2', supporterId: 'sup-1', originalFilename: 'pendukung.jpg' },
+      ],
+      events: [],
+      relations: [],
+      duplicateCandidates: [],
+      aiAnalysis: { confidence: 0.94 },
+      supporters: [
+        { id: 'sup-1', description: 'Kabel power juga tidak menyala.', createdAt: '2026-10-18T02:00:00.000Z' },
+        { id: 'sup-2', description: 'Proyektor tetap gelap di jam siang.', createdAt: '2026-10-18T03:00:00.000Z' },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <AdminTicketV2Content
+        ticket="MNT-2026-000001"
+        detail={detail}
+        options={null}
+        activeTab="ringkasan"
+        onTabChange={vi.fn()}
+        onChanged={vi.fn()}
+        breadcrumb={null}
+      />,
+    );
+
+    expect(html).toContain('3 Laporan Tergabung');
+    expect(html).toContain('Pelapor Utama · MNT-2026-000001');
+    expect(html).toContain('Pelapor Pendukung 1');
+    expect(html).toContain('Pelapor Pendukung 2');
+    expect(html).toContain('Proyektor mati total saat kuliah pagi.');
+    expect(html).toContain('Kabel power juga tidak menyala.');
+    expect(html).toContain('Proyektor tetap gelap di jam siang.');
+    expect(html).toContain('dan 3 pelapor.');
+    expect(html).toContain('Pelapor');
+    expect(html).toContain('>3<');
+    expect(html).toContain('Foto Bukti Laporan (2 Foto)');
+    expect(html).toContain('Bukti pelapor pendukung');
   });
 });
