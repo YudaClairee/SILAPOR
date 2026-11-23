@@ -81,25 +81,6 @@ function EyeIcon({ off }: { off: boolean }) {
   );
 }
 
-function ArrowIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <polyline points="12 5 19 12 12 19" />
-    </svg>
-  );
-}
-
 function LoginPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
@@ -169,10 +150,7 @@ function LoginPage() {
             <span>Kampus Tasikmalaya · Smart Campus Maintenance System</span>
           </div>
         </div>
-        <span className="portal-pill">
-          <span className="portal-dot" aria-hidden="true" />
-          Portal Layanan Terpadu
-        </span>
+        <span className="portal-label">Portal Layanan Terpadu</span>
       </header>
       <div className="login-main">
         <div className="login-card">
@@ -229,7 +207,6 @@ function LoginPage() {
             ) : null}
             <button className="login-submit" type="submit" disabled={pending}>
               <span>{pending ? 'Memeriksa…' : 'Masuk'}</span>
-              <ArrowIcon />
             </button>
           </form>
           <div className="login-card-foot">

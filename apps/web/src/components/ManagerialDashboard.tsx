@@ -137,7 +137,7 @@ export function DashboardContent({
         />
       </div>
 
-      <section aria-labelledby="managerial-assets-title" className="mt-5 rounded-xl border border-border bg-white p-5 shadow-sm">
+      <section aria-labelledby="managerial-assets-title" className="mt-5 rounded-xl border border-border bg-white p-5">
         <h2 id="managerial-assets-title" className="text-lg font-semibold text-text">Detail aset berisiko</h2>
         {model.topAssets.length === 0 ? (
           <p className="mt-4 text-sm text-muted">Belum ada aset pada periode ini.</p>
@@ -162,7 +162,7 @@ export function DashboardContent({
         )}
       </section>
 
-      <section aria-labelledby="managerial-queue-title" className="mt-5 rounded-xl border border-border bg-white p-5 shadow-sm">
+      <section aria-labelledby="managerial-queue-title" className="mt-5 rounded-xl border border-border bg-white p-5">
         <h2 id="managerial-queue-title" className="text-lg font-semibold text-text">Antrian prioritas</h2>
         <p className="mt-1 text-sm text-muted">Antrian global laporan yang perlu ditindaklanjuti.</p>
         {model.priorityQueue.length === 0 ? (

@@ -24,7 +24,7 @@ import {
   type SVGProps,
 } from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
-import { ChevronDownIcon, GridIcon, LogoMark, MenuIcon } from './Icon';
+import { ChevronDownIcon, ClipboardIcon, GridIcon, LogoMark, MenuIcon } from './Icon';
 
 export interface AdminShellUser {
   readonly username: string;
@@ -67,7 +67,7 @@ interface NavGroup {
 
 const PRIMARY_NAV: readonly NavLink[] = [
   { kind: 'link', to: '/admin', label: 'Dashboard', Icon: GridIcon, exact: true },
-  { kind: 'link', to: '/admin/reports', label: 'Kelola Laporan', Icon: GridIcon },
+  { kind: 'link', to: '/admin/reports', label: 'Kelola Laporan', Icon: ClipboardIcon },
 ];
 
 const GROUP_NAV: readonly NavGroup[] = [

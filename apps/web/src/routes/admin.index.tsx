@@ -249,7 +249,7 @@ function AdminDashboardPending() {
   );
 }
 
-const CARD_CLASSES = 'rounded-xl border border-[#e1e5e9] bg-white shadow-sm';
+const CARD_CLASSES = 'rounded-xl border border-[#e1e5e9] bg-white';
 const CARD_TITLE_CLASSES = 'text-lg font-semibold text-[#202a33]';
 const CARD_SUBTITLE_CLASSES = 'mt-1 text-[13px] text-[#697784]';
 
@@ -443,7 +443,7 @@ function KpiTile({ card, range }: { readonly card: KpiCard; readonly range: Date
       </span>
     </>
   );
-  const classes = `${CARD_CLASSES} flex h-full flex-col px-5 py-4`;
+  const classes = `${CARD_CLASSES} flex h-full flex-col px-5 py-4 shadow-sm`;
 
   if (card.search === undefined) {
     return <li className={classes}>{body}</li>;

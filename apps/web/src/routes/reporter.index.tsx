@@ -488,7 +488,7 @@ function Page() {
         />
       </div>
 
-      <div className="mt-6 rounded-xl border border-[#e1e5e9] bg-white p-2.5 shadow-sm">
+      <div className="mt-6 rounded-xl border border-[#e1e5e9] bg-white p-2.5">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-1 rounded-lg bg-[#ecf4ff] p-1">
             <Link
@@ -818,7 +818,7 @@ function KpiCard({
   readonly tone?: 'default' | 'active';
 }) {
   return (
-    <article className="rounded-xl border border-[#e1e5e9] bg-white p-4 shadow-sm sm:p-5">
+    <article className="rounded-xl border border-[#e1e5e9] bg-white p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-medium text-[#4b5563]">{label}</p>
         <span

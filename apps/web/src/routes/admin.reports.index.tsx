@@ -231,10 +231,9 @@ export const Route = createFileRoute('/admin/reports/')({
 function AdminReportsPending() {
   return (
     <section aria-labelledby="admin-reports-title" className="w-full">
-      <p className="text-[13px] font-semibold text-[#202a33]">Kelola Laporan</p>
       <h1
         id="admin-reports-title"
-        className="mt-1 text-[32px] font-bold tracking-tight text-[#202a33] sm:text-[36px]"
+        className="text-[32px] font-bold tracking-tight text-[#202a33] sm:text-[36px]"
       >
         Kelola Laporan
       </h1>
@@ -295,7 +294,7 @@ function hasAdvancedFilters(search: AdminListSearch): boolean {
   );
 }
 
-const CARD_CLASSES = 'rounded-xl border border-[#e1e5e9] bg-white shadow-sm';
+const CARD_CLASSES = 'rounded-xl border border-[#e1e5e9] bg-white';
 
 const FILTER_LABEL_CLASSES = 'mb-1 block text-[13px] font-medium text-[#3f4c57]';
 
@@ -590,10 +589,9 @@ function AdminReportsPage() {
 
   return (
     <section aria-labelledby="admin-reports-title" className="w-full">
-      <p className="text-[13px] font-semibold text-[#202a33]">Kelola Laporan</p>
       <h1
         id="admin-reports-title"
-        className="mt-1 text-[32px] font-bold leading-[1.15] tracking-tight text-[#202a33] sm:text-[36px]"
+        className="text-[32px] font-bold leading-[1.15] tracking-tight text-[#202a33] sm:text-[36px]"
       >
         Kelola Laporan
       </h1>
@@ -861,7 +859,7 @@ function AdminReportsPage() {
             />
           </div>
         ) : (
-          <div className={`${CARD_CLASSES} mt-5 overflow-hidden`}>
+          <div className={`${CARD_CLASSES} mt-5 overflow-hidden shadow-sm`}>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1100px] border-collapse text-left">
                 <thead>

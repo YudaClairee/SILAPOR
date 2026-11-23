@@ -12,8 +12,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 14px 48px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
+  background: #ffffff;
   border-bottom: 1px solid #e1e5e9;
 }
 .login-brand {
@@ -49,26 +48,17 @@
   line-height: 17px;
   white-space: nowrap;
 }
-.portal-pill {
+.portal-label {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 9999px;
-  background: #e8f3f4;
-  border: 1px solid #064653;
-  color: #064653;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #eef4f6;
+  color: #0a3947;
   font-size: 12px;
   line-height: 16px;
   font-weight: 500;
   white-space: nowrap;
-}
-.portal-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 9999px;
-  background: #10b981;
-  box-shadow: 0 0 0 3px rgba(167, 243, 208, 0.5);
 }
 .login-main {
   flex: 1;
@@ -258,7 +248,7 @@ body > a:focus {
   .login-brand-text span {
     white-space: normal;
   }
-  .portal-pill {
+  .portal-label {
     display: none;
   }
   .login-main {

@@ -100,10 +100,7 @@ function KebijakanPrivasiPage() {
             <span>SMART CAMPUS MAINTENANCE SYSTEM</span>
           </div>
         </div>
-        <span className="policy-pill">
-          <span className="policy-dot" aria-hidden="true" />
-          Portal Layanan Terpadu
-        </span>
+        <span className="policy-label">Portal Layanan Terpadu</span>
       </header>
 
       <div className="policy-main">
@@ -301,7 +298,7 @@ function KebijakanPrivasiPage() {
           <div>
             <p className="policy-contact-label">Ada pertanyaan seputar alur pemeliharaan?</p>
             <a className="policy-contact-link" href="mailto:umper@upi.edu">
-              Hubungi Unit Pengelolaan &amp; Pemeliharaan Sarana Prasarana (UMPER) →
+              Hubungi Unit Pengelolaan &amp; Pemeliharaan Sarana Prasarana (UMPER)
             </a>
           </div>
           <Link to="/login" className="policy-back policy-back-plain">
