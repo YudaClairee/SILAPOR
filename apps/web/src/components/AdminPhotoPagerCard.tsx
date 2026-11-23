@@ -3,7 +3,14 @@ import { useState } from 'react';
 import { adminPhotoCaption } from '../lib/admin-ticket-detail.js';
 import { ChevronLeftIcon, ChevronRightIcon, ImageIcon } from './index.js';
 
-export function AdminPhotoPagerCard(props: { readonly ticket: string; readonly attachments: readonly { readonly id: string; readonly originalFilename: string }[] }) {
+export function AdminPhotoPagerCard(props: {
+  readonly ticket: string;
+  readonly attachments: readonly {
+    readonly id: string;
+    readonly supporterId?: string | null;
+    readonly originalFilename: string;
+  }[];
+}) {
   const total = props.attachments.length;
   const pageSize = 2;
   const [start, setStart] = useState(0);
@@ -37,6 +44,9 @@ export function AdminPhotoPagerCard(props: { readonly ticket: string; readonly a
                 <div className="px-3 py-2.5">
                   <p className="truncate text-[13px] font-semibold text-text" title={adminPhotoCaption(photoNumber)}>{adminPhotoCaption(photoNumber)}</p>
                   <p className="mt-0.5 truncate font-mono text-xs text-muted" title={attachment.originalFilename}>Foto {photoNumber} · {attachment.originalFilename}</p>
+                  {attachment.supporterId != null ? (
+                    <p className="mt-1 text-[11px] font-medium text-badge-info">Bukti pelapor pendukung</p>
+                  ) : null}
                 </div>
               </li>
             );

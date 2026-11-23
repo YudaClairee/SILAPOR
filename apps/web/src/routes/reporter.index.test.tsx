@@ -123,4 +123,26 @@ describe('pemantauan laporan', () => {
 
     expect(await screen.findByText('Belum ada laporan')).toBeInTheDocument();
   });
+
+  it('shows the supporter badge when isSupporter is true and isOwn is false', async () => {
+    stubFetch({
+      items: [
+        {
+          ...ROW,
+          id: 'r-sup',
+          ticketNumber: 'MNT-2026-000199',
+          reporterCount: 2,
+          isOwn: false,
+          isSupporter: true,
+        },
+      ],
+      total: 1,
+    });
+    renderPage();
+
+    expect(await screen.findByText('MNT-2026-000199')).toBeInTheDocument();
+    expect(screen.getByText('Mendukung')).toBeInTheDocument();
+    expect(screen.queryByText('Laporan Anda')).not.toBeInTheDocument();
+    expect(screen.getByText('2 pelapor')).toBeInTheDocument();
+  });
 });

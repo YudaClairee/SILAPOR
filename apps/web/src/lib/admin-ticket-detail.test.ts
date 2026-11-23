@@ -26,14 +26,14 @@ describe('adminStatusPill', () => {
 });
 
 describe('buildAdminReporterQuotes', () => {
-  it('keeps the main ticket first and numbers supporters without inventing identities', () => {
+  it('keeps the main ticket first and numbers supporters without separate ticket numbers or identities', () => {
     const quotes = buildAdminReporterQuotes(
       { id: 'main', ticketNumber: 'MNT-2026-000142', description: 'Mati total.', reportedAt: '2026-10-18T01:30:00.000Z' },
-      [{ id: 'sup-1', ticketNumber: 'MNT-2026-000143', description: 'Ikut mati.', reportedAt: '2026-10-18T01:35:00.000Z' }],
+      [{ id: 'sup-1', description: 'Ikut mati.', createdAt: '2026-10-18T01:35:00.000Z' }],
     );
     expect(quotes).toHaveLength(2);
-    expect(adminReporterCaption(quotes[0] as never)).toContain('Pelapor Utama');
-    expect(adminReporterCaption(quotes[1] as never)).toContain('Pelapor Pendukung 1');
+    expect(adminReporterCaption(quotes[0] as never)).toBe('Pelapor Utama · MNT-2026-000142');
+    expect(adminReporterCaption(quotes[1] as never)).toBe('Pelapor Pendukung 1');
   });
 });
 

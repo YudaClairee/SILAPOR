@@ -26,10 +26,12 @@
 import { and, eq, sql } from 'drizzle-orm';
 import {
   applyVerification as repoApplyVerification,
+  compensateFailedSupporter as repoCompensateFailedSupporter,
   countAffectedReporters as repoCountAffectedReporters,
   createReport as repoCreateReport,
   findDuplicateCandidates as repoFindDuplicateCandidates,
   findReportByKey as repoFindReportByKey,
+  findSupporterByKey as repoFindSupporterByKey,
   getAdminReportDetail as repoGetAdminReportDetail,
   getAsset as repoGetAsset,
   getCampusReportDetail as repoGetCampusReportDetail,
@@ -889,6 +891,8 @@ export type SubmitVerifiedResult =
       readonly ticketNumber: string;
       readonly report: Report;
       readonly idempotentReplay: true;
+      readonly merged?: true;
+      readonly supporter?: { readonly id: string; readonly createdAt: Date };
       readonly verification: { readonly status: string };
     }
   | {
@@ -900,14 +904,14 @@ export type SubmitVerifiedResult =
       readonly verification: { readonly status: 'HELD' };
     }
   | {
-      // Auto-merged as SUPPORTING evidence into another reporter's active
-      // ticket at submit: the row + relation stay for audit, verification is
-      // deliberately skipped in favor of the target's.
+      // Auto-merged as supporting evidence on another reporter's active
+      // ticket at submit: no new ticket row is minted and AI verification is
+      // skipped in favor of the primary ticket.
       readonly status: 201;
       readonly ticketNumber: string;
       readonly report: Report;
-      readonly relation: SupportingRelationRef;
-      readonly duplicateCandidates: DuplicateCandidate[];
+      readonly supporter: { readonly id: string; readonly createdAt: Date };
+      readonly merged: true;
       readonly message: string;
       readonly verification: { readonly status: 'MERGED' };
     }
@@ -1046,28 +1050,11 @@ async function compensateFailedSubmit(db: SubmitDb, reportId: string): Promise<v
   });
 }
 
-// The supporting-merged row is deliberately never verified (one verification
-// per incident lives on the target ticket), so its PENDING review request is
-// dropped — the queue worker would otherwise re-run the verification.
-async function dropPendingAiReview(db: SubmitDb, reportId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(outboxEvents)
-      .where(
-        and(
-          eq(outboxEvents.type, 'AI_REVIEW_REQUESTED'),
-          eq(outboxEvents.status, 'PENDING'),
-          sql`${outboxEvents.payload}->>'reportId' = ${reportId}`,
-        ),
-      );
-  });
-}
-
 const HELD_MESSAGE =
   'Verification is temporarily unavailable. Your report has been saved and is waiting for review.';
 
 function mergedMessage(targetTicket: string): string {
-  return `Report saved as additional evidence for ticket ${targetTicket}, which covers the same incident. Follow that ticket for updates.`;
+  return `Laporan Anda ditambahkan sebagai laporan pendukung pada tiket ${targetTicket}. Anda akan menerima notifikasi perkembangan penanganannya.`;
 }
 
 function normalizeAiPriority(value: string): 'LOW' | 'MEDIUM' | 'HIGH' | undefined {
@@ -1081,11 +1068,10 @@ function normalizeAiPriority(value: string): 'LOW' | 'MEDIUM' | 'HIGH' | undefin
 // Synchronous verified submit: duplicate-first create (a same-reporter
 // active block throws DUPLICATE_ACTIVE before any AI call), inline verify,
 // then PASS → VERIFIED + ticket (201), FAIL → 422 with no row left behind,
-// DOWN → held REPORTED + ticket (202). A submit auto-merged as SUPPORTING
-// evidence into another reporter's ticket skips the AI call entirely: its
-// response (201 + MERGED) points the reporter at the target ticket and the
-// row stays unverified outside the hand-verify queue. Idempotent replays
-// skip AI.
+// DOWN → held REPORTED + ticket (202). A submit auto-merged as supporting
+// evidence into another reporter's active ticket skips the AI call and does
+// not mint a new ticket: its response (201 + MERGED) points the reporter at
+// the primary ticket. Idempotent replays skip AI.
 export async function submitVerifiedReport(
   req: Request,
   body: unknown,
@@ -1105,8 +1091,8 @@ export async function submitVerifiedReport(
   const conn = getDb();
   try {
     // Idempotency first (mirrors the create fast-path): a same-key retry
-    // replays the prior ticket without touching staged keys, which the
-    // first submit already claimed.
+    // replays the prior ticket or supporter merge without touching staged
+    // keys, which the first submit already claimed.
     const prior = await repoFindReportByKey(conn.db, key);
     if (prior !== undefined) {
       return {
@@ -1115,6 +1101,21 @@ export async function submitVerifiedReport(
         report: prior,
         idempotentReplay: true,
         verification: { status: prior.status },
+      };
+    }
+    const priorSupporter = await repoFindSupporterByKey(conn.db, key);
+    if (priorSupporter !== undefined) {
+      return {
+        status: 200,
+        ticketNumber: priorSupporter.report.ticketNumber,
+        report: priorSupporter.report,
+        supporter: {
+          id: priorSupporter.supporter.id,
+          createdAt: priorSupporter.supporter.createdAt,
+        },
+        merged: true,
+        idempotentReplay: true,
+        verification: { status: 'MERGED' },
       };
     }
     // Staged keys resolve before any row exists: unknown, foreign, claimed,
@@ -1136,6 +1137,20 @@ export async function submitVerifiedReport(
       key,
     );
     if (created.idempotentReplay) {
+      if (created.kind === 'SUPPORTED') {
+        return {
+          status: 200,
+          ticketNumber: created.report.ticketNumber,
+          report: created.report,
+          supporter: {
+            id: created.supporter.id,
+            createdAt: created.supporter.createdAt,
+          },
+          merged: true,
+          idempotentReplay: true,
+          verification: { status: 'MERGED' },
+        };
+      }
       return {
         status: 200,
         ticketNumber: created.report.ticketNumber,
@@ -1146,20 +1161,37 @@ export async function submitVerifiedReport(
     }
     const report = created.report;
     // Auto-gabung: another reporter's active ticket already runs the one
-    // verification for this incident, so the AI call and analysis row are
-    // suppressed entirely — the row stays REPORTED linked SUPPORTING (kept
-    // for audit, excluded from the hand-verify queue) with its photos
-    // attached, and the reply reports the merge instead of a verdict.
-    if (created.relation !== null) {
-      await dropPendingAiReview(conn.db, report.id);
-      await linkPhotosOrCompensate(report.id);
+    // verification for this incident, so no new ticket or AI review was
+    // created. Attach optional staged photos to the primary ticket under this
+    // supporter row (compensating ONLY the supporter row on conflict).
+    if (created.kind === 'SUPPORTED') {
+      if (staged.length > 0) {
+        try {
+          await repoLinkStagedUploads(conn.db, {
+            reportId: report.id,
+            supporterId: created.supporter.id,
+            staged,
+            uploadedBy: user.id,
+          });
+        } catch (error) {
+          if (isAppError(error) && error.code === 'CONFLICT') {
+            await repoCompensateFailedSupporter(conn.db, created.supporter.id).catch(
+              () => undefined,
+            );
+          }
+          throw error;
+        }
+      }
       return {
         status: 201,
         ticketNumber: report.ticketNumber,
         report,
-        relation: created.relation,
-        duplicateCandidates: created.duplicateCandidates,
-        message: mergedMessage(created.relation.targetTicket),
+        supporter: {
+          id: created.supporter.id,
+          createdAt: created.supporter.createdAt,
+        },
+        merged: true,
+        message: mergedMessage(report.ticketNumber),
         verification: { status: 'MERGED' },
       };
     }
@@ -1440,7 +1472,7 @@ export async function submitVerifiedReport(
         priority: finalPriority,
         confidence: outcome.confidence,
       },
-      relation: created.relation,
+      relation: null,
       duplicateCandidates: created.duplicateCandidates,
     };
   } finally {

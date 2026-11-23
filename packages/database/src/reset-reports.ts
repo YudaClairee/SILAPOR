@@ -36,6 +36,7 @@ import {
   reportAttachments,
   reportEvents,
   reportRelations,
+  reportSupporters,
   reportUpdates,
   stagedUploads,
   ticketCounters,
@@ -52,6 +53,7 @@ const ORPHAN_FILE_PREFIXES = ['att_', 'staging_'] as const;
 
 export interface ReportDataCounts {
   readonly maintenanceReports: number;
+  readonly reportSupporters: number;
   readonly reportEvents: number;
   readonly reportAssignments: number;
   readonly reportUpdates: number;
@@ -104,6 +106,7 @@ export function resolveResetStorageDir(explicit?: string): string {
 export async function countReportData(db: ResetDb): Promise<ReportDataCounts> {
   const [
     reports,
+    supporters,
     events,
     assignments,
     updates,
@@ -116,6 +119,7 @@ export async function countReportData(db: ResetDb): Promise<ReportDataCounts> {
     counters,
   ] = await Promise.all([
     db.select({ value: count() }).from(maintenanceReports),
+    db.select({ value: count() }).from(reportSupporters),
     db.select({ value: count() }).from(reportEvents),
     db.select({ value: count() }).from(reportAssignments),
     db.select({ value: count() }).from(reportUpdates),
@@ -130,6 +134,7 @@ export async function countReportData(db: ResetDb): Promise<ReportDataCounts> {
 
   return {
     maintenanceReports: reports[0]?.value ?? 0,
+    reportSupporters: supporters[0]?.value ?? 0,
     reportEvents: events[0]?.value ?? 0,
     reportAssignments: assignments[0]?.value ?? 0,
     reportUpdates: updates[0]?.value ?? 0,
@@ -290,6 +295,7 @@ export async function resetReportData(
       await tx.delete(reportUpdates);
       await tx.delete(reportRelations);
       await tx.delete(reportAttachments);
+      await tx.delete(reportSupporters);
       await tx.delete(stagedUploads);
       await tx.delete(maintenanceReports);
       // Restart ticket numbering: the next submit becomes MNT-<year>-000001.

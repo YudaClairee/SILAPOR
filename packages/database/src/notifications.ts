@@ -2,17 +2,19 @@
 //
 // The workflow mutations enqueue `WORKFLOW_NOTIFICATION` outbox rows with
 // payload `{ reportId, ticketNumber, kind, actorId }` (Phase 5). This module
-// turns one outbox row into notification rows for the report's reporter:
+// turns one outbox row into notification rows for the report's primary
+// reporter and any attached supporting reporters:
 //
 // - Idempotent by construction: the (source_event_id, user_id) unique pair
 //   plus `onConflictDoNothing` makes worker redelivery a no-op (plan step 11).
-// - PROGRESS_NOTE_ADDED notifies the reporter; LAPORAN_PALSU still uses the
+// - PROGRESS_NOTE_ADDED notifies the reporters; LAPORAN_PALSU still uses the
 //   neutral message text on reporter surfaces.
 // - INTERNAL_NOTE_ADDED is a legacy kind and stays unnotified; new writes use
 //   PROGRESS_NOTE_ADDED with no visibility.
-// - Recipient is the report's reporter_id loaded fresh from the report row —
-//   never trusted from the payload. Messages carry the ticket number only;
-//   no PII, no report description, no actor identity.
+// - Recipients are the report's reporter_id plus supporting reporters loaded
+//   fresh from maintenance_reports and report_supporters — never trusted from
+//   the payload. Messages carry the ticket number only; no PII, no report
+//   description, no actor identity.
 //
 // The consumer (worker, P6-4) calls `processNotificationOutboxEvent` inside
 // the same transaction that marks the outbox row DISPATCHED, so a crash
@@ -155,27 +157,35 @@ export async function processNotificationOutboxEvent(
     return { created: 0, skippedReason: 'not-notifiable' };
   }
 
-  // Recipient from the canonical report row, not the payload.
+  // Recipients from the canonical report row + attached supporters, not the payload.
   const reportRows = await db
     .select({ reporterId: schema.maintenanceReports.reporterId })
     .from(schema.maintenanceReports)
-    .where(eq(schema.maintenanceReports.id, record['reportId']));
+    .where(eq(schema.maintenanceReports.id, reportId));
   const report = reportRows[0];
   if (report === undefined) {
     throw notFound('Report not found');
   }
 
+  const supporterRows = await db
+    .select({ reporterId: schema.reportSupporters.reporterId })
+    .from(schema.reportSupporters)
+    .where(eq(schema.reportSupporters.reportId, reportId));
+  const recipientIds = [...new Set([report.reporterId, ...supporterRows.map((r) => r.reporterId)])];
+
   const inserted = await db
     .insert(schema.notifications)
-    .values({
-      userId: report.reporterId,
-      type: content.type,
-      title: content.title,
-      message: content.message,
-      reportId,
-      sourceEventId: event.id,
-    })
-    // Redelivery of the same event to the same reporter is a no-op.
+    .values(
+      recipientIds.map((userId) => ({
+        userId,
+        type: content.type,
+        title: content.title,
+        message: content.message,
+        reportId,
+        sourceEventId: event.id,
+      })),
+    )
+    // Redelivery of the same event to the same recipient is a no-op.
     .onConflictDoNothing({
       target: [schema.notifications.sourceEventId, schema.notifications.userId],
     })
@@ -183,7 +193,7 @@ export async function processNotificationOutboxEvent(
   if (inserted.length === 0) {
     return { created: 0, skippedReason: 'duplicate' };
   }
-  return { created: 1, skippedReason: null };
+  return { created: inserted.length, skippedReason: null };
 }
 
 // ---------------------------------------------------------------------------

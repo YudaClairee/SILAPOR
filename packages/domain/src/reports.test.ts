@@ -70,6 +70,7 @@ describe('REPORT_EVENT_TYPE', () => {
       'INTERNAL_NOTE_ADDED',
       'REPORT_RESOLVED',
       'REPORT_CLOSED',
+      'SUPPORTER_ADDED',
     ];
     for (const event of minimum) {
       expect(REPORT_EVENT_TYPE).toContain(event);

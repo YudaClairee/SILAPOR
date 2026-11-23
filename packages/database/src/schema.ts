@@ -317,6 +317,7 @@ export const maintenanceReports = pgTable(
       table.submittedCategoryId,
       table.status,
     ),
+    index('maintenance_reports_asset_status_idx').on(table.assetId, table.status),
     check(
       'maintenance_reports_priority_score_check',
       sql`${table.priorityScore} IS NULL OR (${table.priorityScore} >= 0 AND ${table.priorityScore} <= 100)`,
@@ -328,6 +329,27 @@ export const maintenanceReports = pgTable(
   ],
 );
 
+export const reportSupporters = pgTable(
+  'report_supporters',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reportId: uuid('report_id')
+      .notNull()
+      .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    reporterId: uuid('reporter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    description: text('description').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('report_supporters_report_reporter_unique').on(table.reportId, table.reporterId),
+    index('report_supporters_report_created_idx').on(table.reportId, table.createdAt),
+    index('report_supporters_reporter_created_idx').on(table.reporterId, table.createdAt),
+  ],
+);
+
 export const reportAttachments = pgTable(
   'report_attachments',
   {
@@ -335,6 +357,9 @@ export const reportAttachments = pgTable(
     reportId: uuid('report_id')
       .notNull()
       .references(() => maintenanceReports.id, { onDelete: 'cascade' }),
+    supporterId: uuid('supporter_id').references(() => reportSupporters.id, {
+      onDelete: 'cascade',
+    }),
     // Random storage key, never the original filename.
     storageKey: text('storage_key').notNull(),
     // Metadata only.
@@ -347,7 +372,10 @@ export const reportAttachments = pgTable(
       .references(() => users.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('report_attachments_report_id_idx').on(table.reportId)],
+  (table) => [
+    index('report_attachments_report_id_idx').on(table.reportId),
+    index('report_attachments_supporter_id_idx').on(table.supporterId),
+  ],
 );
 
 // Pre-submit photo staging (AI verification photo-first flow). A staged row
@@ -512,6 +540,8 @@ export const ticketCounters = pgTable('ticket_counters', {
 
 export type Report = typeof maintenanceReports.$inferSelect;
 export type NewReport = typeof maintenanceReports.$inferInsert;
+export type ReportSupporter = typeof reportSupporters.$inferSelect;
+export type NewReportSupporter = typeof reportSupporters.$inferInsert;
 export type ReportAttachment = typeof reportAttachments.$inferSelect;
 export type NewReportAttachment = typeof reportAttachments.$inferInsert;
 export type ReportEvent = typeof reportEvents.$inferSelect;

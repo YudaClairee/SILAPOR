@@ -40,15 +40,18 @@ import {
   reportAttachments,
   reportEvents,
   reportRelations,
+  reportSupporters,
   ticketCounters,
   users,
 } from './schema.js';
 import {
   applyVerification,
   buildSearchPattern,
+  compensateFailedSupporter,
   countAffectedReporters,
   createReport,
   findDuplicateCandidates,
+  findSupporterByKey,
   getAdminReportDetail,
   getCampusReportDetail,
   getCampusReportStats,
@@ -58,6 +61,7 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
   linkSupportingReport,
+  listAdminReports,
   listAllReports,
   listCampusReports,
   listMyReports,
@@ -203,6 +207,12 @@ describe('validateCreateReportInput service target (pure)', () => {
     expect(
       validateCreateReportInput(serviceInput({ submittedCategoryId: VALID_UUID_A })).length,
     ).toBeGreaterThan(0);
+  });
+
+  it('compensateFailedSupporter rejects malformed supporterId with 400 before any I/O', async () => {
+    await expect(compensateFailedSupporter(undefined as never, 'not-a-uuid')).rejects.toMatchObject({
+      status: 400,
+    });
   });
 });
 
@@ -472,7 +482,8 @@ describe.skipIf(!enabled)(
         randomUUID(),
       );
       expect(result.idempotentReplay).toBe(false);
-      expect(result.relation).toBeNull();
+      expect(result.kind).toBe('CREATED');
+      expect(result.supporter).toBeNull();
       expect(result.report.status).toBe('REPORTED');
       expect(result.report.version).toBe(1);
       // The reporter's asset determines the stored submitted category.
@@ -578,7 +589,7 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
-      expect(first.relation).toBeNull();
+      expect(first.kind).toBe('CREATED');
 
       const reportsBefore = await db!.select().from(maintenanceReports);
       const eventsBefore = await db!.select().from(reportEvents);
@@ -666,10 +677,11 @@ describe.skipIf(!enabled)(
       expect(third.idempotentReplay).toBe(false);
       expect(third.report.ticketNumber).not.toBe(first.report.ticketNumber);
       expect(third.report.status).toBe('REPORTED');
-      expect(third.relation).toBeNull();
+      expect(third.kind).toBe('CREATED');
     });
 
-    it('links a different-reporter same-incident report as SUPPORTING', async () => {
+    it('attaches a different-reporter same-incident report as supporter without minting a ticket', async () => {
+      const seqBefore = (await counterForYear()) ?? 0;
       const first = await createReport(
         db!,
         {
@@ -680,6 +692,13 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
+      expect(first.kind).toBe('CREATED');
+      const seqAfterFirst = await counterForYear();
+      expect(seqAfterFirst).toBe(seqBefore + 1);
+      const reportsBefore = await db!.select().from(maintenanceReports);
+      const outboxBefore = await db!.select().from(outboxEvents);
+
+      const supKeyB = randomUUID();
       const res = await createReport(
         db!,
         {
@@ -688,23 +707,106 @@ describe.skipIf(!enabled)(
           assetId: assetElec6,
           description: longDescription('pelapor lain aset sama'),
         },
+        supKeyB,
+      );
+      expect(res.kind).toBe('SUPPORTED');
+      if (res.kind !== 'SUPPORTED') throw new Error('expected SUPPORTED');
+      expect(res.idempotentReplay).toBe(false);
+      expect(res.report.id).toBe(first.report.id);
+      expect(res.report.ticketNumber).toBe(first.report.ticketNumber);
+      expect(res.affectedReporters).toBe(2);
+      expect(res.supporter.reportId).toBe(first.report.id);
+      expect(res.supporter.reporterId).toBe(reporterB);
+      expect(res.supporter.idempotencyKey).toBe(supKeyB);
+
+      // No new ticket counter increment, no new maintenance_reports row, no AI outbox row.
+      expect(await counterForYear()).toBe(seqAfterFirst);
+      expect(await db!.select().from(maintenanceReports)).toHaveLength(reportsBefore.length);
+      expect(await db!.select().from(outboxEvents)).toHaveLength(outboxBefore.length);
+      expect(await db!.select().from(reportRelations)).toHaveLength(0);
+
+      const supporters = await db!
+        .select()
+        .from(reportSupporters)
+        .where(eq(reportSupporters.reportId, first.report.id));
+      expect(supporters).toHaveLength(1);
+
+      const events = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, first.report.id));
+      expect(events.some((e) => e.eventType === 'SUPPORTER_ADDED')).toBe(true);
+
+      // Same idempotency key from reporter B replays SUPPORTED without new rows.
+      const replay = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locA,
+          assetId: assetElec6,
+          description: 'pendek',
+        },
+        supKeyB,
+      );
+      expect(replay.kind).toBe('SUPPORTED');
+      expect(replay.idempotentReplay).toBe(true);
+      expect(replay.report.id).toBe(first.report.id);
+      expect(
+        await db!.select().from(reportSupporters).where(eq(reportSupporters.reportId, first.report.id)),
+      ).toHaveLength(1);
+      const foundByKey = await findSupporterByKey(db!, supKeyB);
+      expect(foundByKey?.supporter.id).toBe(res.supporter.id);
+      expect(foundByKey?.report.id).toBe(first.report.id);
+
+      // Different idempotency key from reporter B while still active blocks with 409.
+      const blockedB = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locA,
+          assetId: assetElec6,
+          description: longDescription('pelapor B kirim ulang key beda'),
+        },
+        randomUUID(),
+      ).then(
+        () => {
+          throw new Error('expected 409 DUPLICATE_ACTIVE');
+        },
+        (error: unknown) => error,
+      );
+      expect(isAppError(blockedB)).toBe(true);
+      expect(blockedB).toMatchObject({
+        code: 'DUPLICATE_ACTIVE',
+        status: 409,
+        details: { ticketNumber: first.report.ticketNumber },
+      });
+
+      // Third reporter joins → 2 supporters, affectedReporters = 3.
+      const reporterC = (
+        await db!
+          .insert(users)
+          .values({ username: `p32-rep-c-${randomUUID()}`, role: 'REPORTER' })
+          .returning({ id: users.id })
+      )[0]?.id as string;
+      const resC = await createReport(
+        db!,
+        {
+          reporterId: reporterC,
+          locationId: locA,
+          assetId: assetElec6,
+          description: longDescription('pelapor ketiga aset sama'),
+        },
         randomUUID(),
       );
-      expect(res.relation).toEqual({ type: 'SUPPORTING', targetTicket: first.report.ticketNumber });
-
-      // The SUPPORTING row lands in the same create transaction: both rows stay
-      // independently queryable and no extra job is queued for the merge.
-      const links = await db!.select().from(reportRelations);
-      expect(links).toHaveLength(1);
-      expect(links[0]).toMatchObject({
-        sourceReportId: res.report.id,
-        targetReportId: first.report.id,
-        relationType: 'SUPPORTING',
-      });
-      expect(res.report.status).toBe('REPORTED');
+      expect(resC.kind).toBe('SUPPORTED');
+      if (resC.kind !== 'SUPPORTED') throw new Error('expected SUPPORTED');
+      expect(resC.affectedReporters).toBe(3);
+      expect(
+        await db!.select().from(reportSupporters).where(eq(reportSupporters.reportId, first.report.id)),
+      ).toHaveLength(2);
     });
 
-    it('creates without a link for a different asset', async () => {
+    it('creates without a supporter for a different asset', async () => {
       const created = await createReport(
         db!,
         {
@@ -715,8 +817,82 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
-      expect(created.relation).toBeNull();
+      expect(created.kind).toBe('CREATED');
       expect(created.report.status).toBe('REPORTED');
+    });
+
+    it('serializes concurrent A & B submits on the same asset into 1 CREATED + 1 SUPPORTED', async () => {
+      const raceAsset = await createAsset('T3-ASSET-CONC-AB', catElec);
+      const seqBefore = (await counterForYear()) ?? 0;
+      const [resA, resB] = await Promise.all([
+        createReport(
+          db!,
+          {
+            reporterId: reporterA,
+            locationId: locA,
+            assetId: raceAsset,
+            description: longDescription('balapan A pada aset sama'),
+          },
+          randomUUID(),
+        ),
+        createReport(
+          db!,
+          {
+            reporterId: reporterB,
+            locationId: locA,
+            assetId: raceAsset,
+            description: longDescription('balapan B pada aset sama'),
+          },
+          randomUUID(),
+        ),
+      ]);
+      const kinds = [resA.kind, resB.kind].sort();
+      expect(kinds).toEqual(['CREATED', 'SUPPORTED']);
+      expect(resA.report.id).toBe(resB.report.id);
+      expect(resA.report.ticketNumber).toBe(resB.report.ticketNumber);
+      expect(await counterForYear()).toBe(seqBefore + 1);
+      expect(
+        await db!.select().from(reportSupporters).where(eq(reportSupporters.reportId, resA.report.id)),
+      ).toHaveLength(1);
+    });
+
+    it('compensateFailedSupporter removes only the supporter and its event without touching the primary ticket', async () => {
+      const compAsset = await createAsset('T3-ASSET-COMP-SUP', catElec);
+      const primary = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: compAsset,
+          description: longDescription('tiket utama untuk uji kompensasi supporter'),
+        },
+        randomUUID(),
+      );
+      const sup = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locA,
+          assetId: compAsset,
+          description: longDescription('pendukung yang gagal klaim foto'),
+        },
+        randomUUID(),
+      );
+      if (sup.kind !== 'SUPPORTED') throw new Error('expected SUPPORTED');
+
+      await compensateFailedSupporter(db!, sup.supporter.id);
+
+      expect(
+        await db!.select().from(maintenanceReports).where(eq(maintenanceReports.id, primary.report.id)),
+      ).toHaveLength(1);
+      expect(
+        await db!.select().from(reportSupporters).where(eq(reportSupporters.id, sup.supporter.id)),
+      ).toHaveLength(0);
+      const events = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, primary.report.id));
+      expect(events.some((e) => e.eventType === 'SUPPORTER_ADDED')).toBe(false);
     });
 
     it('rejects a submit when the asset points at an inactive category', async () => {
@@ -944,7 +1120,7 @@ describe.skipIf(!enabled)(
         expect(ticket).toMatch(/^MNT-\d{4}-\d{6}$/);
       }
       for (const result of results) {
-        expect(result.relation).toBeNull();
+        expect(result.kind).toBe('CREATED');
       }
     });
 
@@ -1085,7 +1261,7 @@ describe.skipIf(!enabled)(
       });
     });
 
-    it('applyVerification leaves the auto-merged SUPPORTING link untouched', async () => {
+    it('applyVerification leaves attached report_supporters untouched', async () => {
       const asset = await createAsset('T3-ASSET-AV-2', catElec);
       const first = await createReport(
         db!,
@@ -1107,26 +1283,20 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
-      expect(second.relation).toEqual({
-        type: 'SUPPORTING',
-        targetTicket: first.report.ticketNumber,
-      });
+      expect(second.kind).toBe('SUPPORTED');
+      expect(second.report.id).toBe(first.report.id);
 
-      const verified = await applyVerification(db!, second.report.id, {
+      const verified = await applyVerification(db!, first.report.id, {
         finalCategoryId: catElec,
         finalIssueTypeId: itElec,
         finalPriority: 'MEDIUM',
       });
       expect(verified.status).toBe('VERIFIED');
-      const links = await db!
+      const supporters = await db!
         .select()
-        .from(reportRelations)
-        .where(eq(reportRelations.sourceReportId, second.report.id));
-      expect(links).toHaveLength(1);
-      expect(links[0]).toMatchObject({
-        targetReportId: first.report.id,
-        relationType: 'SUPPORTING',
-      });
+        .from(reportSupporters)
+        .where(eq(reportSupporters.reportId, first.report.id));
+      expect(supporters).toHaveLength(1);
     });
 
     it('applyVerification rejects an unknown category before any write', async () => {
@@ -1306,7 +1476,7 @@ describe.skipIf(!enabled)(
       expect((verifiedEvent?.metadata as Record<string, unknown>)?.['finalPriority']).toBe('HIGH');
     });
 
-    it('hides supporting-merged unverified rows from the REPORTED queue but keeps them in list-all', async () => {
+    it('attaches another reporter as supporter without creating a second REPORTED row', async () => {
       const reporterC = (
         await db!
           .insert(users)
@@ -1334,23 +1504,20 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
-      expect(merged.relation).not.toBeNull();
+      expect(merged.kind).toBe('SUPPORTED');
+      expect(merged.report.id).toBe(target.report.id);
 
       const heldQueue = await listAllReports(db!, {
         status: 'REPORTED',
         reporterId: reporterC,
       });
-      expect(heldQueue.items.map((r) => r.ticketNumber)).not.toContain(merged.report.ticketNumber);
+      expect(heldQueue.items).toHaveLength(0);
 
       const targetQueue = await listAllReports(db!, {
         status: 'REPORTED',
         reporterId: reporterA,
       });
       expect(targetQueue.items.map((r) => r.ticketNumber)).toContain(target.report.ticketNumber);
-
-      // Audit visibility: without a status filter the merged row still exists.
-      const unfiltered = await listAllReports(db!, { reporterId: reporterC });
-      expect(unfiltered.items.map((r) => r.ticketNumber)).toContain(merged.report.ticketNumber);
     });
 
     // -----------------------------------------------------------------
@@ -1369,7 +1536,8 @@ describe.skipIf(!enabled)(
         randomUUID(),
       );
       expect(result.idempotentReplay).toBe(false);
-      expect(result.relation).toBeNull();
+      expect(result.kind).toBe('CREATED');
+      expect(result.supporter).toBeNull();
       expect(result.report.assetId).toBeNull();
       expect(result.report.submittedCategoryId).toBe(catAccess);
       expect(result.report.locationId).toBe(locC);
@@ -1405,7 +1573,8 @@ describe.skipIf(!enabled)(
       expect(await counterForYear()).toBe(seqBefore);
     });
 
-    it('auto-merges another reporter’s service report as SUPPORTING', async () => {
+    it('attaches another reporter service report as supporter on the existing service ticket', async () => {
+      const svcSupKey = randomUUID();
       const merged = await createReport(
         db!,
         {
@@ -1414,10 +1583,47 @@ describe.skipIf(!enabled)(
           serviceCategoryId: catAccess,
           description: longDescription('layanan akses dari pelapor lain'),
         },
-        randomUUID(),
+        svcSupKey,
       );
-      expect(merged.relation).toEqual({ type: 'SUPPORTING', targetTicket: svcFirstTicket });
+      expect(merged.kind).toBe('SUPPORTED');
+      expect(merged.report.ticketNumber).toBe(svcFirstTicket);
       expect(merged.report.assetId).toBeNull();
+
+      // Same-key replay returns SUPPORTED replay.
+      const replay = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locC,
+          serviceCategoryId: catAccess,
+          description: longDescription('layanan akses dari pelapor lain'),
+        },
+        svcSupKey,
+      );
+      expect(replay.kind).toBe('SUPPORTED');
+      expect(replay.idempotentReplay).toBe(true);
+
+      // Different key by the same supporting reporter blocks with 409.
+      const blocked = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locC,
+          serviceCategoryId: catAccess,
+          description: longDescription('layanan akses ulang dari pendukung'),
+        },
+        randomUUID(),
+      ).then(
+        () => {
+          throw new Error('expected 409 DUPLICATE_ACTIVE');
+        },
+        (error: unknown) => error,
+      );
+      expect(blocked).toMatchObject({
+        code: 'DUPLICATE_ACTIVE',
+        status: 409,
+        details: { ticketNumber: svcFirstTicket },
+      });
     });
 
     it('creates a separate report for the same location with a different service category', async () => {
@@ -1431,7 +1637,7 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
-      expect(other.relation).toBeNull();
+      expect(other.kind).toBe('CREATED');
       expect(other.report.submittedCategoryId).toBe(catSecurity);
       expect(other.report.ticketNumber).not.toBe(svcFirstTicket);
     });
@@ -1458,7 +1664,7 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
-      expect(service.relation).toBeNull();
+      expect(service.kind).toBe('CREATED');
       expect(service.duplicateCandidates).toEqual([]);
       expect(service.report.ticketNumber).not.toBe(damage.report.ticketNumber);
 
@@ -1474,10 +1680,8 @@ describe.skipIf(!enabled)(
         },
         randomUUID(),
       );
-      expect(damageLater.relation).toEqual({
-        type: 'SUPPORTING',
-        targetTicket: damage.report.ticketNumber,
-      });
+      expect(damageLater.kind).toBe('SUPPORTED');
+      expect(damageLater.report.ticketNumber).toBe(damage.report.ticketNumber);
     });
 
     it('rejects an asset and a service category sent together with 400', async () => {
@@ -1712,6 +1916,790 @@ describe.skipIf(!enabled)(
         .from(facilityCategories)
         .where(eq(facilityCategories.id, catElec));
       expect(rows[0]?.requiresAsset).toBe(true);
+    });
+
+    it('countAffectedReporters counts primary + report_supporters across null/non-null issueTypeId and ignores non-active rows', async () => {
+      const asset = await createAsset(`T3-ASSET-CNT-${randomUUID()}`, catElec);
+      const first = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('hitung pelapor terdampak utama'),
+        },
+        randomUUID(),
+      );
+      const second = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('hitung pelapor terdampak pendukung'),
+        },
+        randomUUID(),
+      );
+      expect(second.kind).toBe('SUPPORTED');
+
+      // Both null issueTypeId and specific final issueTypeId must count primary + supporter on held REPORTED row.
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: null,
+        }),
+      ).toBe(2);
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: itElec,
+        }),
+      ).toBe(2);
+
+      await applyVerification(db!, first.report.id, {
+        finalCategoryId: catElec,
+        finalIssueTypeId: itElec,
+        finalPriority: 'LOW',
+      });
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: itElec,
+        }),
+      ).toBe(2);
+
+      await db!
+        .update(maintenanceReports)
+        .set({ status: 'RESOLVED' })
+        .where(eq(maintenanceReports.id, first.report.id));
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: itElec,
+        }),
+      ).toBe(0);
+    });
+
+    it('re-scores a verified LOW ticket upward when a supporter joins and records PRIORITY_CHANGED', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-RESCORE-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Rescore',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Rescore',
+            weight: 15,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Rescore',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const asset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Rescore',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('rescore tiket verified low'),
+        },
+        randomUUID(),
+      );
+      const verified = await applyVerification(db!, created.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      // 15 + 12 + 10 + 0 = 37 → LOW.
+      expect(verified.priorityScore).toBe(37);
+      expect(verified.finalPriority).toBe('LOW');
+
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('pendukung menaikkan skor ke medium'),
+        },
+        randomUUID(),
+      );
+      expect(merged.kind).toBe('SUPPORTED');
+      if (merged.kind !== 'SUPPORTED') {
+        throw new Error('expected SUPPORTED');
+      }
+      // 15 + 12 + 10 + 5 (2 reporters) = 42 → MEDIUM.
+      expect(merged.affectedReporters).toBe(2);
+      expect(merged.report.priorityScore).toBe(42);
+      expect(merged.report.finalPriority).toBe('MEDIUM');
+      expect(merged.report.version).toBe(verified.version + 1);
+      expect(merged.report.priorityFactors).toMatchObject({
+        category: 15,
+        asset: 12,
+        location: 10,
+        frequency: 5,
+        affectedReporters: 2,
+        scoringComplete: true,
+      });
+
+      const events = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id));
+      const priorityChanged = events.find((e) => e.eventType === 'PRIORITY_CHANGED');
+      expect(priorityChanged).toBeDefined();
+      expect(priorityChanged?.fromValue).toBe('LOW');
+      expect(priorityChanged?.toValue).toBe('MEDIUM');
+      expect(priorityChanged?.metadata).toMatchObject({
+        reason: 'SUPPORTER_ADDED',
+        supporterId: merged.supporter.id,
+        affectedReporters: 2,
+      });
+    });
+
+    it('updates score without downgrading HIGH or overwriting admin priority override', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-OVR-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Override',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-OVR-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Override',
+            weight: 15,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-OVR-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Override',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const highAsset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-HI-${randomUUID().slice(0, 8)}`,
+            name: 'Aset High',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+      const ovrAsset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-OV-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Override',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      // Case A: already HIGH (even though computed score suggests MEDIUM).
+      const highCreated = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: highAsset,
+          description: longDescription('tiket sudah high'),
+        },
+        randomUUID(),
+      );
+      await applyVerification(db!, highCreated.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'HIGH',
+      });
+      const highMerged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: highAsset,
+          description: longDescription('pendukung pada tiket high'),
+        },
+        randomUUID(),
+      );
+      expect(highMerged.report.priorityScore).toBe(42);
+      expect(highMerged.report.finalPriority).toBe('HIGH');
+      expect(highMerged.report.priorityFactors).toMatchObject({ affectedReporters: 2 });
+      const highEvents = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, highCreated.report.id));
+      expect(highEvents.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+
+      // Case B: admin manual override on LOW is preserved when score crosses MEDIUM threshold.
+      const ovrCreated = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: ovrAsset,
+          description: longDescription('tiket override manual admin'),
+        },
+        randomUUID(),
+      );
+      await applyVerification(db!, ovrCreated.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      await db!
+        .update(maintenanceReports)
+        .set({ priorityOverrideReason: 'Diputuskan admin tetap LOW' })
+        .where(eq(maintenanceReports.id, ovrCreated.report.id));
+      const ovrMerged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: ovrAsset,
+          description: longDescription('pendukung pada tiket override'),
+        },
+        randomUUID(),
+      );
+      expect(ovrMerged.report.priorityScore).toBe(42);
+      expect(ovrMerged.report.finalPriority).toBe('LOW');
+      expect(ovrMerged.report.priorityFactors).toMatchObject({ affectedReporters: 2 });
+      const ovrEvents = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, ovrCreated.report.id));
+      expect(ovrEvents.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+    });
+
+    it('preserves assetless flag on verified service report when supporter joins', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-SVC-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Layanan Rescore',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const svcCat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-SVC-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Layanan Rescore',
+            weight: 15,
+            requiresAsset: false,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          serviceCategoryId: svcCat,
+          description: longDescription('layanan verified untuk rescore'),
+        },
+        randomUUID(),
+      );
+      const verified = await applyVerification(db!, created.report.id, {
+        finalCategoryId: svcCat,
+        finalIssueTypeId: itGeneric,
+        finalPriority: 'LOW',
+      });
+      // 15 (category) + 12 (asset median) + 10 (location) + 0 = 37; assetless: true.
+      expect(verified.priorityScore).toBe(37);
+      expect(verified.priorityFactors).toMatchObject({
+        assetless: true,
+        scoringComplete: false,
+        affectedReporters: 1,
+      });
+
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          serviceCategoryId: svcCat,
+          description: longDescription('pendukung layanan verified'),
+        },
+        randomUUID(),
+      );
+      expect(merged.report.priorityScore).toBe(42);
+      expect(merged.report.finalPriority).toBe('MEDIUM');
+      expect(merged.report.priorityFactors).toMatchObject({
+        assetless: true,
+        scoringComplete: false,
+        frequency: 5,
+        affectedReporters: 2,
+      });
+    });
+
+    it('keeps held REPORTED ticket unscored on supporter join, then scores with 2 reporters on applyVerification', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-HLD-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Held',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-HLD-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Held',
+            weight: 10,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-HLD-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Held',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const asset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-HLD-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Held',
+            categoryId: cat,
+            locationId: room,
+            weight: 10,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('tiket held belum verifikasi'),
+        },
+        randomUUID(),
+      );
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('pendukung pada tiket held'),
+        },
+        randomUUID(),
+      );
+      expect(merged.kind).toBe('SUPPORTED');
+      expect(merged.report.status).toBe('REPORTED');
+      expect(merged.report.finalCategoryId).toBeNull();
+      expect(merged.report.finalIssueTypeId).toBeNull();
+      expect(merged.report.priorityScore).toBeNull();
+      expect(merged.report.priorityFactors).toBeNull();
+      expect(merged.report.finalPriority).toBeNull();
+
+      const heldEvents = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id));
+      expect(heldEvents.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: room,
+          categoryId: cat,
+          issueTypeId: it,
+        }),
+      ).toBe(2);
+
+      const verified = await applyVerification(db!, created.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      // 10 + 10 + 10 + 5 = 35.
+      expect(verified.priorityScore).toBe(35);
+      expect(verified.priorityFactors).toMatchObject({
+        category: 10,
+        asset: 10,
+        location: 10,
+        frequency: 5,
+        affectedReporters: 2,
+        scoringComplete: true,
+      });
+    });
+
+    it('compensateFailedSupporter rolls back supporter, PRIORITY_CHANGED event, and priority score/level while keeping primary report', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-CMP-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Kompensasi',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-CMP-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Kompensasi',
+            weight: 15,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-CMP-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Kompensasi',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const asset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-CMP-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Kompensasi',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('tiket utama sebelum kompensasi'),
+        },
+        randomUUID(),
+      );
+      await applyVerification(db!, created.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('pendukung gagal klaim foto'),
+        },
+        randomUUID(),
+      );
+      if (merged.kind !== 'SUPPORTED') {
+        throw new Error('expected SUPPORTED');
+      }
+      expect(merged.report.priorityScore).toBe(42);
+      expect(merged.report.finalPriority).toBe('MEDIUM');
+
+      await compensateFailedSupporter(db!, merged.supporter.id);
+
+      const supportersAfter = await db!
+        .select()
+        .from(reportSupporters)
+        .where(eq(reportSupporters.reportId, created.report.id));
+      expect(supportersAfter).toHaveLength(0);
+
+      const eventsAfter = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id));
+      expect(eventsAfter.some((e) => e.eventType === 'SUPPORTER_ADDED')).toBe(false);
+      expect(eventsAfter.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+
+      const primaryAfter = (
+        await db!
+          .select()
+          .from(maintenanceReports)
+          .where(eq(maintenanceReports.id, created.report.id))
+      )[0];
+      expect(primaryAfter).toBeDefined();
+      expect(primaryAfter?.priorityScore).toBe(37);
+      expect(primaryAfter?.finalPriority).toBe('LOW');
+      expect(primaryAfter?.priorityFactors).toMatchObject({
+        affectedReporters: 1,
+        frequency: 0,
+      });
+    });
+
+    it('includes supported tickets in listCampusReports(mine=true), listMyReports, getCampusReportStats, and listAdminReports without double-counting', async () => {
+      const insertFreshUser = async (username: string): Promise<string> => {
+        const rows = await db!
+          .insert(users)
+          .values({ username, role: 'REPORTER' })
+          .returning({ id: users.id });
+        const id = rows[0]?.id;
+        if (id === undefined) {
+          throw new Error('fixture: user insert failed');
+        }
+        return id;
+      };
+      const primaryUser = await insertFreshUser(`p5-owner-${randomUUID().slice(0, 8)}`);
+      const supporterUser = await insertFreshUser(`p5-supporter-${randomUUID().slice(0, 8)}`);
+      const asset = await createAsset(`T3-ASSET-LIST-SUP-${randomUUID().slice(0, 8)}`, catElec);
+
+      const statsBefore = await getCampusReportStats(db!, supporterUser);
+      expect(statsBefore.mineTotal).toBe(0);
+
+      const primary = await createReport(
+        db!,
+        {
+          reporterId: primaryUser,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('daftar laporan utama sebelum didukung'),
+        },
+        randomUUID(),
+      );
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: supporterUser,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('daftar laporan pendukung ikut laporan saya'),
+        },
+        randomUUID(),
+      );
+      expect(merged.kind).toBe('SUPPORTED');
+
+      // Campus list (mine=true) for supporter returns primary ticket with isOwn=false, isSupporter=true, reporterCount=2
+      // even when the ticket is still REPORTED (priorityFactors is null).
+      const supporterMine = await listCampusReports(db!, supporterUser, { mine: true });
+      expect(supporterMine.total).toBe(1);
+      expect(supporterMine.items).toHaveLength(1);
+      expect(supporterMine.items[0]).toMatchObject({
+        id: primary.report.id,
+        ticketNumber: primary.report.ticketNumber,
+        isOwn: false,
+        isSupporter: true,
+        reporterCount: 2,
+      });
+
+      const ownerMine = await listCampusReports(db!, primaryUser, { mine: true });
+      expect(ownerMine.total).toBe(1);
+      expect(ownerMine.items[0]).toMatchObject({
+        id: primary.report.id,
+        isOwn: true,
+        isSupporter: false,
+        reporterCount: 2,
+      });
+
+      const myReports = await listMyReports(db!, supporterUser, {});
+      expect(myReports.total).toBe(1);
+      expect(myReports.items[0]?.id).toBe(primary.report.id);
+
+      const statsAfter = await getCampusReportStats(db!, supporterUser);
+      expect(statsAfter.mineTotal).toBe(1);
+      expect(statsAfter.total).toBe(statsBefore.total + 1);
+      expect(statsAfter.active).toBe(statsBefore.active + 1);
+
+      const adminList = await listAdminReports(db!, { search: primary.report.ticketNumber });
+      expect(adminList.total).toBe(1);
+      expect(adminList.items[0]).toMatchObject({
+        id: primary.report.id,
+        reporterCount: 2,
+      });
+    });
+
+    it('returns sanitized supporters in getCampusReportDetail and chronological supporters in getAdminReportDetail', async () => {
+      const insertFreshUser = async (username: string): Promise<string> => {
+        const rows = await db!
+          .insert(users)
+          .values({ username, role: 'REPORTER' })
+          .returning({ id: users.id });
+        const id = rows[0]?.id;
+        if (id === undefined) {
+          throw new Error('fixture: user insert failed');
+        }
+        return id;
+      };
+      const userA = await insertFreshUser(`p5-det-a-${randomUUID().slice(0, 8)}`);
+      const sup1Username = `p5-det-sup1-${randomUUID().slice(0, 8)}`;
+      const sup2Username = `p5-det-sup2-${randomUUID().slice(0, 8)}`;
+      const userB = await insertFreshUser(sup1Username);
+      const userC = await insertFreshUser(sup2Username);
+      const outsider = await insertFreshUser(`p5-det-out-${randomUUID().slice(0, 8)}`);
+      const asset = await createAsset(`T3-ASSET-DET-SUP-${randomUUID().slice(0, 8)}`, catElec);
+
+      const primary = await createReport(
+        db!,
+        {
+          reporterId: userA,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('detail utama untuk supporters'),
+        },
+        randomUUID(),
+      );
+      const sup1 = await createReport(
+        db!,
+        {
+          reporterId: userB,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('deskripsi pendukung pertama detail'),
+        },
+        randomUUID(),
+      );
+      const sup2 = await createReport(
+        db!,
+        {
+          reporterId: userC,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('deskripsi pendukung kedua detail'),
+        },
+        randomUUID(),
+      );
+      if (sup1.kind !== 'SUPPORTED' || sup2.kind !== 'SUPPORTED') {
+        throw new Error('expected SUPPORTED');
+      }
+
+      // Check getCampusReportDetail from A (owner), B (supporter 1), and outsider.
+      const detailA = await getCampusReportDetail(db!, userA, primary.report.id);
+      expect(detailA.isOwn).toBe(true);
+      expect(detailA.isSupporter).toBe(false);
+      expect(detailA.report.reporterCount).toBe(3);
+      expect(detailA.supporters.map((s) => s.id)).toEqual([sup1.supporter.id, sup2.supporter.id]);
+      expect(detailA.supporters.map((s) => s.isMine)).toEqual([false, false]);
+
+      const detailB = await getCampusReportDetail(db!, userB, primary.report.id);
+      expect(detailB.isOwn).toBe(false);
+      expect(detailB.isSupporter).toBe(true);
+      expect(detailB.report.reporterCount).toBe(3);
+      expect(detailB.supporters.map((s) => s.isMine)).toEqual([true, false]);
+
+      const detailOut = await getCampusReportDetail(db!, outsider, primary.report.id);
+      expect(detailOut.isOwn).toBe(false);
+      expect(detailOut.isSupporter).toBe(false);
+      expect(detailOut.report.reporterCount).toBe(3);
+      expect(detailOut.supporters.map((s) => s.isMine)).toEqual([false, false]);
+
+      // Zero PII leakage in supporters or SUPPORTER_ADDED events.
+      for (const detail of [detailA, detailB, detailOut]) {
+        for (const supporter of detail.supporters) {
+          expect(Object.keys(supporter).sort()).toEqual([
+            'createdAt',
+            'description',
+            'id',
+            'isMine',
+          ]);
+        }
+        const serialized = JSON.stringify(detail);
+        expect(serialized).not.toContain(userA);
+        expect(serialized).not.toContain(userB);
+        expect(serialized).not.toContain(userC);
+        expect(serialized).not.toContain(sup1Username);
+        expect(serialized).not.toContain(sup2Username);
+        const supporterEvents = detail.events.filter((e) => e.eventType === 'SUPPORTER_ADDED');
+        expect(supporterEvents).toHaveLength(2);
+        for (const event of supporterEvents) {
+          expect(event.actorId).toBeNull();
+          expect(Object.keys((event.metadata ?? {}) as Record<string, unknown>)).toEqual([
+            'supporterId',
+          ]);
+        }
+      }
+
+      // Admin detail returns chronological supporters without reporterId/username.
+      const adminDetail = await getAdminReportDetail(db!, primary.report.id);
+      expect(adminDetail.supporters.map((s) => s.id)).toEqual([
+        sup1.supporter.id,
+        sup2.supporter.id,
+      ]);
+      expect(adminDetail.supporters.map((s) => s.description)).toEqual([
+        longDescription('deskripsi pendukung pertama detail'),
+        longDescription('deskripsi pendukung kedua detail'),
+      ]);
+      for (const supporter of adminDetail.supporters) {
+        expect(Object.keys(supporter).sort()).toEqual(['createdAt', 'description', 'id']);
+      }
+      const adminSupportersSerialized = JSON.stringify(adminDetail.supporters);
+      expect(adminSupportersSerialized).not.toContain(userB);
+      expect(adminSupportersSerialized).not.toContain(userC);
     });
   },
 );
@@ -2196,7 +3184,15 @@ describe.skipIf(!enabled)(
       // Public-safe projection: exact keys only — the opaque `storageKey`,
       // `uploadedBy` (user id), and redundant `reportId` never leave the repo.
       expect(Object.keys(detail.attachments[0] ?? {}).sort()).toEqual(
-        ['checksum', 'createdAt', 'id', 'mimeType', 'originalFilename', 'sizeBytes'].sort(),
+        [
+          'checksum',
+          'createdAt',
+          'id',
+          'mimeType',
+          'originalFilename',
+          'sizeBytes',
+          'supporterId',
+        ].sort(),
       );
       expect(detail.events.length).toBeGreaterThanOrEqual(1);
       expect(detail.events[0]?.eventType).toBe('REPORT_CREATED');

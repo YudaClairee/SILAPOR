@@ -65,23 +65,24 @@ export function adminPriorityHero(priority: string | null, score: number | null)
   return `Prioritas: ${label} (${formatScoreId(score)}/100)`;
 }
 
-// Konsolidasi laporan pendukung: backend hanya mengembalikan ticketNumber +
-// description + relationType tanpa identitas pelapor; UI meneruskannya apa
-// adanya (posisi + nomor tiket sebagai rujukan UMPER).
+// Konsolidasi laporan pendukung: utama memakai nomor tiket utama; pelapor
+// pendukung diambil dari `detail.supporters` tanpa nomor tiket terpisah
+// maupun identitas pribadi (PII).
 export interface AdminReporterQuote {
   readonly key: string;
   readonly position: number;
   readonly badge: string;
-  readonly ticketNumber: string;
+  readonly ticketNumber: string | null;
   readonly description: string;
   readonly reportedAt: string | null;
 }
 
 export interface RelatedReportLike {
   readonly id: string;
-  readonly ticketNumber: string;
+  readonly ticketNumber?: string | null;
   readonly description: string;
-  readonly reportedAt: string;
+  readonly reportedAt?: string | null;
+  readonly createdAt?: string | null;
 }
 
 export function buildAdminReporterQuotes(
@@ -103,17 +104,17 @@ export function buildAdminReporterQuotes(
       key: item.id,
       position: index + 1,
       badge: `Pelapor Pendukung ${index + 1}`,
-      ticketNumber: item.ticketNumber,
+      ticketNumber: item.ticketNumber ?? null,
       description: item.description,
-      reportedAt: item.reportedAt,
+      reportedAt: item.reportedAt ?? item.createdAt ?? null,
     });
   });
   return quotes;
 }
 
 export function adminReporterCaption(quote: AdminReporterQuote): string {
-  if (quote.position === 0) return `Pelapor Utama · ${quote.ticketNumber}`;
-  return `Pelapor Pendukung ${quote.position} · ${quote.ticketNumber}`;
+  if (quote.position === 0) return `Pelapor Utama · ${quote.ticketNumber ?? '—'}`;
+  return `Pelapor Pendukung ${quote.position}`;
 }
 
 /** Caption foto generik — backend tidak menyimpan caption per foto. */

@@ -78,6 +78,7 @@ export function historyLabelOf(entry: HistoryEntryLike): string {
   if (kind === 'relation') return 'Relasi laporan';
   const type = entryTypeOf(entry);
   if (type === 'ASSIGNMENT') return 'Teknisi ditugaskan';
+  if (type === 'SUPPORTER_ADDED') return 'Pelapor pendukung bergabung';
   if (type === 'SUPPORTING' || type === 'RELATED') return 'Relasi laporan';
   if (type !== '') return eventLabel(type);
   return 'Riwayat';
@@ -130,7 +131,12 @@ export function historyNoteOf(entry: HistoryEntryLike): string | null {
 /** Aktor admin: sistem vs UMPER (UUID tidak pernah dirender). */
 export function historyActorOf(entry: HistoryEntryLike): string {
   const type = entryTypeOf(entry);
-  if (type === 'REPORT_CREATED' || type === 'AI_ANALYSIS_COMPLETED' || type === 'REPORT_VERIFIED') {
+  if (
+    type === 'REPORT_CREATED' ||
+    type === 'AI_ANALYSIS_COMPLETED' ||
+    type === 'REPORT_VERIFIED' ||
+    type === 'SUPPORTER_ADDED'
+  ) {
     return 'Sistem SCMS';
   }
   return 'Admin/UMPER';

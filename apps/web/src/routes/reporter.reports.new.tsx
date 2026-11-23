@@ -216,9 +216,17 @@ export function toNewReportSubmitBody(
 
 // The server's service-duplicate message is English; the reporter sees this.
 export const SERVICE_DUPLICATE_COPY = 'Kamu sudah melaporkan kendala ini di ruangan yang sama.';
+export const MERGED_DEFAULT_COPY =
+  'Masalah ini sudah memiliki tiket aktif. Deskripsi dan foto bukti Anda telah ditambahkan sebagai laporan pendukung, dan Anda akan menerima notifikasi perkembangan penanganannya.';
 
 export type SubmitOutcome =
   | { readonly kind: 'verified'; readonly ticketNumber: string; readonly replay: boolean }
+  | {
+      readonly kind: 'merged';
+      readonly ticketNumber: string;
+      readonly message: string;
+      readonly replay: boolean;
+    }
   | { readonly kind: 'held'; readonly ticketNumber: string; readonly message: string }
   | { readonly kind: 'failed'; readonly reason: string }
   | { readonly kind: 'duplicate'; readonly ticketNumber: string | null; readonly message: string }
@@ -246,6 +254,18 @@ export function toSubmitOutcome(status: number, body: unknown): SubmitOutcome {
     const ticketNumber = stringField(body, 'ticketNumber');
     if (ticketNumber === null) {
       return { kind: 'error', message: 'Laporan tidak ditemukan pada respons server.' };
+    }
+    const verification = body['verification'];
+    const isMerged =
+      body['merged'] === true ||
+      (isRecord(verification) && verification['status'] === 'MERGED');
+    if (isMerged) {
+      return {
+        kind: 'merged',
+        ticketNumber,
+        message: stringField(body, 'message') ?? MERGED_DEFAULT_COPY,
+        replay: body['idempotentReplay'] === true,
+      };
     }
     return { kind: 'verified', ticketNumber, replay: body['idempotentReplay'] === true };
   }
@@ -395,7 +415,15 @@ const EMPTY_VALUES: NewReportValues = {
   description: '',
 };
 
-type Phase = 'form' | 'review' | 'waiting' | 'verified' | 'held' | 'failed' | 'duplicate';
+type Phase =
+  | 'form'
+  | 'review'
+  | 'waiting'
+  | 'verified'
+  | 'merged'
+  | 'held'
+  | 'failed'
+  | 'duplicate';
 
 function NewReportPage() {
   const initial = Route.useLoaderData() as NewLoaderData;
@@ -422,6 +450,7 @@ function NewReportPage() {
   const [failReason, setFailReason] = useState<string | null>(null);
   const [ticket, setTicket] = useState<string | null>(null);
   const [heldMessage, setHeldMessage] = useState<string | null>(null);
+  const [mergedMessage, setMergedMessage] = useState<string | null>(null);
   const [replay, setReplay] = useState(false);
   const [duplicateTicket, setDuplicateTicket] = useState<string | null>(null);
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
@@ -601,6 +630,17 @@ function NewReportPage() {
         setPhase('verified');
         return;
       }
+      case 'merged': {
+        setValues(EMPTY_VALUES);
+        setResultPhotoCount(photoFiles.length);
+        setPhotoFiles([]);
+        setAttempted(false);
+        setTicket(outcome.ticketNumber);
+        setMergedMessage(outcome.message);
+        setReplay(outcome.replay);
+        setPhase('merged');
+        return;
+      }
       case 'held': {
         setValues(EMPTY_VALUES);
         setResultPhotoCount(photoFiles.length);
@@ -657,6 +697,7 @@ function NewReportPage() {
     setFailReason(null);
     setTicket(null);
     setHeldMessage(null);
+    setMergedMessage(null);
     setReplay(false);
     setDuplicateTicket(null);
     setDuplicateMessage(null);
@@ -676,7 +717,7 @@ function NewReportPage() {
     return <p className="mt-2 text-sm text-muted">{count} foto terlampir.</p>;
   }
 
-  function resultLinks(): ReactNode {
+  function resultLinks(primaryLabel = 'Lihat detail laporan'): ReactNode {
     if (ticket === null) {
       return null;
     }
@@ -687,7 +728,7 @@ function NewReportPage() {
           params={{ ticket }}
           className={`${buttonBaseClasses} ${buttonVariantClasses.primary}`}
         >
-          Lihat detail laporan
+          {primaryLabel}
         </Link>
         <Link
           to="/reporter"
@@ -885,6 +926,32 @@ function NewReportPage() {
           <p className="mt-4 text-sm text-text">{heldMessage}</p>
           {photoCountLine(resultPhotoCount)}
           {resultLinks()}
+        </div>
+      </section>
+    );
+  }
+
+  if (phase === 'merged' && ticket !== null) {
+    return (
+      <section aria-labelledby="new-report-merged-title" className="max-w-3xl">
+        <div className="rounded-md border border-border bg-surface p-6 text-center md:p-8">
+          <h1 id="new-report-merged-title" className="text-2xl font-semibold text-text">
+            Laporan digabungkan ke tiket yang sudah ada
+          </h1>
+          <p role="status" className="mt-4 text-sm text-muted">
+            Nomor tiket aktif:{' '}
+            <TicketMono className="block pt-2 text-3xl font-medium text-text">
+              {ticket}
+            </TicketMono>
+          </p>
+          <p className="mt-4 text-sm text-text">{mergedMessage ?? MERGED_DEFAULT_COPY}</p>
+          {replay ? (
+            <p className="mt-2 text-sm text-muted">
+              Laporan pendukung Anda sudah tercatat pada tiket tersebut.
+            </p>
+          ) : null}
+          {photoCountLine(resultPhotoCount)}
+          {resultLinks('Lihat detail tiket')}
         </div>
       </section>
     );

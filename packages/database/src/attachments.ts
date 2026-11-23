@@ -13,7 +13,7 @@
 // Errors use `AppError` from `@silapor/shared` (400 validation, 404 missing
 // parent, 500 residual) with no PII. This module logs nothing.
 
-import { asc, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { badRequest, internal, isAppError, notFound } from '@silapor/shared';
 import * as schema from './schema.js';
@@ -37,10 +37,11 @@ export interface CreateAttachmentsInput {
   readonly uploadedBy: string;
 }
 
-// Client-safe projection: id, display metadata, integrity fields — NEVER
-// `storageKey`.
+// Client-safe projection: id, optional non-PII supporterId, display metadata,
+// integrity fields — NEVER `storageKey`.
 export interface AttachmentSummary {
   readonly id: string;
+  readonly supporterId?: string | null;
   readonly originalFilename: string;
   readonly mimeType: string;
   readonly sizeBytes: number;
@@ -133,6 +134,7 @@ export async function createAttachments(
         )
         .returning({
           id: schema.reportAttachments.id,
+          supporterId: schema.reportAttachments.supporterId,
           originalFilename: schema.reportAttachments.originalFilename,
           mimeType: schema.reportAttachments.mimeType,
           sizeBytes: schema.reportAttachments.sizeBytes,
@@ -169,6 +171,7 @@ export async function listAttachments(
   return await db
     .select({
       id: schema.reportAttachments.id,
+      supporterId: schema.reportAttachments.supporterId,
       originalFilename: schema.reportAttachments.originalFilename,
       mimeType: schema.reportAttachments.mimeType,
       sizeBytes: schema.reportAttachments.sizeBytes,
@@ -190,6 +193,7 @@ export async function getAttachmentById(
   const rows = await db
     .select({
       id: schema.reportAttachments.id,
+      supporterId: schema.reportAttachments.supporterId,
       storageKey: schema.reportAttachments.storageKey,
       originalFilename: schema.reportAttachments.originalFilename,
       mimeType: schema.reportAttachments.mimeType,
@@ -216,6 +220,25 @@ export async function countAttachments(db: ReportQueryDb, reportId: string): Pro
     .select({ value: count() })
     .from(schema.reportAttachments)
     .where(eq(schema.reportAttachments.reportId, id));
+  return rows[0]?.value ?? 0;
+}
+
+// Counts only primary-reporter attachments (`supporter_id IS NULL`) so
+// supporter evidence photos do not consume the primary reporter's 3-photo cap.
+export async function countPrimaryAttachments(
+  db: ReportQueryDb,
+  reportId: string,
+): Promise<number> {
+  const id = requireUuid(reportId, 'reportId');
+  const rows = await db
+    .select({ value: count() })
+    .from(schema.reportAttachments)
+    .where(
+      and(
+        eq(schema.reportAttachments.reportId, id),
+        isNull(schema.reportAttachments.supporterId),
+      ),
+    );
   return rows[0]?.value ?? 0;
 }
 

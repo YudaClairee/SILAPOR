@@ -21,6 +21,7 @@ import {
   floorsForBuilding,
   isNewReportSubmittable,
   roomsForParent,
+  MERGED_DEFAULT_COPY,
   SERVICE_DUPLICATE_COPY,
   toNewReportSubmitBody,
   toSubmitOutcome,
@@ -152,6 +153,31 @@ describe('submit verdict mapping', () => {
     expect(toSubmitOutcome(200, { ticketNumber: 'MNT-1', idempotentReplay: true })).toEqual({
       kind: 'verified',
       ticketNumber: 'MNT-1',
+      replay: true,
+    });
+    expect(
+      toSubmitOutcome(201, {
+        ticketNumber: 'MNT-1',
+        merged: true,
+        verification: { status: 'MERGED' },
+        message: 'Digabung ke tiket utama.',
+      }),
+    ).toEqual({
+      kind: 'merged',
+      ticketNumber: 'MNT-1',
+      message: 'Digabung ke tiket utama.',
+      replay: false,
+    });
+    expect(
+      toSubmitOutcome(200, {
+        ticketNumber: 'MNT-1',
+        idempotentReplay: true,
+        verification: { status: 'MERGED' },
+      }),
+    ).toEqual({
+      kind: 'merged',
+      ticketNumber: 'MNT-1',
+      message: MERGED_DEFAULT_COPY,
       replay: true,
     });
     expect(toSubmitOutcome(202, { ticketNumber: 'MNT-2', message: 'Menunggu.' })).toEqual({
@@ -441,5 +467,34 @@ describe('reporter form render', () => {
     fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
     expect(await screen.findByText(SERVICE_DUPLICATE_COPY)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Buka laporan yang sudah ada' })).toBeInTheDocument();
+  });
+
+  it('shows the merged screen with the primary ticket number and detail link', async () => {
+    stubFetch({
+      reportsStatus: 201,
+      reportsBody: {
+        ticketNumber: 'MNT-2026-000001',
+        merged: true,
+        supporter: { id: 'sup-1', createdAt: '2026-11-23T08:00:00.000Z' },
+        verification: { status: 'MERGED' },
+      },
+    });
+    renderPage();
+    await screen.findByRole('button', { name: /lanjut ke review/i });
+    fillChain();
+    attachPhoto();
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Laporan digabungkan ke tiket yang sudah ada' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('MNT-2026-000001')).toBeInTheDocument();
+    expect(screen.getByText(MERGED_DEFAULT_COPY)).toBeInTheDocument();
+    expect(screen.getByText('1 foto terlampir.')).toBeInTheDocument();
+    const detailLink = screen.getByRole('link', { name: 'Lihat detail tiket' });
+    expect(detailLink).toHaveAttribute('href', '/reporter/reports/MNT-2026-000001');
+    expect(screen.getByRole('link', { name: 'Laporan Saya' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lapor masalah lain' })).toBeInTheDocument();
   });
 });

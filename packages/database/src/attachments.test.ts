@@ -7,6 +7,7 @@
 // integration suite skips (same offline-skip contract as reports.test.ts).
 import postgres from 'postgres';
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { describe, expect, it, afterAll, beforeAll } from 'vitest';
 import { getDb, resolveDatabaseUrl } from './index.js';
 import { runMigrations } from './migrate.js';
@@ -16,10 +17,12 @@ import {
   maintenanceReports,
   reportAttachments,
   reportEvents,
+  reportSupporters,
   users,
 } from './schema.js';
 import {
   countAttachments,
+  countPrimaryAttachments,
   createAttachments,
   getAttachmentById,
   getReportHeader,
@@ -93,6 +96,9 @@ describe('attachments input validation (pure)', () => {
     await expect(getAttachmentById(stubDb, 'not-a-uuid')).rejects.toMatchObject({ status: 400 });
     await expect(listAttachments(stubDb, 'not-a-uuid')).rejects.toMatchObject({ status: 400 });
     await expect(countAttachments(stubDb, 'not-a-uuid')).rejects.toMatchObject({ status: 400 });
+    await expect(countPrimaryAttachments(stubDb, 'not-a-uuid')).rejects.toMatchObject({
+      status: 400,
+    });
     await expect(getReportHeader(stubDb, 'not-a-uuid')).rejects.toMatchObject({ status: 400 });
   });
 });
@@ -235,7 +241,15 @@ describe.skipIf(!enabled)('report attachments repository (requires reachable Pos
     expect(created).toHaveLength(2);
     for (const row of created) {
       expect(Object.keys(row).sort()).toEqual(
-        ['checksum', 'createdAt', 'id', 'mimeType', 'originalFilename', 'sizeBytes'].sort(),
+        [
+          'checksum',
+          'createdAt',
+          'id',
+          'mimeType',
+          'originalFilename',
+          'sizeBytes',
+          'supporterId',
+        ].sort(),
       );
       expect('storageKey' in row).toBe(false);
     }
@@ -273,6 +287,31 @@ describe.skipIf(!enabled)('report attachments repository (requires reachable Pos
     });
     expect(await countAttachments(db!, reportB)).toBe(1);
     expect(await countAttachments(db!, reportA)).toBe(2);
+    expect(await countPrimaryAttachments(db!, reportA)).toBe(2);
+
+    const [supporter] = await db!
+      .insert(reportSupporters)
+      .values({
+        reportId: reportA,
+        reporterId: reporterB,
+        idempotencyKey: randomUUID(),
+        description: 'foto tambahan pelapor pendukung',
+      })
+      .returning({ id: reportSupporters.id });
+    await db!.insert(reportAttachments).values({
+      reportId: reportA,
+      supporterId: supporter!.id,
+      storageKey: 'att_p43-supporter-1',
+      originalFilename: 'supporter.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 1234,
+      checksum: 'f'.repeat(64),
+      uploadedBy: reporterB,
+    });
+    expect(await countAttachments(db!, reportA)).toBe(3);
+    expect(await countPrimaryAttachments(db!, reportA)).toBe(2);
+    await db!.delete(reportSupporters).where(eq(reportSupporters.id, supporter!.id));
+    expect(await countAttachments(db!, reportA)).toBe(2);
   });
 
   it('lists attachments without storageKey in chronological order', async () => {
@@ -289,7 +328,15 @@ describe.skipIf(!enabled)('report attachments repository (requires reachable Pos
     for (const row of listed) {
       expect('storageKey' in row).toBe(false);
       expect(Object.keys(row).sort()).toEqual(
-        ['checksum', 'createdAt', 'id', 'mimeType', 'originalFilename', 'sizeBytes'].sort(),
+        [
+          'checksum',
+          'createdAt',
+          'id',
+          'mimeType',
+          'originalFilename',
+          'sizeBytes',
+          'supporterId',
+        ].sort(),
       );
     }
   });

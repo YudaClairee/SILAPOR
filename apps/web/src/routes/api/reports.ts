@@ -3,14 +3,15 @@
 // AI-verified create.
 //
 // Reporter-only: `requireUser` inside the try (401 anonymous); the service
-// layer re-guards on the same request. POST takes location + asset +
-// description + optional 0-3 photo keys as the body with the idempotency key
-// in the `x-idempotency-key` header (400 when missing/empty): 201 on verified
-// create, 202 when the AI is down (held REPORTED + ticket + waiting notice),
+// layer re-guards on the same request. POST takes location + asset (or
+// serviceCategoryId) + description + optional 0-3 photo keys as the body with
+// the idempotency key in the `x-idempotency-key` header (400 when missing/empty):
+// 201 on verified create or merged supporter attachment (no new ticket minted),
+// 202 when the AI is down (held REPORTED + ticket + waiting notice),
 // 422 `{ reason }` when verification fails (no row, no ticket), 409 with
-// the active ticket ref on a same-reporter duplicate block. Failures map via
-// `toHttpResponse`. Logs carry opaque IDs and counts only — never usernames,
-// NIMs, or descriptions.
+// the active ticket ref when the primary reporter or an existing supporter
+// submits again on an active incident. Failures map via `toHttpResponse`. Logs
+// carry opaque IDs and counts only — never usernames, NIMs, or descriptions.
 import { createFileRoute } from '@tanstack/react-router';
 import { randomUUID } from 'node:crypto';
 import {
@@ -86,6 +87,7 @@ export const Route = createFileRoute('/api/reports')({
               details: redact({
                 status,
                 ticketNumber: status === 422 ? undefined : result.ticketNumber,
+                ...('merged' in result && result.merged === true ? { merged: true } : {}),
               }),
             });
             return Response.json(responseBody, { status });

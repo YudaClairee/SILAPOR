@@ -31,7 +31,7 @@
 // - This module logs nothing — routes log with opaque IDs.
 
 import {
-  countAttachments as repoCountAttachments,
+  countPrimaryAttachments as repoCountPrimaryAttachments,
   createAttachments as repoCreateAttachments,
   getAttachmentById as repoGetAttachmentById,
   getDb,
@@ -132,7 +132,7 @@ export async function uploadAttachments(
     if (!isAdmin && UPLOAD_TERMINAL_STATUSES.has(header.status)) {
       throw conflict('Report is closed to new attachments.');
     }
-    const existingCount = await repoCountAttachments(conn.db, reportId);
+    const existingCount = await repoCountPrimaryAttachments(conn.db, reportId);
     if (!canAddAttachments(existingCount, formFiles.length)) {
       throw tooManyFilesError();
     }

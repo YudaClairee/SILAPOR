@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REPORT_STATUS } from '@silapor/domain';
 import {
@@ -10,7 +10,7 @@ import {
   locations,
   maintenanceReports,
   reportAssignments,
-  reportRelations,
+  reportSupporters,
   resolveDatabaseUrl,
   runMigrations,
   technicians,
@@ -538,56 +538,107 @@ describe.skipIf(!enabled)('dashboard metrics (requires reachable PostgreSQL)', (
     expect(byStatus.reduce((sum, item) => sum + item.count, 0)).toBe(after.totalReports);
   });
 
-  it('mirrors the report-list REPORTED facet for supporting-held rows', async () => {
-    const before = await getReportsByStatus(requireDb(), range);
-    const target = await requireDb()
-      .select({ id: maintenanceReports.id })
-      .from(maintenanceReports)
-      .where(eq(maintenanceReports.ticketNumber, r2Ticket));
-    const targetId = target[0]?.id;
-    if (targetId === undefined) {
-      throw new Error('fixture: queue target missing');
+  it('counts 1 primary ticket with 2 report_supporters as 1 incident across cards, status, and facets', async () => {
+    const d = requireDb();
+    const [supporterC] = await d
+      .insert(users)
+      .values({ username: `p7-supporter-${randomUUID().slice(0, 8)}`, role: 'REPORTER' })
+      .returning({ id: users.id });
+    if (supporterC === undefined) {
+      throw new Error('fixture: supporter user insert failed');
     }
-    const held = await requireDb()
+
+    const [primary] = await d
       .insert(maintenanceReports)
       .values({
-        ticketNumber: 'P7-HELD-0001',
+        ticketNumber: 'P7-SUP-0001',
         idempotencyKey: randomUUID(),
         reporterId: reporterAId,
         locationId: roomId,
-        assetId: null,
+        assetId,
         submittedCategoryId: hvacId,
-        description: 'Laporan serupa yang tertaut sebagai bukti pendukung kejadian.',
-        status: 'REPORTED' as const,
-        reportedAt: new Date(Date.UTC(2026, 9, 6, 0, 0, 0)),
+        finalCategoryId: hvacId,
+        finalPriority: 'HIGH',
+        description: 'AC mati total di ruang kuliah utama.',
+        status: 'VERIFIED',
+        reportedAt: new Date('2026-11-01T05:00:00.000Z'),
       })
       .returning({ id: maintenanceReports.id });
-    const heldId = held[0]?.id;
-    if (heldId === undefined) {
-      throw new Error('fixture: held report insert failed');
+    if (primary === undefined) {
+      throw new Error('fixture: primary report insert failed');
     }
-    await requireDb().insert(reportRelations).values({
-      sourceReportId: heldId,
-      targetReportId: targetId,
-      relationType: 'SUPPORTING' as const,
-      createdBy: reporterAId,
-    });
 
-    // The held row is real (cards count it) but never shows in a status bucket,
-    // exactly like the list's REPORTED queue view.
-    const beforeTotal = before.reduce((sum, item) => sum + item.count, 0);
-    const after = await getReportsByStatus(requireDb(), range);
-    expect(after).toEqual(before);
-    const cards = await getOverviewCards(requireDb(), range, octNow);
-    expect(cards.totalReports).toBe(beforeTotal + 1);
+    await d.insert(reportSupporters).values([
+      {
+        reportId: primary.id,
+        reporterId: reporterBId,
+        idempotencyKey: randomUUID(),
+        description: 'AC juga tidak menyala saat kelas siang.',
+      },
+      {
+        reportId: primary.id,
+        reporterId: supporterC.id,
+        idempotencyKey: randomUUID(),
+        description: 'Masih mati sampai sore hari.',
+      },
+    ]);
 
-    // Same filter through the report list must agree with the facet.
-    const list = await listAllReports(requireDb(), {
+    const isolatedRange = jakartaDayRange({ from: '2026-11-01', to: '2026-11-01' }) as {
+      from: Date;
+      toExclusive: Date;
+    };
+    const novNow = new Date('2026-11-15T00:00:00.000Z');
+
+    const cards = await getOverviewCards(d, isolatedRange, novNow);
+    expect(cards.totalReports).toBe(1);
+    expect(cards.activeReports).toBe(1);
+    expect(cards.highPriorityActive).toBe(1);
+    expect(cards.damageReports).toBe(1);
+
+    const byStatus = await getReportsByStatus(d, isolatedRange);
+    expect(byStatus).toEqual([
+      { status: 'REPORTED', count: 0 },
+      { status: 'VERIFIED', count: 1 },
+      { status: 'ASSIGNED', count: 0 },
+      { status: 'INSPECTION', count: 0 },
+      { status: 'IN_REPAIR', count: 0 },
+      { status: 'RESOLVED', count: 0 },
+      { status: 'CLOSED', count: 0 },
+    ]);
+    expect(byStatus.reduce((sum, item) => sum + item.count, 0)).toBe(cards.totalReports);
+
+    expect(await getReportsByCategory(d, isolatedRange)).toEqual([
+      { categoryId: hvacId, categoryName: 'HVAC', count: 1 },
+    ]);
+    expect(await getReportsByLocation(d, isolatedRange)).toEqual([
+      { locationId: roomId, locationName: 'Ruang Kuliah 01', count: 1 },
+    ]);
+    expect(await getReportsByBuilding(d, isolatedRange)).toEqual([
+      { buildingCode: 'P7-BLD', buildingName: 'Gedung C', count: 1 },
+    ]);
+    expect(await getTopAssets(d, isolatedRange)).toEqual([
+      {
+        assetId,
+        assetName: 'AC Ruang 01',
+        roomName: 'Ruang Kuliah 01',
+        buildingCode: 'P7-BLD',
+        buildingName: 'Gedung C',
+        floorNumber: null,
+        count: 1,
+      },
+    ]);
+    expect(await getReportTrend(d, isolatedRange)).toEqual([
+      { date: '2026-11-01', reports: 1, resolvedCount: 0, resolutionSecondsTotal: 0 },
+    ]);
+
+    // Same REPORTED filter in the report list agrees with the status facet in range.
+    const rangeStatuses = await getReportsByStatus(d, range);
+    const list = await listAllReports(d, {
       status: 'REPORTED',
       from: '2026-10-01',
       to: '2026-10-18',
     });
-    expect(list.total).toBe(before.find((item) => item.status === 'REPORTED')?.count);
+    expect(list.total).toBe(rangeStatuses.find((item) => item.status === 'REPORTED')?.count);
   });
 
   it('ranks asset-level reports and skips assetless tickets', async () => {

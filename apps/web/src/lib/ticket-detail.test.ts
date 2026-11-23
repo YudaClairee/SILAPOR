@@ -149,6 +149,7 @@ describe('actor and timeline labels', () => {
     expect(actorLabel({ eventType: 'REPORT_CREATED' })).toBe('Sistem SCMS');
     expect(actorLabel({ eventType: 'AI_ANALYSIS_COMPLETED' })).toBe('Sistem SCMS');
     expect(actorLabel({ eventType: 'REPORT_VERIFIED' })).toBe('Sistem SCMS');
+    expect(actorLabel({ eventType: 'SUPPORTER_ADDED' })).toBe('Sistem SCMS');
     expect(actorLabel({ eventType: 'ASSIGNMENT_CHANGED' })).toBe('Catatan Admin/UMPER');
     expect(actorLabel({ eventType: 'PROGRESS_NOTE_ADDED' })).toBe('Catatan Admin/UMPER');
   });

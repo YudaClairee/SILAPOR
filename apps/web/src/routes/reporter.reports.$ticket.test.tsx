@@ -24,7 +24,8 @@ const CATEGORY = '55555555-5555-4555-8555-555555555555';
 const SERVICE_CATEGORY = '99999999-9999-4999-8999-999999999999';
 const ISSUE = '66666666-6666-4666-8666-666666666666';
 const ATTACHMENT = '77777777-7777-4777-8777-777777777777';
-const RELATED = '88888888-8888-4888-8888-888888888888';
+const SUPPORTER_1 = '88888888-8888-4888-8888-888888888888';
+const SUPPORTER_2 = '88888888-8888-4888-8888-888888888889';
 
 const FORM_OPTIONS = {
   locations: [
@@ -90,6 +91,21 @@ const DETAIL = {
     closedAt: null,
   },
   isOwn: true,
+  isSupporter: false,
+  supporters: [
+    {
+      id: SUPPORTER_1,
+      description: 'Proyektor juga berkedip dan tidak menyala saat dipakai kuliah.',
+      createdAt: '2026-10-12T02:10:00.000Z',
+      isMine: false,
+    },
+    {
+      id: SUPPORTER_2,
+      description: 'Kabel VGA dan proyektor sama-sama mati di kelas jam 10.',
+      createdAt: '2026-10-12T02:20:00.000Z',
+      isMine: true,
+    },
+  ],
   attachments: [
     {
       id: ATTACHMENT,
@@ -100,6 +116,11 @@ const DETAIL = {
   ],
   events: [
     { eventType: 'REPORT_CREATED', createdAt: '2026-10-12T01:30:00.000Z', metadata: null },
+    {
+      eventType: 'SUPPORTER_ADDED',
+      createdAt: '2026-10-12T02:10:00.000Z',
+      metadata: { supporterId: SUPPORTER_1 },
+    },
     { eventType: 'ASSIGNMENT_CHANGED', createdAt: '2026-10-12T03:00:00.000Z', metadata: null },
     {
       eventType: 'STATUS_CHANGED',
@@ -115,16 +136,7 @@ const DETAIL = {
   ],
   duplicateCandidates: [],
   classificationConfidence: 0.94,
-  relatedReports: [
-    {
-      id: RELATED,
-      ticketNumber: 'MNT-2026-000008',
-      description: 'Proyektor ruang sebelah juga mati.',
-      status: 'VERIFIED',
-      relationType: 'SUPPORTING',
-      reportedAt: '2026-10-12T02:10:00.000Z',
-    },
-  ],
+  relatedReports: [],
 };
 
 function stubFetch(overrides?: { detailStatus?: number; detailBody?: unknown }) {
@@ -238,18 +250,44 @@ describe('detail laporan pelapor', () => {
     expect(screen.getByText('94% (Tinggi)')).toBeInTheDocument();
   });
 
-  it('lists supporting reports as links and keeps reporter identity hidden', async () => {
+  it('lists supporters without second ticket numbers or PII', async () => {
     stubFetch();
     renderPage();
     await screen.findByRole('heading', { name: 'Laporan Pendukung' });
-    expect(screen.getByText('1 laporan lain mendukung laporan ini')).toBeInTheDocument();
-    expect(screen.getByText('“Proyektor ruang sebelah juga mati.”')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'MNT-2026-000008' })).toHaveAttribute(
-      'href',
-      '/reporter/reports/MNT-2026-000008',
-    );
-    expect(screen.getByText('3 pelapor terdampak')).toBeInTheDocument();
-    expect(screen.getByText(/Identitas pelapor lain dirahasiakan/)).toBeInTheDocument();
+    const additional = screen.getByRole('region', { name: 'Informasi Tambahan' });
+    expect(
+      within(additional).getByText('2 laporan pendukung tergabung pada tiket ini'),
+    ).toBeInTheDocument();
+    expect(within(additional).getByText('Laporan Pendukung #1')).toBeInTheDocument();
+    expect(within(additional).getByText('Laporan Pendukung #2')).toBeInTheDocument();
+    expect(within(additional).getByText('Laporan Anda')).toBeInTheDocument();
+    expect(within(additional).getByText('12 Okt 2026, 09:10 WIB')).toBeInTheDocument();
+    expect(
+      within(additional).getByText(
+        '“Proyektor juga berkedip dan tidak menyala saat dipakai kuliah.”',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(additional).getByText('“Kabel VGA dan proyektor sama-sama mati di kelas jam 10.”'),
+    ).toBeInTheDocument();
+    expect(within(additional).queryByRole('link', { name: 'MNT-2026-000008' })).not.toBeInTheDocument();
+    expect(within(additional).getByText('3 pelapor terdampak')).toBeInTheDocument();
+    expect(within(additional).getByText(/Identitas pelapor lain dirahasiakan/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Anda tercatat sebagai pelapor pendukung pada tiket ini/),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the supporter info banner when the viewer is a supporting reporter', async () => {
+    stubFetch({
+      detailBody: { ...DETAIL, isOwn: false, isSupporter: true },
+    });
+    renderPage();
+    expect(
+      await screen.findByText(
+        'Anda tercatat sebagai pelapor pendukung pada tiket ini dan akan menerima notifikasi pembaruan.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('renders the evidence photo and the newest-first timeline with a latest marker', async () => {
@@ -263,11 +301,13 @@ describe('detail laporan pelapor', () => {
 
     const timeline = screen.getByRole('region', { name: 'Riwayat Penanganan' });
     const rows = within(timeline).getAllByRole('listitem');
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     expect(rows[0]).toHaveTextContent('Pembaruan terbaru');
     expect(rows[0]).toHaveTextContent('Lampu proyektor sedang diganti teknisi.');
     expect(rows[0]).toHaveTextContent('Catatan Admin/UMPER');
+    expect(rows[3]).toHaveTextContent('Laporan pendukung ditambahkan');
     expect(rows[3]).toHaveTextContent('Sistem SCMS');
+    expect(rows[4]).toHaveTextContent('Sistem SCMS');
 
     // Only the progress note has a description; events without a note must not
     // render an empty tinted box that reads as a stray margin in the timeline.

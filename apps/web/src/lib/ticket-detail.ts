@@ -216,7 +216,12 @@ export function formatJakartaDayMonth(value: string | null): string {
  */
 export function actorLabel(entry: FlowEventLike): string {
   const type = eventTypeOf(entry);
-  if (type === 'REPORT_CREATED' || type === 'AI_ANALYSIS_COMPLETED' || type === 'REPORT_VERIFIED') {
+  if (
+    type === 'REPORT_CREATED' ||
+    type === 'AI_ANALYSIS_COMPLETED' ||
+    type === 'REPORT_VERIFIED' ||
+    type === 'SUPPORTER_ADDED'
+  ) {
     return 'Sistem SCMS';
   }
   return 'Catatan Admin/UMPER';

@@ -1,5 +1,5 @@
 // Admin "Detail Tiket" v2 content (Figma 150:933).
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { buildAdminReporterQuotes, type AdminDetailTab } from '../lib/admin-ticket-detail.js';
 import {
   AdminAiScoreCard,
@@ -27,6 +27,7 @@ export function AdminTicketV2Content(props: {
   readonly activeTab: AdminDetailTab;
   readonly onTabChange: (tab: AdminDetailTab) => void;
   readonly onChanged: () => void;
+  readonly breadcrumb?: ReactNode | null;
 }) {
   const { detail, options } = props;
   const categoryNames = new Map((options?.categories ?? []).map((c) => [c.id, c.name] as const));
@@ -34,12 +35,15 @@ export function AdminTicketV2Content(props: {
   const assetNames = new Map((options?.assets ?? []).map((a) => [a.id, a.name] as const));
   const assetCodes = new Map((options?.assets ?? []).map((a) => [a.id, a.assetCode] as const));
   const locationNames = new Map((options?.locations ?? []).map((l) => [l.id, l.name] as const));
-  const related = adminV2Related(detail);
+  const supporters =
+    detail.supporters !== undefined
+      ? detail.supporters
+      : adminV2Related(detail);
   const quotes = buildAdminReporterQuotes(
     { id: detail.report.id, ticketNumber: detail.report.ticketNumber, description: detail.report.description, reportedAt: detail.report.reportedAt },
-    related,
+    supporters,
   );
-  const totalLabel = related.length === 0 ? '1 Laporan' : `${related.length + 1} Laporan Tergabung`;
+  const totalLabel = supporters.length === 0 ? '1 Laporan' : `${supporters.length + 1} Laporan Tergabung`;
   const categoryName = detail.report.finalCategoryId === null ? '—' : (categoryNames.get(detail.report.finalCategoryId) ?? detail.report.finalCategoryId);
   const issueTypeName = detail.report.finalIssueTypeId === null ? '—' : (issueTypeNames.get(detail.report.finalIssueTypeId) ?? detail.report.finalIssueTypeId);
   // A service report (no asset) is labelled as such instead of "Tanpa aset terdaftar".
@@ -53,6 +57,7 @@ export function AdminTicketV2Content(props: {
         priorityScore={detail.report.priorityScore}
         onAddNote={() => props.onTabChange('penugasan')}
         onResolve={detail.report.status === 'IN_REPAIR' ? () => props.onTabChange('penugasan') : null}
+        breadcrumb={props.breadcrumb}
       />
       <AdminTicketStepper status={detail.report.status} report={detail.report} events={detail.events} />
       <AdminTicketTabs active={props.activeTab} reporterCount={quotes.length} onChange={props.onTabChange} />
@@ -76,7 +81,7 @@ export function AdminTicketV2Content(props: {
               confidence={detail.aiAnalysis?.confidence ?? null}
               score={detail.report.priorityScore}
               priority={detail.report.finalPriority}
-              scoreExplanation={detail.report.priorityScore === null ? 'Skor prioritas belum tersedia untuk laporan ini.' : `Dihitung dari kategori ${categoryName}, lokasi ${locationNames.get(detail.report.locationId) ?? detail.report.locationId}, dan ${related.length + 1} pelapor.`}
+              scoreExplanation={detail.report.priorityScore === null ? 'Skor prioritas belum tersedia untuk laporan ini.' : `Dihitung dari kategori ${categoryName}, lokasi ${locationNames.get(detail.report.locationId) ?? detail.report.locationId}, dan ${supporters.length + 1} pelapor.`}
             />
             <AdminReporterQuotesCard quotes={quotes} totalLabel={totalLabel} />
             <AdminPhotoPagerCard ticket={detail.report.ticketNumber} attachments={detail.attachments} />

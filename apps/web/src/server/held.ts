@@ -44,20 +44,12 @@ function fieldOf(body: Record<string, unknown>, names: readonly string[]): unkno
 }
 
 // Held-only guard: verified or non-reported rows are gone, never overridden.
-// Supporting-merged rows are never verifiable either — their incident's one
-// verification already belongs to the target ticket.
 export function isHeldReport(row: {
   readonly status: string;
   readonly finalCategoryId: string | null;
   readonly verifiedAt: Date | null;
-  readonly supportingLinked?: boolean | null | undefined;
 }): boolean {
-  return (
-    row.status === 'REPORTED' &&
-    row.finalCategoryId === null &&
-    row.verifiedAt === null &&
-    row.supportingLinked !== true
-  );
+  return row.status === 'REPORTED' && row.finalCategoryId === null && row.verifiedAt === null;
 }
 
 // Gone signals a hold that already resolved elsewhere.
@@ -196,17 +188,8 @@ export async function verifyHeldReport(
     );
     const detail = await repoGetAdminReportDetail(conn.db, reportId);
     const report = detail.report;
-    // Supporting-merged rows were auto-joined into another reporter's ticket
-    // at submit and never verify — reject them as non-verifiable (410 gone).
-    const supportingLinked = (detail.relations ?? []).some(
-      (rel) => rel.relationType === 'SUPPORTING' && rel.sourceReportId === report.id,
-    );
-    if (!isHeldReport({ ...report, supportingLinked })) {
-      throw gone(
-        supportingLinked
-          ? 'Report was merged as supporting evidence into another ticket and cannot be verified'
-          : 'Report is no longer held for verification',
-      );
+    if (!isHeldReport(report)) {
+      throw gone('Report is no longer held for verification');
     }
     // Stale versions conflict so the admin refreshes before retrying.
     if (report.version !== version) {

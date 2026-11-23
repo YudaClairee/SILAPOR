@@ -54,4 +54,17 @@ describe('admin-history helpers', () => {
     expect(relationTypeLabel('RELATED')).toBe('Terkait');
     expect(historyLabelOf({})).toBe('Riwayat');
   });
+
+  it('memetakan event SUPPORTER_ADDED dengan label dan aktor sistem', () => {
+    expect(
+      historyLabelOf({
+        kind: 'event',
+        at: '2026-10-18T10:00:00.000Z',
+        label: 'SUPPORTER_ADDED',
+        detail: { eventType: 'SUPPORTER_ADDED', supporterId: 'sup-1' },
+      }),
+    ).toBe('Pelapor pendukung bergabung');
+    expect(historyLabelOf({ eventType: 'SUPPORTER_ADDED' })).toBe('Pelapor pendukung bergabung');
+    expect(historyActorOf({ eventType: 'SUPPORTER_ADDED' })).toBe('Sistem SCMS');
+  });
 });

@@ -10,16 +10,16 @@
 // matches or merges with damage reports):
 // same-reporter actives throw `DuplicateActiveError` (`DUPLICATE_ACTIVE`
 // with the active ticketNumber, consuming no ticket); different-reporter
-// actives are auto-merged — the new row is created and a SUPPORTING
-// `report_relations` row to the earliest active ticket is written in the SAME
-// transaction (auto-gabung; verification later never touches the link).
-// After the row: exactly one ticket per idempotency key, one REPORT_CREATED
-// event, one PENDING AI_REVIEW_REQUESTED outbox row. It NEVER calls AI and
-// NEVER uses REJECTED/DUPLICATE statuses (7-status lifecycle).
+// actives attach as a supporter row in `report_supporters` on the earliest
+// active ticket in the SAME transaction without minting a new ticket or
+// enqueuing AI review.
+// When no active ticket exists, a new report is created: one ticket per
+// idempotency key, one REPORT_CREATED event, one PENDING AI_REVIEW_REQUESTED
+// outbox row. It NEVER calls AI and NEVER uses REJECTED/DUPLICATE statuses
+// (7-status lifecycle).
 //
 // `applyVerification` moves a held REPORTED row to VERIFIED with the
-// verifier-supplied finals plus a REPORT_VERIFIED event, atomically, without
-// disturbing any SUPPORTING link.
+// verifier-supplied finals plus a REPORT_VERIFIED event, atomically.
 //
 // Errors use `AppError` from `@silapor/shared` (400 validation, 404 missing
 // reference, 409 duplicate block carrying the active ticketNumber in
@@ -52,6 +52,9 @@ import {
   RELATION_TYPE,
   REPORT_STATUS,
   formatTicketNumber,
+  higherPriority,
+  scorePriority,
+  type PriorityLevel,
 } from '@silapor/domain';
 import * as schema from './schema.js';
 import { type AttachmentSummary } from './attachments.js';
@@ -282,30 +285,37 @@ export async function findDuplicateCandidates(
 // createReport.
 // ---------------------------------------------------------------------------
 
-export interface CreateReportResult {
-  readonly report: schema.Report;
-  // Compat: still computed via `findDuplicateCandidates`. Always empty on the
-  // new flow (same-reporter actives throw; other reporters are scoped out)
-  // but kept so existing readers keep compiling until the web layer moves.
-  readonly duplicateCandidates: DuplicateCandidate[];
-  // Auto-merge outcome: set when a different reporter's ACTIVE report on the
-  // same asset absorbed this row as SUPPORTING in the same transaction.
-  readonly relation: SupportingRelationRef | null;
-  readonly idempotentReplay: boolean;
-}
+export type CreateReportResult =
+  | {
+      readonly kind: 'CREATED';
+      readonly report: schema.Report;
+      // Compat: still computed via `findDuplicateCandidates`. Always empty on the
+      // new flow (same-reporter actives throw; other reporters are scoped out).
+      readonly duplicateCandidates: DuplicateCandidate[];
+      readonly supporter: null;
+      readonly idempotentReplay: boolean;
+    }
+  | {
+      readonly kind: 'SUPPORTED';
+      readonly report: schema.Report;
+      readonly duplicateCandidates: DuplicateCandidate[];
+      readonly supporter: schema.ReportSupporter;
+      readonly affectedReporters: number;
+      readonly idempotentReplay: boolean;
+    };
 
+// Kept until Langkah 7 migrates `SubmitVerifiedResult` in apps/web.
 export interface SupportingRelationRef {
   readonly type: 'SUPPORTING';
   readonly targetTicket: string;
 }
 
-// Thrown when the same reporter submits the same asset while an ACTIVE
-// report on it exists. An `AppError` with code `DUPLICATE_ACTIVE`,
-// status 409, and the active ticketNumber in `details`, so `isAppError` /
-// `toHttpResponse` carry status+code through transport (Task 6 reads
-// `details.ticketNumber` for the 409 body). Always thrown BEFORE the ticket
-// counter increments — a blocked submit consumes no ticket and writes no
-// rows (the enclosing transaction rolls back).
+// Thrown when the same reporter submits the same target while an ACTIVE
+// report on it exists (either as primary reporter or existing supporter).
+// An `AppError` with code `DUPLICATE_ACTIVE`, status 409, and the active
+// ticketNumber in `details`, so `isAppError` / `toHttpResponse` carry
+// status+code through transport. Always thrown BEFORE the ticket counter
+// increments — a blocked submit consumes no ticket and writes no rows.
 export class DuplicateActiveError extends AppError {
   constructor(
     ticketNumber: string,
@@ -321,99 +331,71 @@ export class DuplicateActiveError extends AppError {
   }
 }
 
-interface ActiveAssetMatch {
-  readonly id: string;
-  readonly ticketNumber: string;
-}
-
-// Earliest ACTIVE report on an asset: the same-reporter hit is the block
-// target, the different-reporter hit is the merge target. No date window —
-// any active row blocks/merges, however old. Deterministic via reportedAt,
-// then id.
-async function findEarliestActiveOnAsset(
-  db: ReportQueryDb,
-  assetId: string,
-  reporterId: string,
-  sameReporter: boolean,
-): Promise<ActiveAssetMatch | undefined> {
-  const reporterCondition = sameReporter
-    ? eq(schema.maintenanceReports.reporterId, reporterId)
-    : ne(schema.maintenanceReports.reporterId, reporterId);
-  const rows = await db
-    .select({
-      id: schema.maintenanceReports.id,
-      ticketNumber: schema.maintenanceReports.ticketNumber,
-    })
-    .from(schema.maintenanceReports)
-    .where(
-      and(
-        reporterCondition,
-        eq(schema.maintenanceReports.assetId, assetId),
-        inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
-      ),
-    )
-    .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id))
-    .limit(1);
-  const row = rows[0];
-  return row === undefined ? undefined : { id: row.id, ticketNumber: row.ticketNumber };
-}
-
-// Earliest ACTIVE service report (asset_id IS NULL) at a location for one
-// service category: same-reporter hit blocks, other-reporter hit auto-merges.
-// Asset-based rows never match, so damage and service reports stay apart.
-async function findEarliestActiveOnLocationCategory(
+// Earliest ACTIVE report on the target (asset for damage, or location +
+// service category with asset_id IS NULL for service), regardless of reporter.
+// Deterministic via reportedAt ASC, then id ASC.
+async function findEarliestActiveOnTarget(
   db: ReportQueryDb,
   locationId: string,
-  categoryId: string,
-  reporterId: string,
-  sameReporter: boolean,
-): Promise<ActiveAssetMatch | undefined> {
-  const reporterCondition = sameReporter
-    ? eq(schema.maintenanceReports.reporterId, reporterId)
-    : ne(schema.maintenanceReports.reporterId, reporterId);
+  target: SubmissionTarget,
+): Promise<schema.Report | undefined> {
+  const targetCondition =
+    target.assetId !== null
+      ? eq(schema.maintenanceReports.assetId, target.assetId)
+      : and(
+          isNull(schema.maintenanceReports.assetId),
+          eq(schema.maintenanceReports.locationId, locationId),
+          eq(schema.maintenanceReports.submittedCategoryId, target.categoryId),
+        );
   const rows = await db
-    .select({
-      id: schema.maintenanceReports.id,
-      ticketNumber: schema.maintenanceReports.ticketNumber,
-    })
+    .select()
     .from(schema.maintenanceReports)
-    .where(
-      and(
-        reporterCondition,
-        isNull(schema.maintenanceReports.assetId),
-        eq(schema.maintenanceReports.locationId, locationId),
-        eq(schema.maintenanceReports.submittedCategoryId, categoryId),
-        inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
-      ),
-    )
+    .where(and(targetCondition, inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES])))
     .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id))
     .limit(1);
-  const row = rows[0];
-  return row === undefined ? undefined : { id: row.id, ticketNumber: row.ticketNumber };
+  return rows[0];
 }
 
-// The SUPPORTING link a replayed report was merged with at submit time (null
-// when it stands alone). Read-only: replays never write.
-async function findSupportingRelation(
+async function hasReporterSupported(
   db: ReportQueryDb,
-  sourceReportId: string,
-): Promise<SupportingRelationRef | null> {
+  reportId: string,
+  reporterId: string,
+): Promise<boolean> {
   const rows = await db
-    .select({ ticketNumber: schema.maintenanceReports.ticketNumber })
-    .from(schema.reportRelations)
-    .innerJoin(
-      schema.maintenanceReports,
-      eq(schema.maintenanceReports.id, schema.reportRelations.targetReportId),
-    )
+    .select({ id: schema.reportSupporters.id })
+    .from(schema.reportSupporters)
     .where(
       and(
-        eq(schema.reportRelations.sourceReportId, sourceReportId),
-        eq(schema.reportRelations.relationType, 'SUPPORTING'),
+        eq(schema.reportSupporters.reportId, reportId),
+        eq(schema.reportSupporters.reporterId, reporterId),
       ),
     )
     .limit(1);
-  const row = rows[0];
-  return row === undefined ? null : { type: 'SUPPORTING', targetTicket: row.ticketNumber };
+  return rows.length > 0;
+}
+
+export interface SupporterByKeyMatch {
+  readonly supporter: schema.ReportSupporter;
+  readonly report: schema.Report;
+}
+
+export async function findSupporterByKey(
+  db: ReportQueryDb,
+  idempotencyKey: string,
+): Promise<SupporterByKeyMatch | undefined> {
+  const rows = await db
+    .select({
+      supporter: schema.reportSupporters,
+      report: schema.maintenanceReports,
+    })
+    .from(schema.reportSupporters)
+    .innerJoin(
+      schema.maintenanceReports,
+      eq(schema.reportSupporters.reportId, schema.maintenanceReports.id),
+    )
+    .where(eq(schema.reportSupporters.idempotencyKey, idempotencyKey))
+    .limit(1);
+  return rows[0];
 }
 
 // Drizzle wraps storage errors in `DrizzleQueryError` with the postgres
@@ -587,25 +569,197 @@ async function resolveSubmissionTarget(
   throw badRequest('Invalid report input: assetId or serviceCategoryId is required');
 }
 
-// Same-reporter / other-reporter ACTIVE lookup for the target: by asset for
-// damage reports, by location + category for service reports.
-async function findActiveForTarget(
-  tx: TransactionClient,
-  locationId: string,
-  reporterId: string,
-  target: SubmissionTarget,
-  sameReporter: boolean,
-): Promise<ActiveAssetMatch | undefined> {
-  if (target.assetId !== null) {
-    return await findEarliestActiveOnAsset(tx, target.assetId, reporterId, sameReporter);
+function extractConstraintName(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth++) {
+    if (typeof current !== 'object' || current === null) {
+      break;
+    }
+    const record = current as Record<string, unknown>;
+    const constraint = record['constraint_name'] ?? record['constraint'];
+    if (typeof constraint === 'string' && constraint.length > 0) {
+      return constraint;
+    }
+    const next = record['cause'];
+    if (next === undefined || next === null) {
+      break;
+    }
+    current = next;
   }
-  return await findEarliestActiveOnLocationCategory(
-    tx,
-    locationId,
-    target.categoryId,
-    reporterId,
-    sameReporter,
-  );
+  return null;
+}
+
+async function countSupportersForReport(db: ReportQueryDb, reportId: string): Promise<number> {
+  const rows = await db
+    .select({ value: count() })
+    .from(schema.reportSupporters)
+    .where(eq(schema.reportSupporters.reportId, reportId));
+  return rows[0]?.value ?? 0;
+}
+
+function asPriorityLevel(value: unknown): PriorityLevel | null {
+  if (value === 'LOW' || value === 'MEDIUM' || value === 'HIGH') {
+    return value;
+  }
+  return null;
+}
+
+async function loadScoringWeights(
+  tx: TransactionClient,
+  report: {
+    readonly finalCategoryId: string;
+    readonly finalIssueTypeId: string;
+    readonly assetId: string | null;
+    readonly locationId: string;
+  },
+): Promise<{
+  readonly categoryWeight: number | null;
+  readonly assetWeight: number | null;
+  readonly locationScore: number | null;
+  readonly issueTypeCode: string | null;
+}> {
+  const category = (
+    await tx
+      .select({ weight: schema.facilityCategories.weight })
+      .from(schema.facilityCategories)
+      .where(eq(schema.facilityCategories.id, report.finalCategoryId))
+  )[0];
+  const asset =
+    report.assetId === null
+      ? undefined
+      : (
+          await tx
+            .select({ weight: schema.facilityAssets.weight })
+            .from(schema.facilityAssets)
+            .where(eq(schema.facilityAssets.id, report.assetId))
+        )[0];
+  const location = (
+    await tx
+      .select({ tierScore: schema.locations.tierScore })
+      .from(schema.locations)
+      .where(eq(schema.locations.id, report.locationId))
+  )[0];
+  const issueType = (
+    await tx
+      .select({ code: schema.issueTypes.code })
+      .from(schema.issueTypes)
+      .where(eq(schema.issueTypes.id, report.finalIssueTypeId))
+  )[0];
+  return {
+    categoryWeight: category?.weight ?? null,
+    assetWeight: asset?.weight ?? null,
+    locationScore: location?.tierScore ?? null,
+    issueTypeCode: issueType?.code ?? null,
+  };
+}
+
+async function refreshPriorityOnSupport(
+  tx: TransactionClient,
+  report: schema.Report,
+  affectedReporters: number,
+  supporterId: string,
+): Promise<schema.Report> {
+  if (report.finalCategoryId === null || report.finalIssueTypeId === null) {
+    return report;
+  }
+  const weights = await loadScoringWeights(tx, {
+    finalCategoryId: report.finalCategoryId,
+    finalIssueTypeId: report.finalIssueTypeId,
+    assetId: report.assetId,
+    locationId: report.locationId,
+  });
+  const score = scorePriority({
+    ...weights,
+    affectedReporters,
+  });
+  const nextPriority =
+    report.priorityOverrideReason !== null
+      ? report.finalPriority
+      : higherPriority(asPriorityLevel(report.finalPriority), score.suggestedPriority);
+  const priorityFactors = {
+    ...score.factors,
+    scoringComplete: score.scoringComplete,
+    ...(report.assetId === null ? { assetless: true } : {}),
+  };
+  const now = new Date();
+  const updated = await tx
+    .update(schema.maintenanceReports)
+    .set({
+      priorityScore: score.score,
+      priorityFactors,
+      finalPriority: nextPriority,
+      scoringConfigVersion: score.scoringConfigVersion,
+      version: report.version + 1,
+      updatedAt: now,
+    })
+    .where(eq(schema.maintenanceReports.id, report.id))
+    .returning();
+  if (nextPriority !== report.finalPriority) {
+    await tx.insert(schema.reportEvents).values({
+      reportId: report.id,
+      eventType: 'PRIORITY_CHANGED',
+      actorId: null,
+      fromValue: report.finalPriority,
+      toValue: nextPriority,
+      metadata: {
+        reason: 'SUPPORTER_ADDED',
+        supporterId,
+        affectedReporters,
+        score: score.score,
+        suggestedPriority: score.suggestedPriority,
+      },
+    });
+  }
+  return updated[0] ?? report;
+}
+
+async function buildCreatedReplayResult(
+  db: ReportQueryDb,
+  report: schema.Report,
+): Promise<CreateReportResult> {
+  return {
+    kind: 'CREATED',
+    report,
+    duplicateCandidates: await findDuplicateCandidates(db, toFilterInput(report)),
+    supporter: null,
+    idempotentReplay: true,
+  };
+}
+
+async function buildSupportedResult(
+  db: ReportQueryDb,
+  report: schema.Report,
+  supporter: schema.ReportSupporter,
+  idempotentReplay: boolean,
+): Promise<CreateReportResult> {
+  const supporterCount = await countSupportersForReport(db, report.id);
+  return {
+    kind: 'SUPPORTED',
+    report,
+    duplicateCandidates: [],
+    supporter,
+    affectedReporters: 1 + supporterCount,
+    idempotentReplay,
+  };
+}
+
+async function findActiveForDuplicateError(
+  db: ReportQueryDb,
+  input: CreateReportInput,
+): Promise<schema.Report | undefined> {
+  if (input.assetId !== undefined) {
+    return await findEarliestActiveOnTarget(db, input.locationId, {
+      assetId: input.assetId,
+      categoryId: '',
+    });
+  }
+  if (input.serviceCategoryId !== undefined) {
+    return await findEarliestActiveOnTarget(db, input.locationId, {
+      assetId: null,
+      categoryId: input.serviceCategoryId,
+    });
+  }
+  return undefined;
 }
 
 export async function createReport(
@@ -619,19 +773,20 @@ export async function createReport(
   const key = idempotencyKey.trim();
 
   // Replay-before-validation (Fix 1): a same-key retry must replay the
-  // original ticket even when the retried payload drifted (e.g. edited
-  // description). The in-transaction lookup below still covers the race
-  // where the key lands between this fast-path check and the transaction.
-  const fastReplay = await findReportByKey(db, key);
-  if (fastReplay !== undefined) {
-    const replayCandidates = await findDuplicateCandidates(db, toFilterInput(fastReplay));
-    const replayRelation = await findSupportingRelation(db, fastReplay.id);
-    return {
-      report: fastReplay,
-      duplicateCandidates: replayCandidates,
-      relation: replayRelation,
-      idempotentReplay: true,
-    };
+  // original ticket or supporter attachment even when the retried payload
+  // drifted. The in-transaction lookup below still covers concurrent races.
+  const fastReportReplay = await findReportByKey(db, key);
+  if (fastReportReplay !== undefined) {
+    return await buildCreatedReplayResult(db, fastReportReplay);
+  }
+  const fastSupporterReplay = await findSupporterByKey(db, key);
+  if (fastSupporterReplay !== undefined) {
+    return await buildSupportedResult(
+      db,
+      fastSupporterReplay.report,
+      fastSupporterReplay.supporter,
+      true,
+    );
   }
 
   const shapeErrors = validateCreateReportInput(input);
@@ -667,33 +822,73 @@ export async function createReport(
 
       // Same-key retry AFTER the target lock: a concurrent same-key winner may
       // have committed while this transaction waited on the lock — replay it
-      // with NO new ticket/event/job instead of misreading it as a duplicate.
-      const existing = await findReportByKey(tx, key);
-      if (existing !== undefined) {
-        const replayCandidates = await findDuplicateCandidates(tx, toFilterInput(existing));
-        const replayRelation = await findSupportingRelation(tx, existing.id);
-        return {
-          report: existing,
-          duplicateCandidates: replayCandidates,
-          relation: replayRelation,
-          idempotentReplay: true,
-        };
+      // with NO new ticket/supporter/event/job instead of misreading it as a duplicate.
+      const existingReport = await findReportByKey(tx, key);
+      if (existingReport !== undefined) {
+        return await buildCreatedReplayResult(tx, existingReport);
+      }
+      const existingSupporter = await findSupporterByKey(tx, key);
+      if (existingSupporter !== undefined) {
+        return await buildSupportedResult(
+          tx,
+          existingSupporter.report,
+          existingSupporter.supporter,
+          true,
+        );
       }
 
-      // Duplicate-first: same reporter + same target + ACTIVE → block BEFORE
-      // the ticket counter moves, so the failure consumes no ticket.
-      const sameReporterActive = await findActiveForTarget(
-        tx,
-        input.locationId,
-        input.reporterId,
-        target,
-        true,
-      );
-      if (sameReporterActive !== undefined) {
-        throw new DuplicateActiveError(
-          sameReporterActive.ticketNumber,
-          target.assetId === null ? SERVICE_DUPLICATE_MESSAGE : undefined,
+      // Active-target lookup: same reporter (primary or already supporting)
+      // throws 409 DUPLICATE_ACTIVE; different reporter attaches as supporter
+      // on the existing active ticket without minting a new ticket.
+      const activeTarget = await findEarliestActiveOnTarget(tx, input.locationId, target);
+      if (activeTarget !== undefined) {
+        if (
+          activeTarget.reporterId === input.reporterId ||
+          (await hasReporterSupported(tx, activeTarget.id, input.reporterId))
+        ) {
+          throw new DuplicateActiveError(
+            activeTarget.ticketNumber,
+            target.assetId === null ? SERVICE_DUPLICATE_MESSAGE : undefined,
+          );
+        }
+
+        const insertedSupporter = await tx
+          .insert(schema.reportSupporters)
+          .values({
+            reportId: activeTarget.id,
+            reporterId: input.reporterId,
+            idempotencyKey: key,
+            description: input.description.trim(),
+          })
+          .returning();
+        const supporter = insertedSupporter[0];
+        if (supporter === undefined) {
+          throw internal('Failed to create report supporter');
+        }
+
+        await tx.insert(schema.reportEvents).values({
+          reportId: activeTarget.id,
+          eventType: 'SUPPORTER_ADDED',
+          actorId: input.reporterId,
+          metadata: { supporterId: supporter.id },
+        });
+
+        const supporterCount = await countSupportersForReport(tx, activeTarget.id);
+        const affectedReporters = 1 + supporterCount;
+        const updatedTarget = await refreshPriorityOnSupport(
+          tx,
+          activeTarget,
+          affectedReporters,
+          supporter.id,
         );
+        return {
+          kind: 'SUPPORTED',
+          report: updatedTarget,
+          duplicateCandidates: [],
+          supporter,
+          affectedReporters,
+          idempotentReplay: false,
+        };
       }
 
       // Lock/increment the per-year ticket counter atomically.
@@ -749,51 +944,45 @@ export async function createReport(
         status: 'PENDING',
       });
 
-      // Auto-gabung: a different reporter's ACTIVE report on the same asset
-      // absorbs this row as SUPPORTING in the SAME transaction — no extra
-      // job, no admin action, and verification later leaves the link alone.
-      const otherReporterActive = await findActiveForTarget(
-        tx,
-        input.locationId,
-        input.reporterId,
-        target,
-        false,
-      );
-      let relation: SupportingRelationRef | null = null;
-      if (otherReporterActive !== undefined) {
-        await tx.insert(schema.reportRelations).values({
-          sourceReportId: report.id,
-          targetReportId: otherReporterActive.id,
-          relationType: 'SUPPORTING',
-          createdBy: input.reporterId,
-        });
-        relation = { type: 'SUPPORTING', targetTicket: otherReporterActive.ticketNumber };
-      }
-
       const duplicateCandidates = await findDuplicateCandidates(tx, toFilterInput(report));
-      return { report, duplicateCandidates, relation, idempotentReplay: false };
+      return {
+        kind: 'CREATED',
+        report,
+        duplicateCandidates,
+        supporter: null,
+        idempotentReplay: false,
+      };
     });
   } catch (error) {
-    // Known failures rethrow verbatim — including the duplicate block (the
-    // transaction already rolled back: no row, no ticket, no event, no link).
-    // Concurrent same-key race: the unique constraint let exactly one
-    // transaction win; the loser replays the winner instead of 409ing.
-    // Residual failures NEVER escape raw (SQL/PII leak risk): known FK
-    // violations map to 404, everything else to a generic 500.
     if (isAppError(error)) {
       throw error;
     }
     if (isUniqueViolation(error)) {
-      const winner = await findReportByKey(db, key);
-      if (winner !== undefined) {
-        const replayCandidates = await findDuplicateCandidates(db, toFilterInput(winner));
-        const replayRelation = await findSupportingRelation(db, winner.id);
-        return {
-          report: winner,
-          duplicateCandidates: replayCandidates,
-          relation: replayRelation,
-          idempotentReplay: true,
-        };
+      const winnerReport = await findReportByKey(db, key);
+      if (winnerReport !== undefined) {
+        return await buildCreatedReplayResult(db, winnerReport);
+      }
+      const winnerSupporter = await findSupporterByKey(db, key);
+      if (winnerSupporter !== undefined) {
+        return await buildSupportedResult(
+          db,
+          winnerSupporter.report,
+          winnerSupporter.supporter,
+          true,
+        );
+      }
+      const constraint = extractConstraintName(error);
+      if (
+        constraint === 'report_supporters_report_reporter_unique' ||
+        (error instanceof Error && error.message.includes('report_supporters_report_reporter_unique'))
+      ) {
+        const activeTarget = await findActiveForDuplicateError(db, input);
+        if (activeTarget !== undefined) {
+          throw new DuplicateActiveError(
+            activeTarget.ticketNumber,
+            input.assetId === undefined ? SERVICE_DUPLICATE_MESSAGE : undefined,
+          );
+        }
       }
       throw internal('Failed to create report');
     }
@@ -802,6 +991,92 @@ export async function createReport(
     }
     throw internal('Failed to create report');
   }
+}
+
+// Compensates a failed supporter attachment (e.g. staged-photo claim CONFLICT)
+// by deleting only the supporter row and its SUPPORTER_ADDED / PRIORITY_CHANGED
+// events, and re-syncing priority score/factors on the primary report — NEVER
+// deleting the primary maintenance_reports row belonging to another reporter.
+export async function compensateFailedSupporter(db: Database, supporterId: string): Promise<void> {
+  const id = requireUuid(supporterId, 'supporterId');
+  await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(schema.reportSupporters)
+      .where(eq(schema.reportSupporters.id, id))
+      .returning({ reportId: schema.reportSupporters.reportId });
+    const reportId = deleted[0]?.reportId;
+    if (reportId !== undefined) {
+      await tx
+        .delete(schema.reportEvents)
+        .where(
+          and(
+            eq(schema.reportEvents.reportId, reportId),
+            eq(schema.reportEvents.eventType, 'SUPPORTER_ADDED'),
+            sql`${schema.reportEvents.metadata}->>'supporterId' = ${id}`,
+          ),
+        );
+      const deletedPriorityEvents = await tx
+        .delete(schema.reportEvents)
+        .where(
+          and(
+            eq(schema.reportEvents.reportId, reportId),
+            eq(schema.reportEvents.eventType, 'PRIORITY_CHANGED'),
+            sql`${schema.reportEvents.metadata}->>'supporterId' = ${id}`,
+          ),
+        )
+        .returning({
+          fromValue: schema.reportEvents.fromValue,
+          toValue: schema.reportEvents.toValue,
+        });
+      const deletedPriorityEvent = deletedPriorityEvents[0];
+      const primary = (
+        await tx
+          .select()
+          .from(schema.maintenanceReports)
+          .where(eq(schema.maintenanceReports.id, reportId))
+      )[0];
+      if (
+        primary !== undefined &&
+        primary.finalCategoryId !== null &&
+        primary.finalIssueTypeId !== null
+      ) {
+        const remainingAffected = 1 + (await countSupportersForReport(tx, reportId));
+        const weights = await loadScoringWeights(tx, {
+          finalCategoryId: primary.finalCategoryId,
+          finalIssueTypeId: primary.finalIssueTypeId,
+          assetId: primary.assetId,
+          locationId: primary.locationId,
+        });
+        const score = scorePriority({
+          ...weights,
+          affectedReporters: remainingAffected,
+        });
+        const priorityFactors = {
+          ...score.factors,
+          scoringComplete: score.scoringComplete,
+          ...(primary.assetId === null ? { assetless: true } : {}),
+        };
+        const restoredPriorityFromEvent =
+          deletedPriorityEvent !== undefined &&
+          primary.priorityOverrideReason === null &&
+          primary.finalPriority === deletedPriorityEvent.toValue
+            ? asPriorityLevel(deletedPriorityEvent.fromValue)
+            : null;
+        const restoredPriority = restoredPriorityFromEvent ?? primary.finalPriority;
+        await tx
+          .update(schema.maintenanceReports)
+          .set({
+            priorityScore: score.score,
+            priorityFactors,
+            finalPriority: restoredPriority,
+            scoringConfigVersion: score.scoringConfigVersion,
+            version: primary.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.maintenanceReports.id, reportId));
+      }
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -906,6 +1181,7 @@ export async function applyVerification(
       // between the check and the update. A service report has no asset, so
       // its final category must be the one the reporter chose and must itself
       // be asset-less (`requiresAsset=false`).
+      let assetWeight: number | null = null;
       if (report.assetId === null || report.assetId === undefined) {
         if (category.id !== report.submittedCategoryId) {
           throw badRequest('Final category does not match the reported service category');
@@ -929,7 +1205,36 @@ export async function applyVerification(
         if (asset.categoryId !== finals.finalCategoryId) {
           throw badRequest('Final category does not match asset category');
         }
+        assetWeight = asset.weight ?? null;
       }
+
+      const locationRow = (
+        await tx
+          .select({ tierScore: schema.locations.tierScore })
+          .from(schema.locations)
+          .where(eq(schema.locations.id, report.locationId))
+      )[0];
+      let affected = 1;
+      try {
+        affected = Math.max(
+          1,
+          await countAffectedReporters(tx, {
+            assetId: report.assetId,
+            locationId: report.locationId,
+            categoryId: category.id,
+            issueTypeId: issueType.id,
+          }),
+        );
+      } catch {
+        affected = 1;
+      }
+      const score = scorePriority({
+        categoryWeight: category.weight,
+        assetWeight,
+        locationScore: locationRow?.tierScore ?? null,
+        affectedReporters: affected,
+        issueTypeCode: issueType.code,
+      });
 
       // Spec floor: a DANGEROUS final issue type keeps minimum HIGH, whether
       // the verdict came from the AI or a hand verify.
@@ -945,6 +1250,13 @@ export async function applyVerification(
           status: 'VERIFIED',
           finalCategoryId: finals.finalCategoryId,
           finalIssueTypeId: finals.finalIssueTypeId,
+          priorityScore: score.score,
+          priorityFactors: {
+            ...score.factors,
+            scoringComplete: score.scoringComplete,
+            ...(report.assetId === null ? { assetless: true } : {}),
+          },
+          scoringConfigVersion: score.scoringConfigVersion,
           finalPriority,
           priorityDecidedBy: decidedBy,
           priorityDecidedAt: now,
@@ -1257,6 +1569,7 @@ async function queryReportList(
   db: ReportQueryDb,
   filter: {
     readonly reporterId?: string | undefined;
+    readonly participantId?: string | undefined;
     readonly status?: unknown;
     readonly categoryId?: unknown;
     readonly locationId?: unknown;
@@ -1276,6 +1589,10 @@ async function queryReportList(
 ): Promise<ReportListResult> {
   const reporterId =
     filter.reporterId === undefined ? undefined : requireUuid(filter.reporterId, 'reporterId');
+  const participantId =
+    filter.participantId === undefined
+      ? undefined
+      : requireUuid(filter.participantId, 'participantId');
   const statuses = parseStatusFilter(filter.status);
   const categoryId = optionalUuid(filter.categoryId, 'categoryId');
   const locationId = optionalUuid(filter.locationId, 'locationId');
@@ -1291,21 +1608,20 @@ async function queryReportList(
   if (reporterId !== undefined) {
     conditions.push(eq(schema.maintenanceReports.reporterId, reporterId));
   }
+  if (participantId !== undefined) {
+    conditions.push(
+      or(
+        eq(schema.maintenanceReports.reporterId, participantId),
+        sql`EXISTS (
+          SELECT 1 FROM report_supporters rs
+          WHERE rs.report_id = ${schema.maintenanceReports.id}
+            AND rs.reporter_id = ${participantId}
+        )`,
+      ),
+    );
+  }
   if (statuses !== undefined) {
     conditions.push(inArray(schema.maintenanceReports.status, statuses));
-    if (statuses.includes('REPORTED')) {
-      // Held-queue exclusion: rows auto-merged as SUPPORTING evidence at
-      // submit are never verified (one verification per incident lives on
-      // the target), so unclassified supporting-linked rows stay out of the
-      // REPORTED queue. Other status filters and list-all views keep them
-      // visible for audit.
-      conditions.push(
-        or(
-          isNotNull(schema.maintenanceReports.finalCategoryId),
-          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
-        ),
-      );
-    }
   }
   if (categoryId !== undefined) {
     // Verification may retarget the category, so the filter matches either.
@@ -1390,14 +1706,14 @@ async function queryReportList(
   return { items, total: counted[0]?.value ?? 0, limit: page.limit, offset: page.offset };
 }
 
-// Reporter list: rows with `reporter_id = :reporterId` only — no
+// Reporter list: rows reported or supported by `reporterId` — no
 // cross-reporter leakage by construction.
 export async function listMyReports(
   db: ReportQueryDb,
   reporterId: string,
   opts?: ListMyReportsOptions,
 ): Promise<ReportListResult> {
-  return await queryReportList(db, { ...(opts ?? {}), reporterId });
+  return await queryReportList(db, { ...(opts ?? {}), participantId: reporterId });
 }
 
 // Admin list: same filters plus `reporterId?` and `search?`. The caller
@@ -1431,8 +1747,8 @@ export interface AdminReportListItem extends schema.Report {
   readonly locationName: string | null;
   /** Active assignment only (`unassigned_at IS NULL`); null before assignment. */
   readonly technicianName: string | null;
-  /** `priority_factors.affectedReporters`; null for pre-scoring rows. */
-  readonly reporterCount: number | null;
+  /** Distinct reporter count (primary + supporters, synced with priorityFactors). */
+  readonly reporterCount: number;
 }
 
 export interface AdminReportListResult {
@@ -1443,25 +1759,14 @@ export interface AdminReportListResult {
   readonly statusCounts: readonly AdminReportStatusCount[];
 }
 
-// Counts for the admin status tabs. Mirrors `getReportsByStatus` in
-// `@silapor/analytics` (canonical statuses + held-queue exclusion for
-// REPORTED) without pulling the analytics dashboard aggregates into the list.
+// Counts for the admin status tabs over the canonical status set.
 export async function countReportsByStatus(
   db: ReportQueryDb,
 ): Promise<readonly AdminReportStatusCount[]> {
   const rows = await db
     .select({ status: schema.maintenanceReports.status, value: count() })
     .from(schema.maintenanceReports)
-    .where(
-      and(
-        inArray(schema.maintenanceReports.status, [...REPORT_STATUS]),
-        or(
-          ne(schema.maintenanceReports.status, 'REPORTED'),
-          isNotNull(schema.maintenanceReports.finalCategoryId),
-          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
-        ),
-      ),
-    )
+    .where(inArray(schema.maintenanceReports.status, [...REPORT_STATUS]))
     .groupBy(schema.maintenanceReports.status);
   const counts = new Map(rows.map((row) => [row.status, row.value] as const));
   return REPORT_STATUS.map((status) => ({ status, count: counts.get(status) ?? 0 }));
@@ -1485,7 +1790,7 @@ export async function listAdminReports(
   ];
   const locationIds = [...new Set(rows.map((row) => row.locationId))];
 
-  const [assetRows, locationRows, assignmentRows] = await Promise.all([
+  const [assetRows, locationRows, assignmentRows, supporterCountRows] = await Promise.all([
     assetIds.length === 0
       ? Promise.resolve([] as Array<{ id: string; name: string }>)
       : db
@@ -1518,10 +1823,21 @@ export async function listAdminReports(
             ),
           )
           .orderBy(desc(schema.reportAssignments.assignedAt)),
+    reportIds.length === 0
+      ? Promise.resolve([] as Array<{ reportId: string; value: number }>)
+      : db
+          .select({
+            reportId: schema.reportSupporters.reportId,
+            value: count(),
+          })
+          .from(schema.reportSupporters)
+          .where(inArray(schema.reportSupporters.reportId, reportIds))
+          .groupBy(schema.reportSupporters.reportId),
   ]);
 
   const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
   const locationNames = new Map(locationRows.map((row) => [row.id, row.name] as const));
+  const supporterCounts = new Map(supporterCountRows.map((row) => [row.reportId, row.value] as const));
   // Assignment rows are newest-first, so the first hit per report wins.
   const technicianNames = new Map<string, string>();
   for (const row of assignmentRows) {
@@ -1536,7 +1852,10 @@ export async function listAdminReports(
       assetName: row.assetId === null ? null : (assetNames.get(row.assetId) ?? null),
       locationName: locationNames.get(row.locationId) ?? null,
       technicianName: technicianNames.get(row.id) ?? null,
-      reporterCount: reporterCountOf(row.priorityFactors),
+      reporterCount: Math.max(
+        1 + (supporterCounts.get(row.id) ?? 0),
+        reporterCountOf(row.priorityFactors) ?? 1,
+      ),
     })),
     total: result.total,
     limit: result.limit,
@@ -1575,13 +1894,13 @@ export interface CampusReportListItem {
   readonly finalCategoryId: string | null;
   readonly finalIssueTypeId: string | null;
   readonly finalPriority: string | null;
-  // Snapshot from priority_factors.affectedReporters (the verified impact
-  // count). Null for rows created before the factor existed.
-  readonly reporterCount: number | null;
+  // Distinct reporter count (primary + supporters, synced with priorityFactors).
+  readonly reporterCount: number;
   readonly reportedAt: Date;
   readonly resolvedAt: Date | null;
   readonly closedAt: Date | null;
   readonly isOwn: boolean;
+  readonly isSupporter: boolean;
 }
 
 export interface CampusReportListResult {
@@ -1599,7 +1918,12 @@ function reporterCountOf(value: unknown): number | null {
   return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null;
 }
 
-function toCampusReportListItem(row: schema.Report, viewerId: string): CampusReportListItem {
+function toCampusReportListItem(
+  row: schema.Report,
+  viewerId: string,
+  supporterCount: number,
+  isSupporter: boolean,
+): CampusReportListItem {
   return {
     id: row.id,
     ticketNumber: row.ticketNumber,
@@ -1616,19 +1940,19 @@ function toCampusReportListItem(row: schema.Report, viewerId: string): CampusRep
     finalCategoryId: row.finalCategoryId,
     finalIssueTypeId: row.finalIssueTypeId,
     finalPriority: row.finalPriority,
-    reporterCount: reporterCountOf(row.priorityFactors),
+    reporterCount: Math.max(1 + supporterCount, reporterCountOf(row.priorityFactors) ?? 1),
     reportedAt: row.reportedAt,
     resolvedAt: row.resolvedAt,
     closedAt: row.closedAt,
     isOwn: row.reporterId === viewerId,
+    isSupporter,
   };
 }
 
 // Campus-wide reporter list (UI No. 5). Every authenticated reporter sees
-// all sanitized tickets; `mine=true` narrows to the viewer's own rows and
-// `search` matches ticket number, asset name, or visible location name.
-// The shared query keeps filters, deterministic ordering, and pagination
-// identical to the reporter/admin lists.
+// all sanitized tickets; `mine=true` narrows to tickets reported or supported
+// by the viewer and `search` matches ticket number, asset name, or visible
+// location name.
 export async function listCampusReports(
   db: ReportQueryDb,
   viewerId: string,
@@ -1640,46 +1964,93 @@ export async function listCampusReports(
     ...base,
     ...(search === undefined ? {} : { search }),
     searchScope: 'campus',
-    ...(mine === true ? { reporterId: id } : {}),
+    ...(mine === true ? { participantId: id } : {}),
   });
 
-  const rows = result.items.map((row) => toCampusReportListItem(row, id));
+  const pageIds = result.items.map((row) => row.id);
   const assetIds = [
-    ...new Set(rows.map((row) => row.assetId).filter((value): value is string => value !== null)),
+    ...new Set(
+      result.items.map((row) => row.assetId).filter((value): value is string => value !== null),
+    ),
   ];
-  const locationIds = [...new Set(rows.map((row) => row.locationId))];
-  const categoryIds = [...new Set(rows.map((row) => row.submittedCategoryId))];
-  const assetRows =
-    assetIds.length === 0
-      ? []
-      : await db
-          .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
-          .from(schema.facilityAssets)
-          .where(inArray(schema.facilityAssets.id, assetIds));
-  const categoryRows =
-    categoryIds.length === 0
-      ? []
-      : await db
-          .select({ id: schema.facilityCategories.id, name: schema.facilityCategories.name })
-          .from(schema.facilityCategories)
-          .where(inArray(schema.facilityCategories.id, categoryIds));
-  const locationRows =
-    locationIds.length === 0
-      ? []
-      : await db
-          .select({
-            id: schema.locations.id,
-            name: schema.locations.name,
-            buildingCode: schema.locations.buildingCode,
-            floorNumber: schema.locations.floorNumber,
-            isActive: schema.locations.isActive,
-            reporterHidden: schema.locations.reporterHidden,
-          })
-          .from(schema.locations)
-          .where(inArray(schema.locations.id, locationIds));
+  const locationIds = [...new Set(result.items.map((row) => row.locationId))];
+  const categoryIds = [...new Set(result.items.map((row) => row.submittedCategoryId))];
+
+  const [assetRows, categoryRows, locationRows, supporterCountRows, viewerSupporterRows] =
+    await Promise.all([
+      assetIds.length === 0
+        ? Promise.resolve([] as Array<{ id: string; name: string }>)
+        : db
+            .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
+            .from(schema.facilityAssets)
+            .where(inArray(schema.facilityAssets.id, assetIds)),
+      categoryIds.length === 0
+        ? Promise.resolve([] as Array<{ id: string; name: string }>)
+        : db
+            .select({ id: schema.facilityCategories.id, name: schema.facilityCategories.name })
+            .from(schema.facilityCategories)
+            .where(inArray(schema.facilityCategories.id, categoryIds)),
+      locationIds.length === 0
+        ? Promise.resolve(
+            [] as Array<{
+              id: string;
+              name: string;
+              buildingCode: string | null;
+              floorNumber: number | null;
+              isActive: boolean;
+              reporterHidden: boolean;
+            }>,
+          )
+        : db
+            .select({
+              id: schema.locations.id,
+              name: schema.locations.name,
+              buildingCode: schema.locations.buildingCode,
+              floorNumber: schema.locations.floorNumber,
+              isActive: schema.locations.isActive,
+              reporterHidden: schema.locations.reporterHidden,
+            })
+            .from(schema.locations)
+            .where(inArray(schema.locations.id, locationIds)),
+      pageIds.length === 0
+        ? Promise.resolve([] as Array<{ reportId: string; value: number }>)
+        : db
+            .select({
+              reportId: schema.reportSupporters.reportId,
+              value: count(),
+            })
+            .from(schema.reportSupporters)
+            .where(inArray(schema.reportSupporters.reportId, pageIds))
+            .groupBy(schema.reportSupporters.reportId),
+      pageIds.length === 0
+        ? Promise.resolve([] as Array<{ reportId: string }>)
+        : db
+            .select({ reportId: schema.reportSupporters.reportId })
+            .from(schema.reportSupporters)
+            .where(
+              and(
+                inArray(schema.reportSupporters.reportId, pageIds),
+                eq(schema.reportSupporters.reporterId, id),
+              ),
+            ),
+    ]);
+
   const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
   const categoryNames = new Map(categoryRows.map((row) => [row.id, row.name] as const));
   const locationsById = new Map(locationRows.map((row) => [row.id, row] as const));
+  const supporterCounts = new Map(
+    supporterCountRows.map((row) => [row.reportId, row.value] as const),
+  );
+  const viewerSupportedIds = new Set(viewerSupporterRows.map((row) => row.reportId));
+
+  const rows = result.items.map((row) =>
+    toCampusReportListItem(
+      row,
+      id,
+      supporterCounts.get(row.id) ?? 0,
+      viewerSupportedIds.has(row.id),
+    ),
+  );
 
   return {
     items: rows.map((row) => {
@@ -1710,8 +2081,9 @@ export interface CampusReportStats {
 }
 
 // KPI counters for the reporter landing page. Counts are campus-wide except
-// `mineTotal` (the "Laporan Saya" tab). `active` follows the domain's open-work
-// subset (RESOLVED is NOT active); `done` is RESOLVED + CLOSED.
+// `mineTotal` (distinct tickets reported or supported by the viewer). `active`
+// follows the domain's open-work subset (RESOLVED is NOT active); `done` is
+// RESOLVED + CLOSED.
 export async function getCampusReportStats(
   db: ReportQueryDb,
   viewerId: string,
@@ -1734,7 +2106,16 @@ export async function getCampusReportStats(
     db
       .select({ value: count() })
       .from(schema.maintenanceReports)
-      .where(eq(schema.maintenanceReports.reporterId, id)),
+      .where(
+        or(
+          eq(schema.maintenanceReports.reporterId, id),
+          sql`EXISTS (
+            SELECT 1 FROM report_supporters rs
+            WHERE rs.report_id = ${schema.maintenanceReports.id}
+              AND rs.reporter_id = ${id}
+          )`,
+        ),
+      ),
   ]);
   return {
     total: totalRows[0]?.value ?? 0,
@@ -1758,10 +2139,8 @@ export interface CampusReport {
   readonly description: string;
   readonly occurredAt: Date | null;
   readonly finalPriority: string | null;
-  // Snapshot of the verified impact count (`priority_factors.affectedReporters`).
-  // Null for rows created before the factor existed; the ticket detail renders
-  // the "laporan mendukung" line only when a count is present.
-  readonly reporterCount: number | null;
+  // Distinct reporter count (primary + supporters, synced with priorityFactors).
+  readonly reporterCount: number;
   readonly reportedAt: Date;
   readonly verifiedAt: Date | null;
   readonly resolvedAt: Date | null;
@@ -1778,9 +2157,24 @@ export interface CampusReportRelation {
   readonly createdAt: Date;
 }
 
+export interface CampusReportSupporter {
+  readonly id: string;
+  readonly description: string;
+  readonly createdAt: Date;
+  readonly isMine: boolean;
+}
+
+export interface AdminReportSupporter {
+  readonly id: string;
+  readonly description: string;
+  readonly createdAt: Date;
+}
+
 export interface CampusReportDetail {
   readonly report: CampusReport;
   readonly isOwn: boolean;
+  readonly isSupporter: boolean;
+  readonly supporters: CampusReportSupporter[];
   readonly attachments: AttachmentSummary[];
   readonly events: schema.ReportEvent[];
   readonly relations: CampusReportRelation[];
@@ -1789,9 +2183,8 @@ export interface CampusReportDetail {
   // metadata; null when the report predates AI verification or the analysis
   // never completed. The detail page hides the confidence meter when null.
   readonly classificationConfidence: number | null;
-  // Tickets grouped into the same incident via SUPPORTING/RELATED relations
-  // (auto-merged at submit time for a different reporter). Sanitized to the
-  // same public-safe fields as the campus list — never the reporter id.
+  // Tickets grouped into the same incident via manual RELATED relations.
+  // Sanitized to public-safe fields — never the reporter id.
   readonly relatedReports: CampusRelatedReport[];
 }
 
@@ -1804,7 +2197,7 @@ export interface CampusRelatedReport {
   readonly reportedAt: Date;
 }
 
-function toCampusReport(row: schema.Report): CampusReport {
+function toCampusReport(row: schema.Report, supporterCount: number): CampusReport {
   return {
     id: row.id,
     ticketNumber: row.ticketNumber,
@@ -1818,7 +2211,7 @@ function toCampusReport(row: schema.Report): CampusReport {
     description: row.description,
     occurredAt: row.occurredAt,
     finalPriority: row.finalPriority,
-    reporterCount: reporterCountOf(row.priorityFactors),
+    reporterCount: Math.max(1 + supporterCount, reporterCountOf(row.priorityFactors) ?? 1),
     reportedAt: row.reportedAt,
     verifiedAt: row.verifiedAt,
     resolvedAt: row.resolvedAt,
@@ -1845,12 +2238,14 @@ export interface ReportDetail {
 export interface AdminReportDetail extends ReportDetail {
   /** Latest verifier row; null for rows created before AI analysis existed. */
   readonly aiAnalysis: schema.AiAnalysis | null;
+  readonly supporters: AdminReportSupporter[];
 }
 
 async function loadReportDetail(db: ReportQueryDb, row: schema.Report): Promise<ReportDetail> {
   const attachments = await db
     .select({
       id: schema.reportAttachments.id,
+      supporterId: schema.reportAttachments.supporterId,
       originalFilename: schema.reportAttachments.originalFilename,
       mimeType: schema.reportAttachments.mimeType,
       sizeBytes: schema.reportAttachments.sizeBytes,
@@ -1924,9 +2319,18 @@ function sanitizeReporterDetailEvent(event: schema.ReportEvent): schema.ReportEv
       }
       delete rest['condition'];
     }
-    // Drop the retired visibility marker from legacy event metadata.
+    // Drop the retired visibility marker from legacy event metadata and strip
+    // any accidental reporter PII keys.
     delete rest['visibility'];
-    nextMetadata = rest;
+    for (const piiKey of ['reporterId', 'username', 'nim', 'email', 'name']) {
+      delete rest[piiKey];
+    }
+    if (eventType === 'SUPPORTER_ADDED') {
+      nextMetadata =
+        typeof rest['supporterId'] === 'string' ? { supporterId: rest['supporterId'] } : null;
+    } else {
+      nextMetadata = rest;
+    }
   }
   // Legacy internal-note events are progress notes under the current rule.
   if (eventType === 'INTERNAL_NOTE_ADDED') {
@@ -2028,17 +2432,39 @@ export async function getCampusReportDetail(
           .where(inArray(schema.maintenanceReports.id, relatedIds))
           .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id));
 
-  // Classifier confidence from the latest analysis row (0..1, nullable).
-  const confidenceRows = await db
-    .select({ confidence: schema.aiAnalyses.confidence })
-    .from(schema.aiAnalyses)
-    .where(eq(schema.aiAnalyses.reportId, id))
-    .orderBy(desc(schema.aiAnalyses.createdAt))
-    .limit(1);
+  // Classifier confidence from the latest analysis row (0..1, nullable) and
+  // supporting reports attached directly to this ticket.
+  const [confidenceRows, supporterRows] = await Promise.all([
+    db
+      .select({ confidence: schema.aiAnalyses.confidence })
+      .from(schema.aiAnalyses)
+      .where(eq(schema.aiAnalyses.reportId, id))
+      .orderBy(desc(schema.aiAnalyses.createdAt))
+      .limit(1),
+    db
+      .select({
+        id: schema.reportSupporters.id,
+        reporterId: schema.reportSupporters.reporterId,
+        description: schema.reportSupporters.description,
+        createdAt: schema.reportSupporters.createdAt,
+      })
+      .from(schema.reportSupporters)
+      .where(eq(schema.reportSupporters.reportId, id))
+      .orderBy(asc(schema.reportSupporters.createdAt), asc(schema.reportSupporters.id)),
+  ]);
+  const isSupporter = supporterRows.some((s) => s.reporterId === viewer);
+  const supporters: CampusReportSupporter[] = supporterRows.map((s) => ({
+    id: s.id,
+    description: s.description,
+    createdAt: s.createdAt,
+    isMine: s.reporterId === viewer,
+  }));
 
   return {
-    report: toCampusReport(row),
+    report: toCampusReport(row, supporters.length),
     isOwn,
+    isSupporter,
+    supporters,
     attachments: detail.attachments,
     events,
     relations,
@@ -2055,8 +2481,8 @@ export async function getCampusReportDetail(
   };
 }
 
-// Admin detail: same shape plus the latest AI verifier row, no ownership check
-// (404 only when truly missing).
+// Admin detail: same shape plus the latest AI verifier row and chronological
+// supporter quotes, no ownership check (404 only when truly missing).
 export async function getAdminReportDetail(
   db: ReportQueryDb,
   reportId: string,
@@ -2070,14 +2496,25 @@ export async function getAdminReportDetail(
   if (row === undefined) {
     throw notFound('Report not found');
   }
-  const detail = await loadReportDetail(db, row);
-  const analyses = await db
-    .select()
-    .from(schema.aiAnalyses)
-    .where(eq(schema.aiAnalyses.reportId, id))
-    .orderBy(desc(schema.aiAnalyses.createdAt))
-    .limit(1);
-  return { ...detail, aiAnalysis: analyses[0] ?? null };
+  const [detail, analyses, supporters] = await Promise.all([
+    loadReportDetail(db, row),
+    db
+      .select()
+      .from(schema.aiAnalyses)
+      .where(eq(schema.aiAnalyses.reportId, id))
+      .orderBy(desc(schema.aiAnalyses.createdAt))
+      .limit(1),
+    db
+      .select({
+        id: schema.reportSupporters.id,
+        description: schema.reportSupporters.description,
+        createdAt: schema.reportSupporters.createdAt,
+      })
+      .from(schema.reportSupporters)
+      .where(eq(schema.reportSupporters.reportId, id))
+      .orderBy(asc(schema.reportSupporters.createdAt), asc(schema.reportSupporters.id)),
+  ]);
+  return { ...detail, aiAnalysis: analyses[0] ?? null, supporters };
 }
 
 export interface ReportTimelineEntry {
@@ -2221,10 +2658,10 @@ export interface AffectedCountFilter {
   readonly issueTypeId?: string | null | undefined;
 }
 
-// Distinct reporters over the shared incident predicate (ACTIVE statuses
-// only) PLUS reporters of rows linked as SUPPORTING/RELATED source/target of
-// those matches (one hop). Same-reporter rows collapse to one; non-active
-// rows contribute nothing unless linked to an active match.
+// Distinct reporters over active incident rows + attached `report_supporters`
+// PLUS reporters (and supporters) of rows linked via `report_relations` (one
+// hop). Same-reporter rows collapse to one; non-active rows contribute nothing
+// unless linked to an active match.
 export async function countAffectedReporters(
   db: ReportQueryDb,
   filter: AffectedCountFilter,
@@ -2242,18 +2679,57 @@ export async function countAffectedReporters(
     filter.issueTypeId === undefined || filter.issueTypeId === null
       ? filter.issueTypeId
       : requireUuid(filter.issueTypeId, 'issueTypeId');
+
+  const scope =
+    assetId !== undefined && assetId !== null
+      ? sql`${schema.maintenanceReports.assetId} IS NOT DISTINCT FROM ${assetId}`
+      : and(
+          eq(schema.maintenanceReports.locationId, locationId),
+          isNull(schema.maintenanceReports.assetId),
+        );
+  const conditions = [
+    inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
+    scope,
+    or(
+      eq(schema.maintenanceReports.submittedCategoryId, categoryId),
+      eq(schema.maintenanceReports.finalCategoryId, categoryId),
+    ),
+  ];
+  if (issueTypeId === null) {
+    conditions.push(isNull(schema.maintenanceReports.submittedIssueTypeId));
+  } else if (issueTypeId !== undefined) {
+    conditions.push(
+      or(
+        eq(schema.maintenanceReports.submittedIssueTypeId, issueTypeId),
+        eq(schema.maintenanceReports.finalIssueTypeId, issueTypeId),
+        and(
+          isNull(schema.maintenanceReports.submittedIssueTypeId),
+          isNull(schema.maintenanceReports.finalIssueTypeId),
+        ),
+      ),
+    );
+  }
+
   const matched = await db
     .select({
       id: schema.maintenanceReports.id,
       reporterId: schema.maintenanceReports.reporterId,
     })
     .from(schema.maintenanceReports)
-    .where(and(...incidentConditions({ assetId, locationId, categoryId, issueTypeId })));
+    .where(and(...conditions));
   if (matched.length === 0) {
     return 0;
   }
   const reporters = new Set(matched.map((row) => row.reporterId));
   const matchedIds = matched.map((row) => row.id);
+  const supporterRows = await db
+    .select({ reporterId: schema.reportSupporters.reporterId })
+    .from(schema.reportSupporters)
+    .where(inArray(schema.reportSupporters.reportId, matchedIds));
+  for (const supporter of supporterRows) {
+    reporters.add(supporter.reporterId);
+  }
+
   const matchedSet = new Set(matchedIds);
   const links = await db
     .select({
@@ -2277,12 +2753,20 @@ export async function countAffectedReporters(
     }
   }
   if (neighborIds.size > 0) {
+    const neighborIdList = [...neighborIds];
     const neighbors = await db
       .select({ reporterId: schema.maintenanceReports.reporterId })
       .from(schema.maintenanceReports)
-      .where(inArray(schema.maintenanceReports.id, [...neighborIds]));
+      .where(inArray(schema.maintenanceReports.id, neighborIdList));
     for (const neighbor of neighbors) {
       reporters.add(neighbor.reporterId);
+    }
+    const neighborSupporters = await db
+      .select({ reporterId: schema.reportSupporters.reporterId })
+      .from(schema.reportSupporters)
+      .where(inArray(schema.reportSupporters.reportId, neighborIdList));
+    for (const supporter of neighborSupporters) {
+      reporters.add(supporter.reporterId);
     }
   }
   return reporters.size;
