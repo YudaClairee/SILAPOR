@@ -1569,6 +1569,7 @@ async function queryReportList(
   db: ReportQueryDb,
   filter: {
     readonly reporterId?: string | undefined;
+    readonly participantId?: string | undefined;
     readonly status?: unknown;
     readonly categoryId?: unknown;
     readonly locationId?: unknown;
@@ -1588,6 +1589,10 @@ async function queryReportList(
 ): Promise<ReportListResult> {
   const reporterId =
     filter.reporterId === undefined ? undefined : requireUuid(filter.reporterId, 'reporterId');
+  const participantId =
+    filter.participantId === undefined
+      ? undefined
+      : requireUuid(filter.participantId, 'participantId');
   const statuses = parseStatusFilter(filter.status);
   const categoryId = optionalUuid(filter.categoryId, 'categoryId');
   const locationId = optionalUuid(filter.locationId, 'locationId');
@@ -1603,21 +1608,20 @@ async function queryReportList(
   if (reporterId !== undefined) {
     conditions.push(eq(schema.maintenanceReports.reporterId, reporterId));
   }
+  if (participantId !== undefined) {
+    conditions.push(
+      or(
+        eq(schema.maintenanceReports.reporterId, participantId),
+        sql`EXISTS (
+          SELECT 1 FROM report_supporters rs
+          WHERE rs.report_id = ${schema.maintenanceReports.id}
+            AND rs.reporter_id = ${participantId}
+        )`,
+      ),
+    );
+  }
   if (statuses !== undefined) {
     conditions.push(inArray(schema.maintenanceReports.status, statuses));
-    if (statuses.includes('REPORTED')) {
-      // Held-queue exclusion: rows auto-merged as SUPPORTING evidence at
-      // submit are never verified (one verification per incident lives on
-      // the target), so unclassified supporting-linked rows stay out of the
-      // REPORTED queue. Other status filters and list-all views keep them
-      // visible for audit.
-      conditions.push(
-        or(
-          isNotNull(schema.maintenanceReports.finalCategoryId),
-          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
-        ),
-      );
-    }
   }
   if (categoryId !== undefined) {
     // Verification may retarget the category, so the filter matches either.
@@ -1702,14 +1706,14 @@ async function queryReportList(
   return { items, total: counted[0]?.value ?? 0, limit: page.limit, offset: page.offset };
 }
 
-// Reporter list: rows with `reporter_id = :reporterId` only — no
+// Reporter list: rows reported or supported by `reporterId` — no
 // cross-reporter leakage by construction.
 export async function listMyReports(
   db: ReportQueryDb,
   reporterId: string,
   opts?: ListMyReportsOptions,
 ): Promise<ReportListResult> {
-  return await queryReportList(db, { ...(opts ?? {}), reporterId });
+  return await queryReportList(db, { ...(opts ?? {}), participantId: reporterId });
 }
 
 // Admin list: same filters plus `reporterId?` and `search?`. The caller
@@ -1743,8 +1747,8 @@ export interface AdminReportListItem extends schema.Report {
   readonly locationName: string | null;
   /** Active assignment only (`unassigned_at IS NULL`); null before assignment. */
   readonly technicianName: string | null;
-  /** `priority_factors.affectedReporters`; null for pre-scoring rows. */
-  readonly reporterCount: number | null;
+  /** Distinct reporter count (primary + supporters, synced with priorityFactors). */
+  readonly reporterCount: number;
 }
 
 export interface AdminReportListResult {
@@ -1755,25 +1759,14 @@ export interface AdminReportListResult {
   readonly statusCounts: readonly AdminReportStatusCount[];
 }
 
-// Counts for the admin status tabs. Mirrors `getReportsByStatus` in
-// `@silapor/analytics` (canonical statuses + held-queue exclusion for
-// REPORTED) without pulling the analytics dashboard aggregates into the list.
+// Counts for the admin status tabs over the canonical status set.
 export async function countReportsByStatus(
   db: ReportQueryDb,
 ): Promise<readonly AdminReportStatusCount[]> {
   const rows = await db
     .select({ status: schema.maintenanceReports.status, value: count() })
     .from(schema.maintenanceReports)
-    .where(
-      and(
-        inArray(schema.maintenanceReports.status, [...REPORT_STATUS]),
-        or(
-          ne(schema.maintenanceReports.status, 'REPORTED'),
-          isNotNull(schema.maintenanceReports.finalCategoryId),
-          sql`NOT EXISTS (SELECT 1 FROM report_relations rr WHERE rr.source_report_id = ${schema.maintenanceReports.id} AND rr.relation_type = 'SUPPORTING')`,
-        ),
-      ),
-    )
+    .where(inArray(schema.maintenanceReports.status, [...REPORT_STATUS]))
     .groupBy(schema.maintenanceReports.status);
   const counts = new Map(rows.map((row) => [row.status, row.value] as const));
   return REPORT_STATUS.map((status) => ({ status, count: counts.get(status) ?? 0 }));
@@ -1797,7 +1790,7 @@ export async function listAdminReports(
   ];
   const locationIds = [...new Set(rows.map((row) => row.locationId))];
 
-  const [assetRows, locationRows, assignmentRows] = await Promise.all([
+  const [assetRows, locationRows, assignmentRows, supporterCountRows] = await Promise.all([
     assetIds.length === 0
       ? Promise.resolve([] as Array<{ id: string; name: string }>)
       : db
@@ -1830,10 +1823,21 @@ export async function listAdminReports(
             ),
           )
           .orderBy(desc(schema.reportAssignments.assignedAt)),
+    reportIds.length === 0
+      ? Promise.resolve([] as Array<{ reportId: string; value: number }>)
+      : db
+          .select({
+            reportId: schema.reportSupporters.reportId,
+            value: count(),
+          })
+          .from(schema.reportSupporters)
+          .where(inArray(schema.reportSupporters.reportId, reportIds))
+          .groupBy(schema.reportSupporters.reportId),
   ]);
 
   const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
   const locationNames = new Map(locationRows.map((row) => [row.id, row.name] as const));
+  const supporterCounts = new Map(supporterCountRows.map((row) => [row.reportId, row.value] as const));
   // Assignment rows are newest-first, so the first hit per report wins.
   const technicianNames = new Map<string, string>();
   for (const row of assignmentRows) {
@@ -1848,7 +1852,10 @@ export async function listAdminReports(
       assetName: row.assetId === null ? null : (assetNames.get(row.assetId) ?? null),
       locationName: locationNames.get(row.locationId) ?? null,
       technicianName: technicianNames.get(row.id) ?? null,
-      reporterCount: reporterCountOf(row.priorityFactors),
+      reporterCount: Math.max(
+        1 + (supporterCounts.get(row.id) ?? 0),
+        reporterCountOf(row.priorityFactors) ?? 1,
+      ),
     })),
     total: result.total,
     limit: result.limit,
@@ -1887,13 +1894,13 @@ export interface CampusReportListItem {
   readonly finalCategoryId: string | null;
   readonly finalIssueTypeId: string | null;
   readonly finalPriority: string | null;
-  // Snapshot from priority_factors.affectedReporters (the verified impact
-  // count). Null for rows created before the factor existed.
-  readonly reporterCount: number | null;
+  // Distinct reporter count (primary + supporters, synced with priorityFactors).
+  readonly reporterCount: number;
   readonly reportedAt: Date;
   readonly resolvedAt: Date | null;
   readonly closedAt: Date | null;
   readonly isOwn: boolean;
+  readonly isSupporter: boolean;
 }
 
 export interface CampusReportListResult {
@@ -1911,7 +1918,12 @@ function reporterCountOf(value: unknown): number | null {
   return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null;
 }
 
-function toCampusReportListItem(row: schema.Report, viewerId: string): CampusReportListItem {
+function toCampusReportListItem(
+  row: schema.Report,
+  viewerId: string,
+  supporterCount: number,
+  isSupporter: boolean,
+): CampusReportListItem {
   return {
     id: row.id,
     ticketNumber: row.ticketNumber,
@@ -1928,19 +1940,19 @@ function toCampusReportListItem(row: schema.Report, viewerId: string): CampusRep
     finalCategoryId: row.finalCategoryId,
     finalIssueTypeId: row.finalIssueTypeId,
     finalPriority: row.finalPriority,
-    reporterCount: reporterCountOf(row.priorityFactors),
+    reporterCount: Math.max(1 + supporterCount, reporterCountOf(row.priorityFactors) ?? 1),
     reportedAt: row.reportedAt,
     resolvedAt: row.resolvedAt,
     closedAt: row.closedAt,
     isOwn: row.reporterId === viewerId,
+    isSupporter,
   };
 }
 
 // Campus-wide reporter list (UI No. 5). Every authenticated reporter sees
-// all sanitized tickets; `mine=true` narrows to the viewer's own rows and
-// `search` matches ticket number, asset name, or visible location name.
-// The shared query keeps filters, deterministic ordering, and pagination
-// identical to the reporter/admin lists.
+// all sanitized tickets; `mine=true` narrows to tickets reported or supported
+// by the viewer and `search` matches ticket number, asset name, or visible
+// location name.
 export async function listCampusReports(
   db: ReportQueryDb,
   viewerId: string,
@@ -1952,46 +1964,93 @@ export async function listCampusReports(
     ...base,
     ...(search === undefined ? {} : { search }),
     searchScope: 'campus',
-    ...(mine === true ? { reporterId: id } : {}),
+    ...(mine === true ? { participantId: id } : {}),
   });
 
-  const rows = result.items.map((row) => toCampusReportListItem(row, id));
+  const pageIds = result.items.map((row) => row.id);
   const assetIds = [
-    ...new Set(rows.map((row) => row.assetId).filter((value): value is string => value !== null)),
+    ...new Set(
+      result.items.map((row) => row.assetId).filter((value): value is string => value !== null),
+    ),
   ];
-  const locationIds = [...new Set(rows.map((row) => row.locationId))];
-  const categoryIds = [...new Set(rows.map((row) => row.submittedCategoryId))];
-  const assetRows =
-    assetIds.length === 0
-      ? []
-      : await db
-          .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
-          .from(schema.facilityAssets)
-          .where(inArray(schema.facilityAssets.id, assetIds));
-  const categoryRows =
-    categoryIds.length === 0
-      ? []
-      : await db
-          .select({ id: schema.facilityCategories.id, name: schema.facilityCategories.name })
-          .from(schema.facilityCategories)
-          .where(inArray(schema.facilityCategories.id, categoryIds));
-  const locationRows =
-    locationIds.length === 0
-      ? []
-      : await db
-          .select({
-            id: schema.locations.id,
-            name: schema.locations.name,
-            buildingCode: schema.locations.buildingCode,
-            floorNumber: schema.locations.floorNumber,
-            isActive: schema.locations.isActive,
-            reporterHidden: schema.locations.reporterHidden,
-          })
-          .from(schema.locations)
-          .where(inArray(schema.locations.id, locationIds));
+  const locationIds = [...new Set(result.items.map((row) => row.locationId))];
+  const categoryIds = [...new Set(result.items.map((row) => row.submittedCategoryId))];
+
+  const [assetRows, categoryRows, locationRows, supporterCountRows, viewerSupporterRows] =
+    await Promise.all([
+      assetIds.length === 0
+        ? Promise.resolve([] as Array<{ id: string; name: string }>)
+        : db
+            .select({ id: schema.facilityAssets.id, name: schema.facilityAssets.name })
+            .from(schema.facilityAssets)
+            .where(inArray(schema.facilityAssets.id, assetIds)),
+      categoryIds.length === 0
+        ? Promise.resolve([] as Array<{ id: string; name: string }>)
+        : db
+            .select({ id: schema.facilityCategories.id, name: schema.facilityCategories.name })
+            .from(schema.facilityCategories)
+            .where(inArray(schema.facilityCategories.id, categoryIds)),
+      locationIds.length === 0
+        ? Promise.resolve(
+            [] as Array<{
+              id: string;
+              name: string;
+              buildingCode: string | null;
+              floorNumber: number | null;
+              isActive: boolean;
+              reporterHidden: boolean;
+            }>,
+          )
+        : db
+            .select({
+              id: schema.locations.id,
+              name: schema.locations.name,
+              buildingCode: schema.locations.buildingCode,
+              floorNumber: schema.locations.floorNumber,
+              isActive: schema.locations.isActive,
+              reporterHidden: schema.locations.reporterHidden,
+            })
+            .from(schema.locations)
+            .where(inArray(schema.locations.id, locationIds)),
+      pageIds.length === 0
+        ? Promise.resolve([] as Array<{ reportId: string; value: number }>)
+        : db
+            .select({
+              reportId: schema.reportSupporters.reportId,
+              value: count(),
+            })
+            .from(schema.reportSupporters)
+            .where(inArray(schema.reportSupporters.reportId, pageIds))
+            .groupBy(schema.reportSupporters.reportId),
+      pageIds.length === 0
+        ? Promise.resolve([] as Array<{ reportId: string }>)
+        : db
+            .select({ reportId: schema.reportSupporters.reportId })
+            .from(schema.reportSupporters)
+            .where(
+              and(
+                inArray(schema.reportSupporters.reportId, pageIds),
+                eq(schema.reportSupporters.reporterId, id),
+              ),
+            ),
+    ]);
+
   const assetNames = new Map(assetRows.map((row) => [row.id, row.name] as const));
   const categoryNames = new Map(categoryRows.map((row) => [row.id, row.name] as const));
   const locationsById = new Map(locationRows.map((row) => [row.id, row] as const));
+  const supporterCounts = new Map(
+    supporterCountRows.map((row) => [row.reportId, row.value] as const),
+  );
+  const viewerSupportedIds = new Set(viewerSupporterRows.map((row) => row.reportId));
+
+  const rows = result.items.map((row) =>
+    toCampusReportListItem(
+      row,
+      id,
+      supporterCounts.get(row.id) ?? 0,
+      viewerSupportedIds.has(row.id),
+    ),
+  );
 
   return {
     items: rows.map((row) => {
@@ -2022,8 +2081,9 @@ export interface CampusReportStats {
 }
 
 // KPI counters for the reporter landing page. Counts are campus-wide except
-// `mineTotal` (the "Laporan Saya" tab). `active` follows the domain's open-work
-// subset (RESOLVED is NOT active); `done` is RESOLVED + CLOSED.
+// `mineTotal` (distinct tickets reported or supported by the viewer). `active`
+// follows the domain's open-work subset (RESOLVED is NOT active); `done` is
+// RESOLVED + CLOSED.
 export async function getCampusReportStats(
   db: ReportQueryDb,
   viewerId: string,
@@ -2046,7 +2106,16 @@ export async function getCampusReportStats(
     db
       .select({ value: count() })
       .from(schema.maintenanceReports)
-      .where(eq(schema.maintenanceReports.reporterId, id)),
+      .where(
+        or(
+          eq(schema.maintenanceReports.reporterId, id),
+          sql`EXISTS (
+            SELECT 1 FROM report_supporters rs
+            WHERE rs.report_id = ${schema.maintenanceReports.id}
+              AND rs.reporter_id = ${id}
+          )`,
+        ),
+      ),
   ]);
   return {
     total: totalRows[0]?.value ?? 0,
@@ -2070,10 +2139,8 @@ export interface CampusReport {
   readonly description: string;
   readonly occurredAt: Date | null;
   readonly finalPriority: string | null;
-  // Snapshot of the verified impact count (`priority_factors.affectedReporters`).
-  // Null for rows created before the factor existed; the ticket detail renders
-  // the "laporan mendukung" line only when a count is present.
-  readonly reporterCount: number | null;
+  // Distinct reporter count (primary + supporters, synced with priorityFactors).
+  readonly reporterCount: number;
   readonly reportedAt: Date;
   readonly verifiedAt: Date | null;
   readonly resolvedAt: Date | null;
@@ -2090,9 +2157,24 @@ export interface CampusReportRelation {
   readonly createdAt: Date;
 }
 
+export interface CampusReportSupporter {
+  readonly id: string;
+  readonly description: string;
+  readonly createdAt: Date;
+  readonly isMine: boolean;
+}
+
+export interface AdminReportSupporter {
+  readonly id: string;
+  readonly description: string;
+  readonly createdAt: Date;
+}
+
 export interface CampusReportDetail {
   readonly report: CampusReport;
   readonly isOwn: boolean;
+  readonly isSupporter: boolean;
+  readonly supporters: CampusReportSupporter[];
   readonly attachments: AttachmentSummary[];
   readonly events: schema.ReportEvent[];
   readonly relations: CampusReportRelation[];
@@ -2101,9 +2183,8 @@ export interface CampusReportDetail {
   // metadata; null when the report predates AI verification or the analysis
   // never completed. The detail page hides the confidence meter when null.
   readonly classificationConfidence: number | null;
-  // Tickets grouped into the same incident via SUPPORTING/RELATED relations
-  // (auto-merged at submit time for a different reporter). Sanitized to the
-  // same public-safe fields as the campus list — never the reporter id.
+  // Tickets grouped into the same incident via manual RELATED relations.
+  // Sanitized to public-safe fields — never the reporter id.
   readonly relatedReports: CampusRelatedReport[];
 }
 
@@ -2116,7 +2197,7 @@ export interface CampusRelatedReport {
   readonly reportedAt: Date;
 }
 
-function toCampusReport(row: schema.Report): CampusReport {
+function toCampusReport(row: schema.Report, supporterCount: number): CampusReport {
   return {
     id: row.id,
     ticketNumber: row.ticketNumber,
@@ -2130,7 +2211,7 @@ function toCampusReport(row: schema.Report): CampusReport {
     description: row.description,
     occurredAt: row.occurredAt,
     finalPriority: row.finalPriority,
-    reporterCount: reporterCountOf(row.priorityFactors),
+    reporterCount: Math.max(1 + supporterCount, reporterCountOf(row.priorityFactors) ?? 1),
     reportedAt: row.reportedAt,
     verifiedAt: row.verifiedAt,
     resolvedAt: row.resolvedAt,
@@ -2157,6 +2238,7 @@ export interface ReportDetail {
 export interface AdminReportDetail extends ReportDetail {
   /** Latest verifier row; null for rows created before AI analysis existed. */
   readonly aiAnalysis: schema.AiAnalysis | null;
+  readonly supporters: AdminReportSupporter[];
 }
 
 async function loadReportDetail(db: ReportQueryDb, row: schema.Report): Promise<ReportDetail> {
@@ -2237,9 +2319,18 @@ function sanitizeReporterDetailEvent(event: schema.ReportEvent): schema.ReportEv
       }
       delete rest['condition'];
     }
-    // Drop the retired visibility marker from legacy event metadata.
+    // Drop the retired visibility marker from legacy event metadata and strip
+    // any accidental reporter PII keys.
     delete rest['visibility'];
-    nextMetadata = rest;
+    for (const piiKey of ['reporterId', 'username', 'nim', 'email', 'name']) {
+      delete rest[piiKey];
+    }
+    if (eventType === 'SUPPORTER_ADDED') {
+      nextMetadata =
+        typeof rest['supporterId'] === 'string' ? { supporterId: rest['supporterId'] } : null;
+    } else {
+      nextMetadata = rest;
+    }
   }
   // Legacy internal-note events are progress notes under the current rule.
   if (eventType === 'INTERNAL_NOTE_ADDED') {
@@ -2341,17 +2432,39 @@ export async function getCampusReportDetail(
           .where(inArray(schema.maintenanceReports.id, relatedIds))
           .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id));
 
-  // Classifier confidence from the latest analysis row (0..1, nullable).
-  const confidenceRows = await db
-    .select({ confidence: schema.aiAnalyses.confidence })
-    .from(schema.aiAnalyses)
-    .where(eq(schema.aiAnalyses.reportId, id))
-    .orderBy(desc(schema.aiAnalyses.createdAt))
-    .limit(1);
+  // Classifier confidence from the latest analysis row (0..1, nullable) and
+  // supporting reports attached directly to this ticket.
+  const [confidenceRows, supporterRows] = await Promise.all([
+    db
+      .select({ confidence: schema.aiAnalyses.confidence })
+      .from(schema.aiAnalyses)
+      .where(eq(schema.aiAnalyses.reportId, id))
+      .orderBy(desc(schema.aiAnalyses.createdAt))
+      .limit(1),
+    db
+      .select({
+        id: schema.reportSupporters.id,
+        reporterId: schema.reportSupporters.reporterId,
+        description: schema.reportSupporters.description,
+        createdAt: schema.reportSupporters.createdAt,
+      })
+      .from(schema.reportSupporters)
+      .where(eq(schema.reportSupporters.reportId, id))
+      .orderBy(asc(schema.reportSupporters.createdAt), asc(schema.reportSupporters.id)),
+  ]);
+  const isSupporter = supporterRows.some((s) => s.reporterId === viewer);
+  const supporters: CampusReportSupporter[] = supporterRows.map((s) => ({
+    id: s.id,
+    description: s.description,
+    createdAt: s.createdAt,
+    isMine: s.reporterId === viewer,
+  }));
 
   return {
-    report: toCampusReport(row),
+    report: toCampusReport(row, supporters.length),
     isOwn,
+    isSupporter,
+    supporters,
     attachments: detail.attachments,
     events,
     relations,
@@ -2368,8 +2481,8 @@ export async function getCampusReportDetail(
   };
 }
 
-// Admin detail: same shape plus the latest AI verifier row, no ownership check
-// (404 only when truly missing).
+// Admin detail: same shape plus the latest AI verifier row and chronological
+// supporter quotes, no ownership check (404 only when truly missing).
 export async function getAdminReportDetail(
   db: ReportQueryDb,
   reportId: string,
@@ -2383,14 +2496,25 @@ export async function getAdminReportDetail(
   if (row === undefined) {
     throw notFound('Report not found');
   }
-  const detail = await loadReportDetail(db, row);
-  const analyses = await db
-    .select()
-    .from(schema.aiAnalyses)
-    .where(eq(schema.aiAnalyses.reportId, id))
-    .orderBy(desc(schema.aiAnalyses.createdAt))
-    .limit(1);
-  return { ...detail, aiAnalysis: analyses[0] ?? null };
+  const [detail, analyses, supporters] = await Promise.all([
+    loadReportDetail(db, row),
+    db
+      .select()
+      .from(schema.aiAnalyses)
+      .where(eq(schema.aiAnalyses.reportId, id))
+      .orderBy(desc(schema.aiAnalyses.createdAt))
+      .limit(1),
+    db
+      .select({
+        id: schema.reportSupporters.id,
+        description: schema.reportSupporters.description,
+        createdAt: schema.reportSupporters.createdAt,
+      })
+      .from(schema.reportSupporters)
+      .where(eq(schema.reportSupporters.reportId, id))
+      .orderBy(asc(schema.reportSupporters.createdAt), asc(schema.reportSupporters.id)),
+  ]);
+  return { ...detail, aiAnalysis: analyses[0] ?? null, supporters };
 }
 
 export interface ReportTimelineEntry {

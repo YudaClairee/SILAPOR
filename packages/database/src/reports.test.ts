@@ -61,6 +61,7 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
   linkSupportingReport,
+  listAdminReports,
   listAllReports,
   listCampusReports,
   listMyReports,
@@ -2501,6 +2502,204 @@ describe.skipIf(!enabled)(
         affectedReporters: 1,
         frequency: 0,
       });
+    });
+
+    it('includes supported tickets in listCampusReports(mine=true), listMyReports, getCampusReportStats, and listAdminReports without double-counting', async () => {
+      const insertFreshUser = async (username: string): Promise<string> => {
+        const rows = await db!
+          .insert(users)
+          .values({ username, role: 'REPORTER' })
+          .returning({ id: users.id });
+        const id = rows[0]?.id;
+        if (id === undefined) {
+          throw new Error('fixture: user insert failed');
+        }
+        return id;
+      };
+      const primaryUser = await insertFreshUser(`p5-owner-${randomUUID().slice(0, 8)}`);
+      const supporterUser = await insertFreshUser(`p5-supporter-${randomUUID().slice(0, 8)}`);
+      const asset = await createAsset(`T3-ASSET-LIST-SUP-${randomUUID().slice(0, 8)}`, catElec);
+
+      const statsBefore = await getCampusReportStats(db!, supporterUser);
+      expect(statsBefore.mineTotal).toBe(0);
+
+      const primary = await createReport(
+        db!,
+        {
+          reporterId: primaryUser,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('daftar laporan utama sebelum didukung'),
+        },
+        randomUUID(),
+      );
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: supporterUser,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('daftar laporan pendukung ikut laporan saya'),
+        },
+        randomUUID(),
+      );
+      expect(merged.kind).toBe('SUPPORTED');
+
+      // Campus list (mine=true) for supporter returns primary ticket with isOwn=false, isSupporter=true, reporterCount=2
+      // even when the ticket is still REPORTED (priorityFactors is null).
+      const supporterMine = await listCampusReports(db!, supporterUser, { mine: true });
+      expect(supporterMine.total).toBe(1);
+      expect(supporterMine.items).toHaveLength(1);
+      expect(supporterMine.items[0]).toMatchObject({
+        id: primary.report.id,
+        ticketNumber: primary.report.ticketNumber,
+        isOwn: false,
+        isSupporter: true,
+        reporterCount: 2,
+      });
+
+      const ownerMine = await listCampusReports(db!, primaryUser, { mine: true });
+      expect(ownerMine.total).toBe(1);
+      expect(ownerMine.items[0]).toMatchObject({
+        id: primary.report.id,
+        isOwn: true,
+        isSupporter: false,
+        reporterCount: 2,
+      });
+
+      const myReports = await listMyReports(db!, supporterUser, {});
+      expect(myReports.total).toBe(1);
+      expect(myReports.items[0]?.id).toBe(primary.report.id);
+
+      const statsAfter = await getCampusReportStats(db!, supporterUser);
+      expect(statsAfter.mineTotal).toBe(1);
+      expect(statsAfter.total).toBe(statsBefore.total + 1);
+      expect(statsAfter.active).toBe(statsBefore.active + 1);
+
+      const adminList = await listAdminReports(db!, { search: primary.report.ticketNumber });
+      expect(adminList.total).toBe(1);
+      expect(adminList.items[0]).toMatchObject({
+        id: primary.report.id,
+        reporterCount: 2,
+      });
+    });
+
+    it('returns sanitized supporters in getCampusReportDetail and chronological supporters in getAdminReportDetail', async () => {
+      const insertFreshUser = async (username: string): Promise<string> => {
+        const rows = await db!
+          .insert(users)
+          .values({ username, role: 'REPORTER' })
+          .returning({ id: users.id });
+        const id = rows[0]?.id;
+        if (id === undefined) {
+          throw new Error('fixture: user insert failed');
+        }
+        return id;
+      };
+      const userA = await insertFreshUser(`p5-det-a-${randomUUID().slice(0, 8)}`);
+      const sup1Username = `p5-det-sup1-${randomUUID().slice(0, 8)}`;
+      const sup2Username = `p5-det-sup2-${randomUUID().slice(0, 8)}`;
+      const userB = await insertFreshUser(sup1Username);
+      const userC = await insertFreshUser(sup2Username);
+      const outsider = await insertFreshUser(`p5-det-out-${randomUUID().slice(0, 8)}`);
+      const asset = await createAsset(`T3-ASSET-DET-SUP-${randomUUID().slice(0, 8)}`, catElec);
+
+      const primary = await createReport(
+        db!,
+        {
+          reporterId: userA,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('detail utama untuk supporters'),
+        },
+        randomUUID(),
+      );
+      const sup1 = await createReport(
+        db!,
+        {
+          reporterId: userB,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('deskripsi pendukung pertama detail'),
+        },
+        randomUUID(),
+      );
+      const sup2 = await createReport(
+        db!,
+        {
+          reporterId: userC,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('deskripsi pendukung kedua detail'),
+        },
+        randomUUID(),
+      );
+      if (sup1.kind !== 'SUPPORTED' || sup2.kind !== 'SUPPORTED') {
+        throw new Error('expected SUPPORTED');
+      }
+
+      // Check getCampusReportDetail from A (owner), B (supporter 1), and outsider.
+      const detailA = await getCampusReportDetail(db!, userA, primary.report.id);
+      expect(detailA.isOwn).toBe(true);
+      expect(detailA.isSupporter).toBe(false);
+      expect(detailA.report.reporterCount).toBe(3);
+      expect(detailA.supporters.map((s) => s.id)).toEqual([sup1.supporter.id, sup2.supporter.id]);
+      expect(detailA.supporters.map((s) => s.isMine)).toEqual([false, false]);
+
+      const detailB = await getCampusReportDetail(db!, userB, primary.report.id);
+      expect(detailB.isOwn).toBe(false);
+      expect(detailB.isSupporter).toBe(true);
+      expect(detailB.report.reporterCount).toBe(3);
+      expect(detailB.supporters.map((s) => s.isMine)).toEqual([true, false]);
+
+      const detailOut = await getCampusReportDetail(db!, outsider, primary.report.id);
+      expect(detailOut.isOwn).toBe(false);
+      expect(detailOut.isSupporter).toBe(false);
+      expect(detailOut.report.reporterCount).toBe(3);
+      expect(detailOut.supporters.map((s) => s.isMine)).toEqual([false, false]);
+
+      // Zero PII leakage in supporters or SUPPORTER_ADDED events.
+      for (const detail of [detailA, detailB, detailOut]) {
+        for (const supporter of detail.supporters) {
+          expect(Object.keys(supporter).sort()).toEqual([
+            'createdAt',
+            'description',
+            'id',
+            'isMine',
+          ]);
+        }
+        const serialized = JSON.stringify(detail);
+        expect(serialized).not.toContain(userA);
+        expect(serialized).not.toContain(userB);
+        expect(serialized).not.toContain(userC);
+        expect(serialized).not.toContain(sup1Username);
+        expect(serialized).not.toContain(sup2Username);
+        const supporterEvents = detail.events.filter((e) => e.eventType === 'SUPPORTER_ADDED');
+        expect(supporterEvents).toHaveLength(2);
+        for (const event of supporterEvents) {
+          expect(event.actorId).toBeNull();
+          expect(Object.keys((event.metadata ?? {}) as Record<string, unknown>)).toEqual([
+            'supporterId',
+          ]);
+        }
+      }
+
+      // Admin detail returns chronological supporters without reporterId/username.
+      const adminDetail = await getAdminReportDetail(db!, primary.report.id);
+      expect(adminDetail.supporters.map((s) => s.id)).toEqual([
+        sup1.supporter.id,
+        sup2.supporter.id,
+      ]);
+      expect(adminDetail.supporters.map((s) => s.description)).toEqual([
+        longDescription('deskripsi pendukung pertama detail'),
+        longDescription('deskripsi pendukung kedua detail'),
+      ]);
+      for (const supporter of adminDetail.supporters) {
+        expect(Object.keys(supporter).sort()).toEqual(['createdAt', 'description', 'id']);
+      }
+      const adminSupportersSerialized = JSON.stringify(adminDetail.supporters);
+      expect(adminSupportersSerialized).not.toContain(userB);
+      expect(adminSupportersSerialized).not.toContain(userC);
     });
   },
 );
