@@ -7,6 +7,10 @@
 // The scratch database (`silapor_p31_test`) is dropped if it exists,
 // recreated, migrated from scratch, exercised, then dropped again — the
 // shared dev database is never touched.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { describe, expect, it, afterAll, beforeAll } from 'vitest';
 import { runMigrations } from './migrate.js';
@@ -15,7 +19,11 @@ import {
   facilityCategories,
   locations,
   maintenanceReports,
+  outboxEvents,
+  reportAttachments,
   reportRelations,
+  reportSupporters,
+  stagedUploads,
   ticketCounters,
   users,
 } from './schema.js';
@@ -162,6 +170,7 @@ describe.skipIf(!enabled)('reports schema (requires reachable PostgreSQL)', () =
 
   it('migrates an empty database with all report tables present and empty', async () => {
     expect(await db!.select().from(maintenanceReports)).toEqual([]);
+    expect(await db!.select().from(reportSupporters)).toEqual([]);
     expect(await db!.select().from(ticketCounters)).toEqual([]);
     expect(await db!.select().from(reportRelations)).toEqual([]);
   });
@@ -271,6 +280,268 @@ describe.skipIf(!enabled)('reports schema (requires reachable PostgreSQL)', () =
     });
     expect(high.priorityScore).toBe(100);
   });
+
+  it('enforces report_supporters constraints, nullable supporter_id, and cascade deletes', async () => {
+    const [supporterA] = await db!
+      .insert(users)
+      .values({ username: 'p31-supporter-a', role: 'REPORTER' })
+      .returning({ id: users.id });
+    const [supporterB] = await db!
+      .insert(users)
+      .values({ username: 'p31-supporter-b', role: 'REPORTER' })
+      .returning({ id: users.id });
+    const report = await insertReport({
+      ticketNumber: 'MNT-2026-000012',
+      idempotencyKey: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    });
+
+    const [supA] = await db!
+      .insert(reportSupporters)
+      .values({
+        reportId: report.id,
+        reporterId: supporterA!.id,
+        idempotencyKey: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        description: 'pendukung A',
+      })
+      .returning();
+    expect(supA?.reportId).toBe(report.id);
+
+    // Unique (report_id, reporter_id)
+    await expectDbError(
+      db!.insert(reportSupporters).values({
+        reportId: report.id,
+        reporterId: supporterA!.id,
+        idempotencyKey: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        description: 'duplikat reporter pada tiket sama',
+      }),
+      /23505|duplicate key/,
+    );
+
+    // Unique idempotency_key
+    await expectDbError(
+      db!.insert(reportSupporters).values({
+        reportId: report.id,
+        reporterId: supporterB!.id,
+        idempotencyKey: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        description: 'duplikat idempotency key',
+      }),
+      /23505|duplicate key/,
+    );
+
+    const [supB] = await db!
+      .insert(reportSupporters)
+      .values({
+        reportId: report.id,
+        reporterId: supporterB!.id,
+        idempotencyKey: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        description: 'pendukung B',
+      })
+      .returning();
+
+    // Nullable supporter_id on report_attachments
+    const [primaryAtt] = await db!
+      .insert(reportAttachments)
+      .values({
+        reportId: report.id,
+        supporterId: null,
+        storageKey: 'att-primary-1',
+        originalFilename: 'primary.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 123,
+        checksum: 'abc',
+        uploadedBy: reporterId,
+      })
+      .returning();
+    const [supporterAtt] = await db!
+      .insert(reportAttachments)
+      .values({
+        reportId: report.id,
+        supporterId: supB!.id,
+        storageKey: 'att-supporter-1',
+        originalFilename: 'supporter.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 456,
+        checksum: 'def',
+        uploadedBy: supporterB!.id,
+      })
+      .returning();
+    expect(primaryAtt?.supporterId).toBeNull();
+    expect(supporterAtt?.supporterId).toBe(supB!.id);
+
+    // Deleting a supporter cascades only that supporter's attachment
+    await db!.delete(reportSupporters).where(eq(reportSupporters.id, supB!.id));
+    const afterSupDelete = await db!
+      .select()
+      .from(reportAttachments)
+      .where(eq(reportAttachments.reportId, report.id));
+    expect(afterSupDelete.map((a) => a.id)).toEqual([primaryAtt!.id]);
+
+    // Deleting the report cascades remaining supporters and attachments
+    await db!.delete(maintenanceReports).where(eq(maintenanceReports.id, report.id));
+    expect(
+      await db!.select().from(reportSupporters).where(eq(reportSupporters.reportId, report.id)),
+    ).toEqual([]);
+    expect(
+      await db!.select().from(reportAttachments).where(eq(reportAttachments.reportId, report.id)),
+    ).toEqual([]);
+  });
+
+  it('migrates legacy SUPPORTING relations into report_supporters on 0013', async () => {
+    const legacyDbName = 'silapor_0013_legacy_test';
+    const legacyUrlObj = new URL(baseUrl);
+    legacyUrlObj.pathname = `/${legacyDbName}`;
+    const legacyUrl = legacyUrlObj.toString();
+
+    const drizzleDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(drizzleDir, 'meta', '_journal.json'), 'utf8'),
+    ) as { entries: Array<{ tag: string }> };
+
+    const applySqlFile = async (sqlClient: postgres.Sql, tag: string) => {
+      const raw = fs.readFileSync(path.join(drizzleDir, `${tag}.sql`), 'utf8');
+      const statements = raw
+        .split('--> statement-breakpoint')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      await sqlClient.begin(async (tx) => {
+        for (const stmt of statements) {
+          await tx.unsafe(stmt);
+        }
+      });
+    };
+
+    const admin = postgres(baseUrl, { max: 1 });
+    try {
+      await admin.unsafe(`DROP DATABASE IF EXISTS "${legacyDbName}"`);
+      await admin.unsafe(`CREATE DATABASE "${legacyDbName}"`);
+    } finally {
+      await admin.end();
+    }
+
+    const legacySql = postgres(legacyUrl, { max: 1 });
+    const legacyConn = getDb(legacyUrl);
+    try {
+      const pre0013 = journal.entries.filter((e) => !e.tag.startsWith('0013_'));
+      for (const entry of pre0013) {
+        await applySqlFile(legacySql, entry.tag);
+      }
+
+      const [primaryUser] = await legacyConn.db
+        .insert(users)
+        .values({ username: 'legacy-primary', role: 'REPORTER' })
+        .returning({ id: users.id });
+      const [supportUser] = await legacyConn.db
+        .insert(users)
+        .values({ username: 'legacy-supporter', role: 'REPORTER' })
+        .returning({ id: users.id });
+      const [loc] = await legacyConn.db
+        .insert(locations)
+        .values({ type: 'ROOM', code: 'LEG-ROOM', name: 'Legacy room' })
+        .returning({ id: locations.id });
+      const [cat] = await legacyConn.db
+        .insert(facilityCategories)
+        .values({ code: 'LEG-CAT', name: 'Legacy category' })
+        .returning({ id: facilityCategories.id });
+
+      const [targetReport] = await legacyConn.db
+        .insert(maintenanceReports)
+        .values({
+          ticketNumber: 'MNT-2026-900001',
+          idempotencyKey: '10101010-1010-4010-8010-101010101010',
+          reporterId: primaryUser!.id,
+          locationId: loc!.id,
+          submittedCategoryId: cat!.id,
+          finalCategoryId: cat!.id,
+          status: 'VERIFIED',
+          description: 'AC utama bocor',
+        })
+        .returning();
+
+      const [legacySupportReport] = await legacyConn.db
+        .insert(maintenanceReports)
+        .values({
+          ticketNumber: 'MNT-2026-900002',
+          idempotencyKey: '20202020-2020-4020-8020-202020202020',
+          reporterId: supportUser!.id,
+          locationId: loc!.id,
+          submittedCategoryId: cat!.id,
+          status: 'REPORTED',
+          description: 'AC juga bocor dari saya',
+        })
+        .returning();
+
+      await legacyConn.db.insert(reportRelations).values({
+        sourceReportId: legacySupportReport!.id,
+        targetReportId: targetReport!.id,
+        relationType: 'SUPPORTING',
+        createdBy: supportUser!.id,
+      });
+
+      await legacySql.unsafe(
+        `INSERT INTO "report_attachments" ("report_id", "storage_key", "original_filename", "mime_type", "size_bytes", "checksum", "uploaded_by")
+         VALUES ($1, 'leg-att-1', 'leg.jpg', 'image/jpeg', 100, 'chk', $2)`,
+        [legacySupportReport!.id, supportUser!.id],
+      );
+
+      await legacyConn.db.insert(stagedUploads).values({
+        storageKey: 'staging_legacy_1',
+        uploadedBy: supportUser!.id,
+        originalFilename: 'leg.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 100,
+        checksum: 'chk',
+        claimedReportId: legacySupportReport!.id,
+      });
+
+      await legacyConn.db.insert(outboxEvents).values({
+        type: 'AI_REVIEW_REQUESTED',
+        payload: { reportId: legacySupportReport!.id, ticketNumber: 'MNT-2026-900002' },
+        status: 'PENDING',
+      });
+
+      await applySqlFile(legacySql, '0013_report_supporters');
+
+      const supporters = await legacyConn.db
+        .select()
+        .from(reportSupporters)
+        .where(eq(reportSupporters.reportId, targetReport!.id));
+      expect(supporters).toHaveLength(1);
+      expect(supporters[0]?.reporterId).toBe(supportUser!.id);
+      expect(supporters[0]?.idempotencyKey).toBe('20202020-2020-4020-8020-202020202020');
+      expect(supporters[0]?.description).toBe('AC juga bocor dari saya');
+
+      const movedAtts = await legacyConn.db
+        .select()
+        .from(reportAttachments)
+        .where(eq(reportAttachments.reportId, targetReport!.id));
+      expect(movedAtts).toHaveLength(1);
+      expect(movedAtts[0]?.supporterId).toBe(supporters[0]?.id);
+
+      const movedStaged = await legacyConn.db
+        .select()
+        .from(stagedUploads)
+        .where(eq(stagedUploads.storageKey, 'staging_legacy_1'));
+      expect(movedStaged[0]?.claimedReportId).toBe(targetReport!.id);
+
+      const remainingOutbox = await legacyConn.db.select().from(outboxEvents);
+      expect(remainingOutbox).toEqual([]);
+
+      const remainingRelations = await legacyConn.db.select().from(reportRelations);
+      expect(remainingRelations).toEqual([]);
+
+      const remainingReports = await legacyConn.db.select().from(maintenanceReports);
+      expect(remainingReports.map((r) => r.id)).toEqual([targetReport!.id]);
+    } finally {
+      await legacyConn.close();
+      await legacySql.end();
+      const cleanupAdmin = postgres(baseUrl, { max: 1 });
+      try {
+        await cleanupAdmin.unsafe(`DROP DATABASE IF EXISTS "${legacyDbName}"`);
+      } finally {
+        await cleanupAdmin.end();
+      }
+    }
+  }, 120_000);
 });
 
 it('reports schema availability (informational)', () => {

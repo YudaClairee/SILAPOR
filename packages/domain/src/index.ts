@@ -48,6 +48,7 @@ export const REPORT_EVENT_TYPE = [
   'INTERNAL_NOTE_ADDED',
   'REPORT_RESOLVED',
   'REPORT_CLOSED',
+  'SUPPORTER_ADDED',
 ] as const;
 
 export type ReportEventType = (typeof REPORT_EVENT_TYPE)[number];
@@ -210,6 +211,26 @@ export function mapScoreToPriority(score: number): PriorityLevel {
   if (score >= 70) return 'HIGH';
   if (score >= 40) return 'MEDIUM';
   return 'LOW';
+}
+
+const PRIORITY_RANK: Record<PriorityLevel, number> = {
+  LOW: 0,
+  MEDIUM: 1,
+  HIGH: 2,
+};
+
+/**
+ * Upgrade-only priority comparator (`LOW < MEDIUM < HIGH`): never downgrades an
+ * existing priority when new supporting reporters join a verified ticket.
+ */
+export function higherPriority(
+  current: PriorityLevel | null,
+  candidate: PriorityLevel,
+): PriorityLevel {
+  if (current === null) {
+    return candidate;
+  }
+  return PRIORITY_RANK[candidate] > PRIORITY_RANK[current] ? candidate : current;
 }
 
 export function scorePriority(input: PriorityScoreInput): PriorityScoreResult {

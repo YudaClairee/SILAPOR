@@ -4,8 +4,10 @@ import {
   PRIORITY_LEVELS,
   SCORING_CONFIG_VERSION,
   frequencyBonus,
+  higherPriority,
   mapScoreToPriority,
   scorePriority,
+  type PriorityLevel,
   type PriorityScoreInput,
 } from './index.js';
 
@@ -243,5 +245,27 @@ describe('scorePriority result shape', () => {
     );
     expect(high.score).toBe(70);
     expect(high.suggestedPriority).toBe('HIGH');
+  });
+});
+
+describe('higherPriority', () => {
+  it('upgrades or keeps every (current, candidate) combination without downgrading', () => {
+    const cases: Array<[PriorityLevel | null, PriorityLevel, PriorityLevel]> = [
+      [null, 'LOW', 'LOW'],
+      [null, 'MEDIUM', 'MEDIUM'],
+      [null, 'HIGH', 'HIGH'],
+      ['LOW', 'LOW', 'LOW'],
+      ['LOW', 'MEDIUM', 'MEDIUM'],
+      ['LOW', 'HIGH', 'HIGH'],
+      ['MEDIUM', 'LOW', 'MEDIUM'],
+      ['MEDIUM', 'MEDIUM', 'MEDIUM'],
+      ['MEDIUM', 'HIGH', 'HIGH'],
+      ['HIGH', 'LOW', 'HIGH'],
+      ['HIGH', 'MEDIUM', 'HIGH'],
+      ['HIGH', 'HIGH', 'HIGH'],
+    ];
+    for (const [current, candidate, expected] of cases) {
+      expect(higherPriority(current, candidate)).toBe(expected);
+    }
   });
 });
