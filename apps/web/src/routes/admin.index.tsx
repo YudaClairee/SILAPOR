@@ -438,7 +438,7 @@ function KpiTile({ card, range }: { readonly card: KpiCard; readonly range: Date
           />
         </span>
       )}
-      <span className="mt-auto block pt-2 text-[11px] leading-snug text-[#8a97a3]">
+      <span className="mt-auto block pt-2 text-[11px] leading-snug text-[#5c6b7a]">
         {card.caption}
       </span>
     </>

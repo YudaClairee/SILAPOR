@@ -665,7 +665,7 @@ function Page() {
                 <p className="mt-1 text-sm text-muted">
                   {modal.kind === 'create'
                     ? 'Teknisi tanpa akun; nama disembunyikan dari pelapor.'
-                    : `Menyunting ${modal.row.technicianCode} — ${modal.row.displayName}.`}
+                    : `Menyunting ${modal.row.technicianCode} (${modal.row.displayName}).`}
                 </p>
               </div>
               <button

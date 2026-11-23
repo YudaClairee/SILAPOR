@@ -527,7 +527,7 @@ function Page() {
                       className={STEXT}
                       aria-describedby="sc-bobot-hint"
                     />
-                    <span aria-hidden="true" className="text-[13px] text-[#8a97a3]">
+                    <span aria-hidden="true" className="text-[13px] text-[#5c6b7a]">
                       %
                     </span>
                   </div>
@@ -545,7 +545,7 @@ function Page() {
                       className={STEXT}
                       aria-describedby="sc-bobot-hint"
                     />
-                    <span aria-hidden="true" className="text-[13px] text-[#8a97a3]">
+                    <span aria-hidden="true" className="text-[13px] text-[#5c6b7a]">
                       %
                     </span>
                   </div>
@@ -563,7 +563,7 @@ function Page() {
                       className={STEXT}
                       aria-describedby="sc-bobot-hint"
                     />
-                    <span aria-hidden="true" className="text-[13px] text-[#8a97a3]">
+                    <span aria-hidden="true" className="text-[13px] text-[#5c6b7a]">
                       %
                     </span>
                   </div>
@@ -773,7 +773,7 @@ function Page() {
                 </div>
               ) : null}
               <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5">
-                <p className="text-[12px] text-[#8a97a3]">
+                <p className="text-[12px] text-[#5c6b7a]">
                   Perubahan skor hanya berlaku untuk laporan baru berikutnya.
                 </p>
                 <p className="text-[12px] font-semibold text-[#33567d]">
@@ -806,7 +806,7 @@ function Page() {
                 <div className="relative min-w-0 flex-1">
                   <span
                     aria-hidden="true"
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a97a3]"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#5c6b7a]"
                   >
                     <SearchIcon className="h-4 w-4" />
                   </span>
@@ -1045,7 +1045,7 @@ function Pager(props: {
       </button>
       {items.map((item, i) =>
         item === 'ellipsis' ? (
-          <span key={'e' + i} aria-hidden="true" className="px-1 text-[#8a97a3]">
+          <span key={'e' + i} aria-hidden="true" className="px-1 text-[#5c6b7a]">
             …
           </span>
         ) : (

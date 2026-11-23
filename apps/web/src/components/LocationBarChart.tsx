@@ -66,7 +66,7 @@ export function LocationBarChart({
         <p className="mt-6 text-sm text-[#697784]">{emptyMessage}</p>
       ) : (
         <div ref={tooltip.containerRef} className="relative mt-5">
-          <div aria-hidden="true" className={`${rowGrid} text-[10px] font-medium text-[#8a97a3]`}>
+          <div aria-hidden="true" className={`${rowGrid} text-[10px] font-medium text-[#5c6b7a]`}>
             <span />
             <span className="flex justify-between">
               {ticks.map((tick) => (

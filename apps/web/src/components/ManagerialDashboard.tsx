@@ -270,7 +270,33 @@ export function ManagerialDashboardScreen({
       {pending ? <div className="mt-5"><LoadingState message="Memuat dashboard manajerial…" /></div>
         : loadError !== null ? <div className="mt-5"><ErrorPanel message={loadError} retry={<Button type="button" variant="secondary" onClick={apply}>Coba lagi</Button>} /></div>
           : forbidden ? <div className="mt-5"><ErrorPanel title="Akses ditolak" message="Akun ini tidak memiliki akses ke dashboard manajerial." /></div>
-            : data === null || !hasReports ? <div className="mt-5"><EmptyState title="Belum ada data" description="Belum ada data pada rentang ini." /></div>
+            : data === null || !hasReports ? (
+                <div className="mt-5">
+                  <EmptyState
+                    title="Belum ada laporan pada rentang ini"
+                    description={
+                      from !== '' || to !== ''
+                        ? 'Tidak ada laporan masuk pada rentang tanggal yang dipilih. Ubah rentang tanggal atau atur ulang filter untuk melihat seluruh data.'
+                        : 'Belum ada laporan fasilitas yang tercatat di sistem.'
+                    }
+                    action={
+                      from !== '' || to !== '' ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            setFrom('');
+                            setTo('');
+                            onApply({ from: '', to: '' });
+                          }}
+                        >
+                          Atur ulang rentang tanggal
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                </div>
+              )
               : <DashboardContent model={buildManagerialDashboardViewModel(data)} readOnly={readOnly} />}
     </section>
   );

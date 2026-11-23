@@ -727,7 +727,7 @@ function Pager(props: {
       </button>
       {props.items.map((item, i) =>
         item === 'ellipsis' ? (
-          <span key={'e' + i} aria-hidden="true" className="px-1 text-[#8a97a3]">
+          <span key={'e' + i} aria-hidden="true" className="px-1 text-[#5c6b7a]">
             …
           </span>
         ) : (
@@ -784,7 +784,7 @@ function LocationTab(props: {
       <div className="mt-4 flex flex-col gap-3 rounded-xl border border-[#e8edf3] bg-white p-4 lg:flex-row lg:items-center">
         <label className="relative block flex-1">
           <span className="sr-only">Cari kode, gedung, lantai, atau ruangan</span>
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97a3]" />
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5c6b7a]" />
           <Input
             value={props.search}
             placeholder="Cari kode, gedung, lantai, atau ruangan…"
@@ -978,7 +978,7 @@ function CategoryTab(props: {
       <div className="mt-4 flex flex-col gap-3 rounded-xl border border-[#e8edf3] bg-white p-4 lg:flex-row lg:items-center">
         <label className="relative block flex-1">
           <span className="sr-only">Cari kode atau nama kategori</span>
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97a3]" />
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5c6b7a]" />
           <Input
             value={props.search}
             placeholder="Cari kode atau nama kategori…"
@@ -1106,7 +1106,7 @@ function IssueTab(props: {
       <div className="mt-4 flex flex-col gap-3 rounded-xl border border-[#e8edf3] bg-white p-4 lg:flex-row lg:items-center">
         <label className="relative block flex-1">
           <span className="sr-only">Cari kode atau nama jenis masalah</span>
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97a3]" />
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5c6b7a]" />
           <Input
             value={props.search}
             placeholder="Cari kode atau nama jenis masalah…"

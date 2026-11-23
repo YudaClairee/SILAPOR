@@ -102,3 +102,5 @@ postgres-data/
 
 # Superpowers agent working files
 .superpowers/
+.antislop/
+anti-slop/

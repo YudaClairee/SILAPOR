@@ -408,7 +408,7 @@ function KindTab({ kind, label, active, search }: KindTabProps) {
       to="/admin/reports"
       search={{ ...search, kind, offset: 0 }}
       aria-current={active ? 'page' : undefined}
-      className={`inline-flex min-h-[36px] items-center rounded-[10px] px-3 text-[13px] font-medium transition-colors ${
+      className={`inline-flex min-h-[44px] items-center rounded-[10px] px-3 text-[13px] font-medium transition-colors ${
         active ? 'bg-[#e7f7fb] text-[#0a3947]' : 'text-[#33414d] hover:bg-[#eef3fb]'
       }`}
     >
@@ -432,7 +432,7 @@ function Pagination({ current, totalPages, limit, search }: PaginationProps) {
         <Link
           to="/admin/reports"
           search={{ ...search, offset: (current - 2) * limit }}
-          className="inline-flex min-h-[36px] items-center gap-1 rounded-md px-3 text-[14px] text-[#3f4c57] hover:bg-[#eef3fb]"
+          className="inline-flex min-h-[44px] items-center gap-1 rounded-md px-3 text-[14px] text-[#3f4c57] hover:bg-[#eef3fb]"
         >
           <ChevronLeftIcon className="h-4 w-4" />
           Sebelumnya
@@ -440,7 +440,7 @@ function Pagination({ current, totalPages, limit, search }: PaginationProps) {
       ) : (
         <span
           aria-disabled="true"
-          className="inline-flex min-h-[36px] cursor-not-allowed items-center gap-1 rounded-md px-3 text-[14px] text-[#b3bdc8]"
+          className="inline-flex min-h-[44px] cursor-not-allowed items-center gap-1 rounded-md px-3 text-[14px] text-[#5c6b7a] opacity-60"
         >
           <ChevronLeftIcon className="h-4 w-4" />
           Sebelumnya
@@ -449,7 +449,7 @@ function Pagination({ current, totalPages, limit, search }: PaginationProps) {
 
       {items.map((item, index) =>
         item === 'ellipsis' ? (
-          <span key={`ellipsis-${index}`} className="px-1.5 text-[14px] text-[#8a97a3]">
+          <span key={`ellipsis-${index}`} className="px-1.5 text-[14px] text-[#5c6b7a]">
             …
           </span>
         ) : (
@@ -458,7 +458,7 @@ function Pagination({ current, totalPages, limit, search }: PaginationProps) {
             to="/admin/reports"
             search={{ ...search, offset: (item - 1) * limit }}
             aria-current={item === current ? 'page' : undefined}
-            className={`inline-flex h-9 min-h-[36px] min-w-[36px] items-center justify-center rounded-md text-[14px] font-medium transition-colors ${
+            className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-[14px] font-medium transition-colors ${
               item === current ? 'bg-accent text-white' : 'text-[#3f4c57] hover:bg-[#eef3fb]'
             }`}
           >
@@ -471,7 +471,7 @@ function Pagination({ current, totalPages, limit, search }: PaginationProps) {
         <Link
           to="/admin/reports"
           search={{ ...search, offset: current * limit }}
-          className="inline-flex min-h-[36px] items-center gap-1 rounded-md px-3 text-[14px] text-[#3f4c57] hover:bg-[#eef3fb]"
+          className="inline-flex min-h-[44px] items-center gap-1 rounded-md px-3 text-[14px] text-[#3f4c57] hover:bg-[#eef3fb]"
         >
           Berikutnya
           <ChevronRightIcon className="h-4 w-4" />
@@ -479,7 +479,7 @@ function Pagination({ current, totalPages, limit, search }: PaginationProps) {
       ) : (
         <span
           aria-disabled="true"
-          className="inline-flex min-h-[36px] cursor-not-allowed items-center gap-1 rounded-md px-3 text-[14px] text-[#b3bdc8]"
+          className="inline-flex min-h-[44px] cursor-not-allowed items-center gap-1 rounded-md px-3 text-[14px] text-[#5c6b7a] opacity-60"
         >
           Berikutnya
           <ChevronRightIcon className="h-4 w-4" />
@@ -819,8 +819,8 @@ function AdminReportsPage() {
                 className="font-medium text-[#0b5c8a] underline underline-offset-2"
               >
                 Buka antrian verifikasi manual (REPORTED)
-              </Link>{' '}
-              — laporan yang ditahan karena layanan AI tidak tersedia.
+              </Link>
+              : laporan yang ditahan karena layanan AI tidak tersedia.
             </p>
           </div>
         ) : null}
@@ -910,7 +910,7 @@ function AdminReportsPage() {
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-[14px]">
                         {item.technicianName === null ? (
-                          <span className="italic text-[#8a97a3]">Belum ditugaskan</span>
+                          <span className="italic text-[#5c6b7a]">Belum ditugaskan</span>
                         ) : (
                           <span className="text-[#202a33]">{item.technicianName}</span>
                         )}

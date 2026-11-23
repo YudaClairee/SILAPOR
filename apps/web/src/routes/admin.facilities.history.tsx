@@ -393,7 +393,7 @@ function AssetHistoryPage() {
                 <option value="">Pilih aset…</option>
                 {(assets ?? []).map((asset) => (
                   <option key={asset.assetId} value={asset.assetId}>
-                    {`${asset.assetCode} — ${asset.assetName} (${asset.locationLabel || 'Lokasi belum diisi'})`}
+                    {`${asset.assetCode} - ${asset.assetName} (${asset.locationLabel || 'Lokasi belum diisi'})`}
                   </option>
                 ))}
               </select>

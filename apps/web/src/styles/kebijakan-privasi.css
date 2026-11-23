@@ -88,7 +88,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 16px;
   border: 1px solid #e1e5e9;
   border-radius: 8px;
@@ -111,16 +111,26 @@
 .policy-back-plain:hover {
   background: transparent;
 }
+.policy-copy-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.policy-copy-status {
+  font-size: 12px;
+  font-weight: 500;
+  color: #0a3947;
+}
 .policy-shield {
-  width: 40px;
-  min-height: 40px;
+  width: 44px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid #e1e5e9;
   border-radius: 9999px;
   background: #fff;
-  color: #697784;
+  color: #5c6b7a;
   cursor: pointer;
 }
 .policy-shield:hover {

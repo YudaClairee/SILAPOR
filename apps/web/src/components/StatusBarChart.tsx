@@ -171,7 +171,7 @@ function StatusBarPlot({ title, rows, total }: StatusBarPlotProps) {
                     strokeWidth="1"
                     strokeDasharray={tick === 0 ? undefined : '4 5'}
                   />
-                  <text x={PAD.left - 10} y={y + 3} textAnchor="end" fill="#8a97a3" fontSize="10">
+                  <text x={PAD.left - 10} y={y + 3} textAnchor="end" fill="#5c6b7a" fontSize="10">
                     {formatAxisTick((axisMax / TICKS) * tick)}
                   </text>
                 </g>

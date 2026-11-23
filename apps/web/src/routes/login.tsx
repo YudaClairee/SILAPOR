@@ -174,7 +174,7 @@ function LoginPage() {
           Portal Layanan Terpadu
         </span>
       </header>
-      <main className="login-main">
+      <div className="login-main">
         <div className="login-card">
           <h1 id="login-title">Masuk ke Akun</h1>
           <p className="login-subtitle">Silakan masukkan kredensial akun SSO UPI Anda.</p>
@@ -195,14 +195,9 @@ function LoginPage() {
               disabled={pending}
               className="login-input"
             />
-            <div className="password-row">
-              <label className="login-label" htmlFor="login-password">
-                Kata sandi
-              </label>
-              <a className="forgot-link" href="#lupa-kata-sandi">
-                Lupa kata sandi?
-              </a>
-            </div>
+            <label className="login-label" htmlFor="login-password">
+              Kata sandi
+            </label>
             <div className="password-wrap">
               <input
                 id="login-password"
@@ -241,7 +236,7 @@ function LoginPage() {
             <Link to="/kebijakan-privasi">Kebijakan Privasi</Link>
           </div>
         </div>
-      </main>
+      </div>
       <footer className="login-footer">
         <span>© 2025 Universitas Pendidikan Indonesia. Seluruh hak cipta dilindungi.</span>
         <span>SCMS v1.0 · UMPER UPI Kampus Tasikmalaya</span>

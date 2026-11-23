@@ -9,8 +9,15 @@ export interface LoadingStateProps {
 
 export function LoadingState({ message = 'Memuat…', children }: LoadingStateProps) {
   return (
-    <p role="status" className="text-sm text-muted">
-      {children ?? message}
-    </p>
+    <div
+      role="status"
+      className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-4 text-sm text-muted"
+    >
+      <span
+        aria-hidden="true"
+        className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
+      />
+      <span>{children ?? message}</span>
+    </div>
   );
 }

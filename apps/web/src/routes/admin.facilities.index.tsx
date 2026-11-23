@@ -541,7 +541,7 @@ function FilterBar({
       <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto] lg:items-center">
         <label className="relative block">
           <span className="sr-only">Cari kode aset atau nama aset</span>
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97a3]" />
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#5c6b7a]" />
           <Input
             type="search"
             value={filters.search}
@@ -980,7 +980,7 @@ function AssetModal({
             <p className="mt-1 text-sm text-muted">
               {modal.kind === 'create'
                 ? 'Kode aset harus unik; status fasilitas dihitung otomatis dari laporan aktif.'
-                : `Menyunting ${modal.row.assetCode} — ${modal.row.assetName}.`}
+                : `Menyunting ${modal.row.assetCode} (${modal.row.assetName}).`}
             </p>
           </div>
           <button
@@ -1045,7 +1045,7 @@ function AssetModal({
             <p className="text-xs text-muted">Lokasi saat ini: {locationLabel || '—'}</p>
           ) : (
             <p className="text-xs text-muted">
-              Lokasi &amp; tahun pengadaan diisi otomatis — relokasi lewat Data Master Lokasi.
+              Lokasi &amp; tahun pengadaan diisi otomatis; relokasi lewat Data Master Lokasi.
             </p>
           )}
           {error !== null ? <FieldError id="aset-modal-err" message={error} /> : null}

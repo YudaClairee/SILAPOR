@@ -125,7 +125,7 @@ describe('dashboard manajerial', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Belum ada data pada rentang ini.')).toBeInTheDocument();
+    expect(await screen.findByText('Belum ada laporan pada rentang ini')).toBeInTheDocument();
   });
 
   it('renders forbidden and retryable error states', async () => {

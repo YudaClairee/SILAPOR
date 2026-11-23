@@ -495,7 +495,7 @@ function Page() {
               to="/reporter"
               search={{ search: searchTerm, mine: false, status, priority, offset: 0 }}
               aria-current={mine ? undefined : 'page'}
-              className={`inline-flex min-h-[36px] items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors ${
+              className={`inline-flex min-h-[44px] items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors ${
                 mine ? 'text-[#4b5563] hover:bg-white/70' : 'bg-white text-text shadow-sm'
               }`}
             >
@@ -508,7 +508,7 @@ function Page() {
               to="/reporter"
               search={{ search: searchTerm, mine: true, status, priority, offset: 0 }}
               aria-current={mine ? 'page' : undefined}
-              className={`inline-flex min-h-[36px] items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors ${
+              className={`inline-flex min-h-[44px] items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors ${
                 mine ? 'bg-white text-text shadow-sm' : 'text-[#4b5563] hover:bg-white/70'
               }`}
             >
@@ -530,7 +530,7 @@ function Page() {
                 onChange={(event) => setSearchDraft(event.target.value)}
                 placeholder="Cari Ticket ID, nama aset, atau lokasi..."
                 aria-label="Cari laporan, nama aset, atau lokasi"
-                className="min-h-[44px] w-full rounded-lg border border-[#e1e5e9] bg-white pl-10 pr-12 text-sm text-text placeholder:text-[#8a949c]"
+                className="min-h-[44px] w-full rounded-lg border border-[#e1e5e9] bg-white pl-10 pr-12 text-sm text-text placeholder:text-[#5c6b7a]"
               />
               <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[#e1e5e9] bg-[#f7f9ff] px-1.5 text-[11px] text-[#697784]">
                 /
@@ -760,7 +760,7 @@ function Page() {
                   type="button"
                   onClick={() => goToPage(currentPage - 1)}
                   disabled={currentPage <= 1}
-                  className="inline-flex min-h-[36px] items-center gap-1 rounded-md px-2.5 text-sm font-medium text-[#40484b] transition-colors hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex min-h-[44px] items-center gap-1 rounded-md px-2.5 text-sm font-medium text-[#40484b] transition-colors hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ChevronLeftIcon className="h-4 w-4" />
                   Sebelumnya
@@ -772,7 +772,7 @@ function Page() {
                       type="button"
                       onClick={() => goToPage(entry)}
                       aria-current={entry === currentPage ? 'page' : undefined}
-                      className={`inline-flex h-9 min-w-9 items-center justify-center rounded-md px-2 text-sm font-medium transition-colors ${
+                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-2 text-sm font-medium transition-colors ${
                         entry === currentPage
                           ? 'bg-accent text-white'
                           : 'text-[#40484b] hover:bg-white/70'
@@ -781,7 +781,7 @@ function Page() {
                       {entry}
                     </button>
                   ) : (
-                    <span key={entry} className="px-1 text-sm text-[#697784]">
+                    <span key={entry} className="px-1 text-sm text-[#5c6b7a]">
                       …
                     </span>
                   ),
@@ -790,7 +790,7 @@ function Page() {
                   type="button"
                   onClick={() => goToPage(currentPage + 1)}
                   disabled={currentPage >= totalPages}
-                  className="inline-flex min-h-[36px] items-center gap-1 rounded-md px-2.5 text-sm font-medium text-[#40484b] transition-colors hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex min-h-[44px] items-center gap-1 rounded-md px-2.5 text-sm font-medium text-[#40484b] transition-colors hover:bg-white/70 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Berikutnya
                   <ChevronRightIcon className="h-4 w-4" />

@@ -18,7 +18,7 @@ export const Route = createRootRoute({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'SILAPOR — Smart Campus Maintenance',
+        title: 'SILAPOR - Smart Campus Maintenance',
       },
     ],
   }),

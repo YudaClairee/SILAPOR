@@ -154,10 +154,10 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
                   strokeWidth="1"
                   strokeDasharray="4 5"
                 />
-                <text x={PAD.left - 10} y={y + 3} textAnchor="end" fill="#8a97a3" fontSize="10">
+                <text x={PAD.left - 10} y={y + 3} textAnchor="end" fill="#5c6b7a" fontSize="10">
                   {formatAxisTick((reportsMax / 4) * tick)}
                 </text>
-                <text x={PAD.left + PLOT_WIDTH + 10} y={y + 3} fill="#8a97a3" fontSize="10">
+                <text x={PAD.left + PLOT_WIDTH + 10} y={y + 3} fill="#5c6b7a" fontSize="10">
                   {`${formatAxisTick((durationMax / 4) * tick)}j`}
                 </text>
               </g>
@@ -266,7 +266,7 @@ function TrendChartPlot({ title, data, showPills }: TrendChartPlotProps) {
                 x={xOf(index)}
                 y={HEIGHT - PAD.bottom + 31}
                 textAnchor="middle"
-                fill="#8a97a3"
+                fill="#5c6b7a"
                 fontSize="10"
               >
                 {datum.sublabel}

@@ -24,7 +24,7 @@ import {
   type SVGProps,
 } from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
-import { BellIcon, ChevronDownIcon, GridIcon, LogoMark, MenuIcon } from './Icon';
+import { ChevronDownIcon, GridIcon, LogoMark, MenuIcon } from './Icon';
 
 export interface AdminShellUser {
   readonly username: string;
@@ -318,17 +318,6 @@ export function AdminShell({ user, onLogout, children, variant = 'admin' }: Admi
           )}
 
           <div className="flex items-center gap-3">
-            <span
-              aria-hidden="true"
-              title={
-                isManagerial
-                  ? 'Pusat notifikasi belum tersedia'
-                  : 'Pusat notifikasi admin belum tersedia'
-              }
-              className="hidden h-9 w-9 items-center justify-center rounded-full text-[#3f4c57] sm:flex"
-            >
-              <BellIcon className="h-5 w-5" />
-            </span>
             <div className="hidden text-right sm:block">
               <p className="text-sm font-semibold text-[#202a33]">{user.username}</p>
               <p className="text-[11px] text-[#697784]">{identity}</p>

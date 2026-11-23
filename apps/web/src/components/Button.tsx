@@ -6,7 +6,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
 
 /** Base layout shared by every variant: >=44px target, md radius. */
 export const buttonBaseClasses =
-  'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors active:brightness-90 disabled:cursor-not-allowed disabled:opacity-50';
 
 /** Variant tone classes. Primary uses white text on the teal accent per
  *  DESIGN.md (accent-contrast, 12.43:1 — accent itself is never body text). */
