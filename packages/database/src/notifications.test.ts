@@ -16,6 +16,7 @@ import {
   maintenanceReports,
   notifications,
   outboxEvents,
+  reportSupporters,
   users,
 } from './schema.js';
 import {
@@ -263,6 +264,125 @@ describe.skipIf(!enabled)('notification processing (requires reachable PostgreSQ
     await expect(
       processNotificationOutboxEvent(requireDb(), missingReportId),
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('broadcasts workflow notifications to primary reporter and all supporters idempotently', async () => {
+    const d = requireDb();
+    const supporterUsers = await d
+      .insert(users)
+      .values([
+        { username: `p63-s1-${randomUUID().slice(0, 8)}`, role: 'REPORTER' },
+        { username: `p63-s2-${randomUUID().slice(0, 8)}`, role: 'REPORTER' },
+      ])
+      .returning({ id: users.id });
+    const supporter1Id = supporterUsers[0]!.id;
+    const supporter2Id = supporterUsers[1]!.id;
+
+    const [loc] = await d
+      .select({ id: locations.id })
+      .from(locations)
+      .where(eq(locations.code, 'P63-CAMPUS'));
+    const [cat] = await d
+      .select({ id: facilityCategories.id })
+      .from(facilityCategories)
+      .where(eq(facilityCategories.code, 'P63-ELEC'));
+    const ticketNumber = 'MNT-2026-000100';
+    const [multiReport] = await d
+      .insert(maintenanceReports)
+      .values({
+        ticketNumber,
+        idempotencyKey: randomUUID(),
+        reporterId,
+        locationId: loc!.id,
+        submittedCategoryId: cat!.id,
+        description: 'Stop kontak di koridor lantai dua berasap dan bau hangus.',
+        status: 'IN_REPAIR',
+      })
+      .returning({ id: maintenanceReports.id });
+    const multiReportId = multiReport!.id;
+
+    await d.insert(reportSupporters).values([
+      {
+        reportId: multiReportId,
+        reporterId: supporter1Id,
+        idempotencyKey: randomUUID(),
+        description: 'Saya juga melihat percikan api di stop kontak yang sama.',
+      },
+      {
+        reportId: multiReportId,
+        reporterId: supporter2Id,
+        idempotencyKey: randomUUID(),
+        description: 'Benar, kabel di sekitar stop kontak tampak meleleh.',
+      },
+    ]);
+
+    for (const kind of [
+      'REPORT_ASSIGNED',
+      'PROGRESS_NOTE_ADDED',
+      'REPORT_RESOLVED',
+      'REPORT_CLOSED',
+    ] as const) {
+      const eventId = await queueEvent(kind, {
+        payload: { reportId: multiReportId, ticketNumber, kind, actorId: adminId },
+      });
+      const firstPass = await processNotificationOutboxEvent(d, eventId);
+      expect(firstPass).toEqual({ created: 3, skippedReason: null });
+
+      const createdRows = await d
+        .select()
+        .from(notifications)
+        .where(eq(notifications.sourceEventId, eventId));
+      expect(createdRows).toHaveLength(3);
+      expect(createdRows.map((row) => row.userId).sort()).toEqual(
+        [reporterId, supporter1Id, supporter2Id].sort(),
+      );
+      for (const row of createdRows) {
+        expect(row.type).toBe(kind);
+        expect(row.reportId).toBe(multiReportId);
+        expect(row.message).toContain(ticketNumber);
+        expect(row.message).not.toContain(adminId);
+        expect(row.message).not.toContain(reporterId);
+        expect(row.message).not.toContain(supporter1Id);
+        expect(row.message).not.toContain(supporter2Id);
+      }
+
+      // Full redelivery: idempotent for every recipient.
+      const redelivery = await processNotificationOutboxEvent(d, eventId);
+      expect(redelivery).toEqual({ created: 0, skippedReason: 'duplicate' });
+    }
+
+    // Partial redelivery: 1 recipient already inserted, 2 supporters still missing.
+    const partialEventId = await queueEvent('STATUS_CHANGED', {
+      payload: {
+        reportId: multiReportId,
+        ticketNumber,
+        kind: 'STATUS_CHANGED',
+        actorId: adminId,
+      },
+    });
+    const partialContent = buildNotificationContent('STATUS_CHANGED', ticketNumber)!;
+    await d.insert(notifications).values({
+      userId: reporterId,
+      type: partialContent.type,
+      title: partialContent.title,
+      message: partialContent.message,
+      reportId: multiReportId,
+      sourceEventId: partialEventId,
+    });
+
+    const partialResult = await processNotificationOutboxEvent(d, partialEventId);
+    expect(partialResult).toEqual({ created: 2, skippedReason: null });
+
+    const partialRows = await d
+      .select()
+      .from(notifications)
+      .where(eq(notifications.sourceEventId, partialEventId));
+    expect(partialRows.map((row) => row.userId).sort()).toEqual(
+      [reporterId, supporter1Id, supporter2Id].sort(),
+    );
+
+    const afterPartial = await processNotificationOutboxEvent(d, partialEventId);
+    expect(afterPartial).toEqual({ created: 0, skippedReason: 'duplicate' });
   });
 });
 
