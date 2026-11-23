@@ -181,6 +181,7 @@ export async function listExpiredUnclaimedStaged(
 
 export interface LinkStagedUploadsInput {
   readonly reportId: string;
+  readonly supporterId?: string | null;
   readonly staged: readonly {
     readonly storageKey: string;
     readonly originalFilename: string;
@@ -205,6 +206,10 @@ export async function linkStagedUploads(
     throw badRequest('Invalid link staged uploads input');
   }
   const reportId = requireUuid(input.reportId, 'reportId');
+  const supporterId =
+    input.supporterId === undefined || input.supporterId === null
+      ? null
+      : requireUuid(input.supporterId, 'supporterId');
   const uploadedBy = requireUuid(input.uploadedBy, 'uploadedBy');
   if (!Array.isArray(input.staged) || input.staged.length === 0) {
     throw badRequest('At least one staged file is required.');
@@ -243,6 +248,7 @@ export async function linkStagedUploads(
       .values(
         files.map((file) => ({
           reportId,
+          supporterId,
           storageKey: file.storageKey,
           originalFilename: file.originalFilename,
           mimeType: file.mimeType,
@@ -253,6 +259,7 @@ export async function linkStagedUploads(
       )
       .returning({
         id: schema.reportAttachments.id,
+        supporterId: schema.reportAttachments.supporterId,
         originalFilename: schema.reportAttachments.originalFilename,
         mimeType: schema.reportAttachments.mimeType,
         sizeBytes: schema.reportAttachments.sizeBytes,
@@ -263,7 +270,11 @@ export async function linkStagedUploads(
       reportId,
       eventType: 'ATTACHMENT_ADDED',
       actorId: uploadedBy,
-      metadata: { attachmentIds: inserted.map((row) => row.id), count: inserted.length },
+      metadata: {
+        attachmentIds: inserted.map((row) => row.id),
+        count: inserted.length,
+        ...(supporterId === null ? {} : { supporterId }),
+      },
     });
     return inserted;
   });

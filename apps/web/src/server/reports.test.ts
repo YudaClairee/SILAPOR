@@ -36,6 +36,7 @@ import type { SessionUser } from './auth.js';
 const dbMocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   createReport: vi.fn(),
+  compensateFailedSupporter: vi.fn(),
   recordAiAnalysis: vi.fn(),
   markAiAnalysis: vi.fn(),
   applyVerification: vi.fn(),
@@ -66,6 +67,7 @@ vi.mock('@silapor/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@silapor/database')>()),
   getDb: dbMocks.getDb,
   createReport: dbMocks.createReport,
+  compensateFailedSupporter: dbMocks.compensateFailedSupporter,
   recordAiAnalysis: dbMocks.recordAiAnalysis,
   markAiAnalysis: dbMocks.markAiAnalysis,
   applyVerification: dbMocks.applyVerification,
@@ -538,7 +540,8 @@ function arrangeCreatedReport() {
       submittedCategoryId: SUBMIT_CATEGORY_ID,
     },
     duplicateCandidates: [],
-    relation: null,
+    kind: 'CREATED',
+    supporter: null,
     idempotentReplay: false,
   });
   dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -565,7 +568,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -604,7 +608,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.getStagedUploadsByKeys.mockResolvedValue([]);
@@ -674,7 +679,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -759,7 +765,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -829,7 +836,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -933,7 +941,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1008,7 +1017,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1076,7 +1086,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1129,7 +1140,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1170,7 +1182,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1223,7 +1236,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1279,17 +1293,26 @@ describe('submitVerifiedReport held fallback', () => {
       close: async () => undefined,
     });
     dbMocks.createReport.mockResolvedValue({
+      kind: 'SUPPORTED',
       report: {
         id: SUBMIT_REPORT_ID,
-        ticketNumber: 'MNT-2026-000009',
+        ticketNumber: 'MNT-2026-000001',
         status: 'REPORTED',
-        reporterId: SUBMIT_REPORTER_ID,
+        reporterId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         assetId: UUID_B,
         locationId: UUID_A,
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: { type: 'SUPPORTING', targetTicket: 'MNT-2026-000001' },
+      supporter: {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb9',
+        reportId: SUBMIT_REPORT_ID,
+        reporterId: SUBMIT_REPORTER_ID,
+        idempotencyKey: 'key-merged-1',
+        description: 'Laporan pendukung',
+        createdAt: new Date('2026-10-14T00:00:00.000Z'),
+      },
+      affectedReporters: 2,
       idempotentReplay: false,
     });
     const verify = vi.fn().mockResolvedValue({ kind: 'DOWN' });
@@ -1302,19 +1325,23 @@ describe('submitVerifiedReport held fallback', () => {
     expect(res.status).toBe(201);
     const merged = res as Extract<typeof res, { verification: { status: 'MERGED' } }>;
     expect(merged.verification).toEqual({ status: 'MERGED' });
+    expect(merged.ticketNumber).toBe('MNT-2026-000001');
     expect(merged.relation).toEqual({ type: 'SUPPORTING', targetTicket: 'MNT-2026-000001' });
     expect(merged.message).toContain('MNT-2026-000001');
     expect(verify).not.toHaveBeenCalled();
     expect(dbMocks.recordAiAnalysis).not.toHaveBeenCalled();
     expect(dbMocks.markAiAnalysis).not.toHaveBeenCalled();
     expect(dbMocks.applyVerification).not.toHaveBeenCalled();
-    // Photos still attach to the merged row for audit.
+    // Photos attach to the primary ticket under this supporter row.
     expect(dbMocks.linkStagedUploads).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ reportId: SUBMIT_REPORT_ID }),
+      expect.objectContaining({
+        reportId: SUBMIT_REPORT_ID,
+        supporterId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb9',
+      }),
     );
-    // The PENDING AI review request is dropped so no worker re-verifies.
-    expect(compensated).toBeGreaterThan(0);
+    // No AI_REVIEW_REQUESTED row was created or needed dropping.
+    expect(compensated).toBe(0);
   });
 
   it('threads the OPENROUTER_API_KEY through the default verify call', async () => {
@@ -1331,7 +1358,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1371,7 +1399,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1413,7 +1442,8 @@ describe('submitVerifiedReport held fallback', () => {
         submittedCategoryId: SUBMIT_CATEGORY_ID,
       },
       duplicateCandidates: [],
-      relation: null,
+      kind: 'CREATED',
+      supporter: null,
       idempotentReplay: false,
     });
     dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -1930,7 +1960,8 @@ function arrangeServiceCreated() {
       submittedCategoryId: UUID_B,
     },
     duplicateCandidates: [],
-    relation: null,
+    kind: 'CREATED',
+    supporter: null,
     idempotentReplay: false,
   });
   dbMocks.recordAiAnalysis.mockResolvedValue({ id: SUBMIT_ANALYSIS_ID, status: 'PENDING' });
@@ -2072,17 +2103,26 @@ describe('submitVerifiedReport service reports (Langkah 5)', () => {
 
   it('merges a service report into another ticket without calling the AI', async () => {
     dbMocks.createReport.mockResolvedValue({
+      kind: 'SUPPORTED',
       report: {
         id: SUBMIT_REPORT_ID,
-        ticketNumber: 'MNT-2026-000013',
+        ticketNumber: 'MNT-2026-000012',
         status: 'REPORTED',
-        reporterId: SUBMIT_REPORTER_ID,
+        reporterId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         assetId: null,
         locationId: UUID_A,
         submittedCategoryId: UUID_B,
       },
       duplicateCandidates: [],
-      relation: { type: 'SUPPORTING', targetTicket: 'MNT-2026-000012' },
+      supporter: {
+        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb8',
+        reportId: SUBMIT_REPORT_ID,
+        reporterId: SUBMIT_REPORTER_ID,
+        idempotencyKey: 'key-service-merged-1',
+        description: 'Laporan layanan pendukung',
+        createdAt: new Date('2026-10-14T00:00:00.000Z'),
+      },
+      affectedReporters: 2,
       idempotentReplay: false,
     });
     const verify = vi.fn();

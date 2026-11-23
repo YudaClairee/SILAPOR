@@ -10,16 +10,16 @@
 // matches or merges with damage reports):
 // same-reporter actives throw `DuplicateActiveError` (`DUPLICATE_ACTIVE`
 // with the active ticketNumber, consuming no ticket); different-reporter
-// actives are auto-merged — the new row is created and a SUPPORTING
-// `report_relations` row to the earliest active ticket is written in the SAME
-// transaction (auto-gabung; verification later never touches the link).
-// After the row: exactly one ticket per idempotency key, one REPORT_CREATED
-// event, one PENDING AI_REVIEW_REQUESTED outbox row. It NEVER calls AI and
-// NEVER uses REJECTED/DUPLICATE statuses (7-status lifecycle).
+// actives attach as a supporter row in `report_supporters` on the earliest
+// active ticket in the SAME transaction without minting a new ticket or
+// enqueuing AI review.
+// When no active ticket exists, a new report is created: one ticket per
+// idempotency key, one REPORT_CREATED event, one PENDING AI_REVIEW_REQUESTED
+// outbox row. It NEVER calls AI and NEVER uses REJECTED/DUPLICATE statuses
+// (7-status lifecycle).
 //
 // `applyVerification` moves a held REPORTED row to VERIFIED with the
-// verifier-supplied finals plus a REPORT_VERIFIED event, atomically, without
-// disturbing any SUPPORTING link.
+// verifier-supplied finals plus a REPORT_VERIFIED event, atomically.
 //
 // Errors use `AppError` from `@silapor/shared` (400 validation, 404 missing
 // reference, 409 duplicate block carrying the active ticketNumber in
@@ -282,30 +282,37 @@ export async function findDuplicateCandidates(
 // createReport.
 // ---------------------------------------------------------------------------
 
-export interface CreateReportResult {
-  readonly report: schema.Report;
-  // Compat: still computed via `findDuplicateCandidates`. Always empty on the
-  // new flow (same-reporter actives throw; other reporters are scoped out)
-  // but kept so existing readers keep compiling until the web layer moves.
-  readonly duplicateCandidates: DuplicateCandidate[];
-  // Auto-merge outcome: set when a different reporter's ACTIVE report on the
-  // same asset absorbed this row as SUPPORTING in the same transaction.
-  readonly relation: SupportingRelationRef | null;
-  readonly idempotentReplay: boolean;
-}
+export type CreateReportResult =
+  | {
+      readonly kind: 'CREATED';
+      readonly report: schema.Report;
+      // Compat: still computed via `findDuplicateCandidates`. Always empty on the
+      // new flow (same-reporter actives throw; other reporters are scoped out).
+      readonly duplicateCandidates: DuplicateCandidate[];
+      readonly supporter: null;
+      readonly idempotentReplay: boolean;
+    }
+  | {
+      readonly kind: 'SUPPORTED';
+      readonly report: schema.Report;
+      readonly duplicateCandidates: DuplicateCandidate[];
+      readonly supporter: schema.ReportSupporter;
+      readonly affectedReporters: number;
+      readonly idempotentReplay: boolean;
+    };
 
+// Kept until Langkah 7 migrates `SubmitVerifiedResult` in apps/web.
 export interface SupportingRelationRef {
   readonly type: 'SUPPORTING';
   readonly targetTicket: string;
 }
 
-// Thrown when the same reporter submits the same asset while an ACTIVE
-// report on it exists. An `AppError` with code `DUPLICATE_ACTIVE`,
-// status 409, and the active ticketNumber in `details`, so `isAppError` /
-// `toHttpResponse` carry status+code through transport (Task 6 reads
-// `details.ticketNumber` for the 409 body). Always thrown BEFORE the ticket
-// counter increments — a blocked submit consumes no ticket and writes no
-// rows (the enclosing transaction rolls back).
+// Thrown when the same reporter submits the same target while an ACTIVE
+// report on it exists (either as primary reporter or existing supporter).
+// An `AppError` with code `DUPLICATE_ACTIVE`, status 409, and the active
+// ticketNumber in `details`, so `isAppError` / `toHttpResponse` carry
+// status+code through transport. Always thrown BEFORE the ticket counter
+// increments — a blocked submit consumes no ticket and writes no rows.
 export class DuplicateActiveError extends AppError {
   constructor(
     ticketNumber: string,
@@ -321,99 +328,71 @@ export class DuplicateActiveError extends AppError {
   }
 }
 
-interface ActiveAssetMatch {
-  readonly id: string;
-  readonly ticketNumber: string;
-}
-
-// Earliest ACTIVE report on an asset: the same-reporter hit is the block
-// target, the different-reporter hit is the merge target. No date window —
-// any active row blocks/merges, however old. Deterministic via reportedAt,
-// then id.
-async function findEarliestActiveOnAsset(
-  db: ReportQueryDb,
-  assetId: string,
-  reporterId: string,
-  sameReporter: boolean,
-): Promise<ActiveAssetMatch | undefined> {
-  const reporterCondition = sameReporter
-    ? eq(schema.maintenanceReports.reporterId, reporterId)
-    : ne(schema.maintenanceReports.reporterId, reporterId);
-  const rows = await db
-    .select({
-      id: schema.maintenanceReports.id,
-      ticketNumber: schema.maintenanceReports.ticketNumber,
-    })
-    .from(schema.maintenanceReports)
-    .where(
-      and(
-        reporterCondition,
-        eq(schema.maintenanceReports.assetId, assetId),
-        inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
-      ),
-    )
-    .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id))
-    .limit(1);
-  const row = rows[0];
-  return row === undefined ? undefined : { id: row.id, ticketNumber: row.ticketNumber };
-}
-
-// Earliest ACTIVE service report (asset_id IS NULL) at a location for one
-// service category: same-reporter hit blocks, other-reporter hit auto-merges.
-// Asset-based rows never match, so damage and service reports stay apart.
-async function findEarliestActiveOnLocationCategory(
+// Earliest ACTIVE report on the target (asset for damage, or location +
+// service category with asset_id IS NULL for service), regardless of reporter.
+// Deterministic via reportedAt ASC, then id ASC.
+async function findEarliestActiveOnTarget(
   db: ReportQueryDb,
   locationId: string,
-  categoryId: string,
-  reporterId: string,
-  sameReporter: boolean,
-): Promise<ActiveAssetMatch | undefined> {
-  const reporterCondition = sameReporter
-    ? eq(schema.maintenanceReports.reporterId, reporterId)
-    : ne(schema.maintenanceReports.reporterId, reporterId);
+  target: SubmissionTarget,
+): Promise<schema.Report | undefined> {
+  const targetCondition =
+    target.assetId !== null
+      ? eq(schema.maintenanceReports.assetId, target.assetId)
+      : and(
+          isNull(schema.maintenanceReports.assetId),
+          eq(schema.maintenanceReports.locationId, locationId),
+          eq(schema.maintenanceReports.submittedCategoryId, target.categoryId),
+        );
   const rows = await db
-    .select({
-      id: schema.maintenanceReports.id,
-      ticketNumber: schema.maintenanceReports.ticketNumber,
-    })
+    .select()
     .from(schema.maintenanceReports)
-    .where(
-      and(
-        reporterCondition,
-        isNull(schema.maintenanceReports.assetId),
-        eq(schema.maintenanceReports.locationId, locationId),
-        eq(schema.maintenanceReports.submittedCategoryId, categoryId),
-        inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
-      ),
-    )
+    .where(and(targetCondition, inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES])))
     .orderBy(asc(schema.maintenanceReports.reportedAt), asc(schema.maintenanceReports.id))
     .limit(1);
-  const row = rows[0];
-  return row === undefined ? undefined : { id: row.id, ticketNumber: row.ticketNumber };
+  return rows[0];
 }
 
-// The SUPPORTING link a replayed report was merged with at submit time (null
-// when it stands alone). Read-only: replays never write.
-async function findSupportingRelation(
+async function hasReporterSupported(
   db: ReportQueryDb,
-  sourceReportId: string,
-): Promise<SupportingRelationRef | null> {
+  reportId: string,
+  reporterId: string,
+): Promise<boolean> {
   const rows = await db
-    .select({ ticketNumber: schema.maintenanceReports.ticketNumber })
-    .from(schema.reportRelations)
-    .innerJoin(
-      schema.maintenanceReports,
-      eq(schema.maintenanceReports.id, schema.reportRelations.targetReportId),
-    )
+    .select({ id: schema.reportSupporters.id })
+    .from(schema.reportSupporters)
     .where(
       and(
-        eq(schema.reportRelations.sourceReportId, sourceReportId),
-        eq(schema.reportRelations.relationType, 'SUPPORTING'),
+        eq(schema.reportSupporters.reportId, reportId),
+        eq(schema.reportSupporters.reporterId, reporterId),
       ),
     )
     .limit(1);
-  const row = rows[0];
-  return row === undefined ? null : { type: 'SUPPORTING', targetTicket: row.ticketNumber };
+  return rows.length > 0;
+}
+
+export interface SupporterByKeyMatch {
+  readonly supporter: schema.ReportSupporter;
+  readonly report: schema.Report;
+}
+
+export async function findSupporterByKey(
+  db: ReportQueryDb,
+  idempotencyKey: string,
+): Promise<SupporterByKeyMatch | undefined> {
+  const rows = await db
+    .select({
+      supporter: schema.reportSupporters,
+      report: schema.maintenanceReports,
+    })
+    .from(schema.reportSupporters)
+    .innerJoin(
+      schema.maintenanceReports,
+      eq(schema.reportSupporters.reportId, schema.maintenanceReports.id),
+    )
+    .where(eq(schema.reportSupporters.idempotencyKey, idempotencyKey))
+    .limit(1);
+  return rows[0];
 }
 
 // Drizzle wraps storage errors in `DrizzleQueryError` with the postgres
@@ -587,25 +566,81 @@ async function resolveSubmissionTarget(
   throw badRequest('Invalid report input: assetId or serviceCategoryId is required');
 }
 
-// Same-reporter / other-reporter ACTIVE lookup for the target: by asset for
-// damage reports, by location + category for service reports.
-async function findActiveForTarget(
-  tx: TransactionClient,
-  locationId: string,
-  reporterId: string,
-  target: SubmissionTarget,
-  sameReporter: boolean,
-): Promise<ActiveAssetMatch | undefined> {
-  if (target.assetId !== null) {
-    return await findEarliestActiveOnAsset(tx, target.assetId, reporterId, sameReporter);
+function extractConstraintName(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth++) {
+    if (typeof current !== 'object' || current === null) {
+      break;
+    }
+    const record = current as Record<string, unknown>;
+    const constraint = record['constraint_name'] ?? record['constraint'];
+    if (typeof constraint === 'string' && constraint.length > 0) {
+      return constraint;
+    }
+    const next = record['cause'];
+    if (next === undefined || next === null) {
+      break;
+    }
+    current = next;
   }
-  return await findEarliestActiveOnLocationCategory(
-    tx,
-    locationId,
-    target.categoryId,
-    reporterId,
-    sameReporter,
-  );
+  return null;
+}
+
+async function countSupportersForReport(db: ReportQueryDb, reportId: string): Promise<number> {
+  const rows = await db
+    .select({ value: count() })
+    .from(schema.reportSupporters)
+    .where(eq(schema.reportSupporters.reportId, reportId));
+  return rows[0]?.value ?? 0;
+}
+
+async function buildCreatedReplayResult(
+  db: ReportQueryDb,
+  report: schema.Report,
+): Promise<CreateReportResult> {
+  return {
+    kind: 'CREATED',
+    report,
+    duplicateCandidates: await findDuplicateCandidates(db, toFilterInput(report)),
+    supporter: null,
+    idempotentReplay: true,
+  };
+}
+
+async function buildSupportedResult(
+  db: ReportQueryDb,
+  report: schema.Report,
+  supporter: schema.ReportSupporter,
+  idempotentReplay: boolean,
+): Promise<CreateReportResult> {
+  const supporterCount = await countSupportersForReport(db, report.id);
+  return {
+    kind: 'SUPPORTED',
+    report,
+    duplicateCandidates: [],
+    supporter,
+    affectedReporters: 1 + supporterCount,
+    idempotentReplay,
+  };
+}
+
+async function findActiveForDuplicateError(
+  db: ReportQueryDb,
+  input: CreateReportInput,
+): Promise<schema.Report | undefined> {
+  if (input.assetId !== undefined) {
+    return await findEarliestActiveOnTarget(db, input.locationId, {
+      assetId: input.assetId,
+      categoryId: '',
+    });
+  }
+  if (input.serviceCategoryId !== undefined) {
+    return await findEarliestActiveOnTarget(db, input.locationId, {
+      assetId: null,
+      categoryId: input.serviceCategoryId,
+    });
+  }
+  return undefined;
 }
 
 export async function createReport(
@@ -619,19 +654,20 @@ export async function createReport(
   const key = idempotencyKey.trim();
 
   // Replay-before-validation (Fix 1): a same-key retry must replay the
-  // original ticket even when the retried payload drifted (e.g. edited
-  // description). The in-transaction lookup below still covers the race
-  // where the key lands between this fast-path check and the transaction.
-  const fastReplay = await findReportByKey(db, key);
-  if (fastReplay !== undefined) {
-    const replayCandidates = await findDuplicateCandidates(db, toFilterInput(fastReplay));
-    const replayRelation = await findSupportingRelation(db, fastReplay.id);
-    return {
-      report: fastReplay,
-      duplicateCandidates: replayCandidates,
-      relation: replayRelation,
-      idempotentReplay: true,
-    };
+  // original ticket or supporter attachment even when the retried payload
+  // drifted. The in-transaction lookup below still covers concurrent races.
+  const fastReportReplay = await findReportByKey(db, key);
+  if (fastReportReplay !== undefined) {
+    return await buildCreatedReplayResult(db, fastReportReplay);
+  }
+  const fastSupporterReplay = await findSupporterByKey(db, key);
+  if (fastSupporterReplay !== undefined) {
+    return await buildSupportedResult(
+      db,
+      fastSupporterReplay.report,
+      fastSupporterReplay.supporter,
+      true,
+    );
   }
 
   const shapeErrors = validateCreateReportInput(input);
@@ -667,33 +703,58 @@ export async function createReport(
 
       // Same-key retry AFTER the target lock: a concurrent same-key winner may
       // have committed while this transaction waited on the lock — replay it
-      // with NO new ticket/event/job instead of misreading it as a duplicate.
-      const existing = await findReportByKey(tx, key);
-      if (existing !== undefined) {
-        const replayCandidates = await findDuplicateCandidates(tx, toFilterInput(existing));
-        const replayRelation = await findSupportingRelation(tx, existing.id);
-        return {
-          report: existing,
-          duplicateCandidates: replayCandidates,
-          relation: replayRelation,
-          idempotentReplay: true,
-        };
+      // with NO new ticket/supporter/event/job instead of misreading it as a duplicate.
+      const existingReport = await findReportByKey(tx, key);
+      if (existingReport !== undefined) {
+        return await buildCreatedReplayResult(tx, existingReport);
+      }
+      const existingSupporter = await findSupporterByKey(tx, key);
+      if (existingSupporter !== undefined) {
+        return await buildSupportedResult(
+          tx,
+          existingSupporter.report,
+          existingSupporter.supporter,
+          true,
+        );
       }
 
-      // Duplicate-first: same reporter + same target + ACTIVE → block BEFORE
-      // the ticket counter moves, so the failure consumes no ticket.
-      const sameReporterActive = await findActiveForTarget(
-        tx,
-        input.locationId,
-        input.reporterId,
-        target,
-        true,
-      );
-      if (sameReporterActive !== undefined) {
-        throw new DuplicateActiveError(
-          sameReporterActive.ticketNumber,
-          target.assetId === null ? SERVICE_DUPLICATE_MESSAGE : undefined,
-        );
+      // Active-target lookup: same reporter (primary or already supporting)
+      // throws 409 DUPLICATE_ACTIVE; different reporter attaches as supporter
+      // on the existing active ticket without minting a new ticket.
+      const activeTarget = await findEarliestActiveOnTarget(tx, input.locationId, target);
+      if (activeTarget !== undefined) {
+        if (
+          activeTarget.reporterId === input.reporterId ||
+          (await hasReporterSupported(tx, activeTarget.id, input.reporterId))
+        ) {
+          throw new DuplicateActiveError(
+            activeTarget.ticketNumber,
+            target.assetId === null ? SERVICE_DUPLICATE_MESSAGE : undefined,
+          );
+        }
+
+        const insertedSupporter = await tx
+          .insert(schema.reportSupporters)
+          .values({
+            reportId: activeTarget.id,
+            reporterId: input.reporterId,
+            idempotencyKey: key,
+            description: input.description.trim(),
+          })
+          .returning();
+        const supporter = insertedSupporter[0];
+        if (supporter === undefined) {
+          throw internal('Failed to create report supporter');
+        }
+
+        await tx.insert(schema.reportEvents).values({
+          reportId: activeTarget.id,
+          eventType: 'SUPPORTER_ADDED',
+          actorId: input.reporterId,
+          metadata: { supporterId: supporter.id },
+        });
+
+        return await buildSupportedResult(tx, activeTarget, supporter, false);
       }
 
       // Lock/increment the per-year ticket counter atomically.
@@ -749,51 +810,45 @@ export async function createReport(
         status: 'PENDING',
       });
 
-      // Auto-gabung: a different reporter's ACTIVE report on the same asset
-      // absorbs this row as SUPPORTING in the SAME transaction — no extra
-      // job, no admin action, and verification later leaves the link alone.
-      const otherReporterActive = await findActiveForTarget(
-        tx,
-        input.locationId,
-        input.reporterId,
-        target,
-        false,
-      );
-      let relation: SupportingRelationRef | null = null;
-      if (otherReporterActive !== undefined) {
-        await tx.insert(schema.reportRelations).values({
-          sourceReportId: report.id,
-          targetReportId: otherReporterActive.id,
-          relationType: 'SUPPORTING',
-          createdBy: input.reporterId,
-        });
-        relation = { type: 'SUPPORTING', targetTicket: otherReporterActive.ticketNumber };
-      }
-
       const duplicateCandidates = await findDuplicateCandidates(tx, toFilterInput(report));
-      return { report, duplicateCandidates, relation, idempotentReplay: false };
+      return {
+        kind: 'CREATED',
+        report,
+        duplicateCandidates,
+        supporter: null,
+        idempotentReplay: false,
+      };
     });
   } catch (error) {
-    // Known failures rethrow verbatim — including the duplicate block (the
-    // transaction already rolled back: no row, no ticket, no event, no link).
-    // Concurrent same-key race: the unique constraint let exactly one
-    // transaction win; the loser replays the winner instead of 409ing.
-    // Residual failures NEVER escape raw (SQL/PII leak risk): known FK
-    // violations map to 404, everything else to a generic 500.
     if (isAppError(error)) {
       throw error;
     }
     if (isUniqueViolation(error)) {
-      const winner = await findReportByKey(db, key);
-      if (winner !== undefined) {
-        const replayCandidates = await findDuplicateCandidates(db, toFilterInput(winner));
-        const replayRelation = await findSupportingRelation(db, winner.id);
-        return {
-          report: winner,
-          duplicateCandidates: replayCandidates,
-          relation: replayRelation,
-          idempotentReplay: true,
-        };
+      const winnerReport = await findReportByKey(db, key);
+      if (winnerReport !== undefined) {
+        return await buildCreatedReplayResult(db, winnerReport);
+      }
+      const winnerSupporter = await findSupporterByKey(db, key);
+      if (winnerSupporter !== undefined) {
+        return await buildSupportedResult(
+          db,
+          winnerSupporter.report,
+          winnerSupporter.supporter,
+          true,
+        );
+      }
+      const constraint = extractConstraintName(error);
+      if (
+        constraint === 'report_supporters_report_reporter_unique' ||
+        (error instanceof Error && error.message.includes('report_supporters_report_reporter_unique'))
+      ) {
+        const activeTarget = await findActiveForDuplicateError(db, input);
+        if (activeTarget !== undefined) {
+          throw new DuplicateActiveError(
+            activeTarget.ticketNumber,
+            input.assetId === undefined ? SERVICE_DUPLICATE_MESSAGE : undefined,
+          );
+        }
       }
       throw internal('Failed to create report');
     }
@@ -802,6 +857,31 @@ export async function createReport(
     }
     throw internal('Failed to create report');
   }
+}
+
+// Compensates a failed supporter attachment (e.g. staged-photo claim CONFLICT)
+// by deleting only the supporter row and its SUPPORTER_ADDED event — NEVER the
+// primary maintenance_reports row belonging to another reporter.
+export async function compensateFailedSupporter(db: Database, supporterId: string): Promise<void> {
+  const id = requireUuid(supporterId, 'supporterId');
+  await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(schema.reportSupporters)
+      .where(eq(schema.reportSupporters.id, id))
+      .returning({ reportId: schema.reportSupporters.reportId });
+    const reportId = deleted[0]?.reportId;
+    if (reportId !== undefined) {
+      await tx
+        .delete(schema.reportEvents)
+        .where(
+          and(
+            eq(schema.reportEvents.reportId, reportId),
+            eq(schema.reportEvents.eventType, 'SUPPORTER_ADDED'),
+            sql`${schema.reportEvents.metadata}->>'supporterId' = ${id}`,
+          ),
+        );
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1851,6 +1931,7 @@ async function loadReportDetail(db: ReportQueryDb, row: schema.Report): Promise<
   const attachments = await db
     .select({
       id: schema.reportAttachments.id,
+      supporterId: schema.reportAttachments.supporterId,
       originalFilename: schema.reportAttachments.originalFilename,
       mimeType: schema.reportAttachments.mimeType,
       sizeBytes: schema.reportAttachments.sizeBytes,

@@ -26,6 +26,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import {
   applyVerification as repoApplyVerification,
+  compensateFailedSupporter as repoCompensateFailedSupporter,
   countAffectedReporters as repoCountAffectedReporters,
   createReport as repoCreateReport,
   findDuplicateCandidates as repoFindDuplicateCandidates,
@@ -1046,23 +1047,6 @@ async function compensateFailedSubmit(db: SubmitDb, reportId: string): Promise<v
   });
 }
 
-// The supporting-merged row is deliberately never verified (one verification
-// per incident lives on the target ticket), so its PENDING review request is
-// dropped — the queue worker would otherwise re-run the verification.
-async function dropPendingAiReview(db: SubmitDb, reportId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(outboxEvents)
-      .where(
-        and(
-          eq(outboxEvents.type, 'AI_REVIEW_REQUESTED'),
-          eq(outboxEvents.status, 'PENDING'),
-          sql`${outboxEvents.payload}->>'reportId' = ${reportId}`,
-        ),
-      );
-  });
-}
-
 const HELD_MESSAGE =
   'Verification is temporarily unavailable. Your report has been saved and is waiting for review.';
 
@@ -1141,25 +1125,41 @@ export async function submitVerifiedReport(
         ticketNumber: created.report.ticketNumber,
         report: created.report,
         idempotentReplay: true,
-        verification: { status: created.report.status },
+        verification: {
+          status: created.kind === 'SUPPORTED' ? 'MERGED' : created.report.status,
+        },
       };
     }
     const report = created.report;
     // Auto-gabung: another reporter's active ticket already runs the one
-    // verification for this incident, so the AI call and analysis row are
-    // suppressed entirely — the row stays REPORTED linked SUPPORTING (kept
-    // for audit, excluded from the hand-verify queue) with its photos
-    // attached, and the reply reports the merge instead of a verdict.
-    if (created.relation !== null) {
-      await dropPendingAiReview(conn.db, report.id);
-      await linkPhotosOrCompensate(report.id);
+    // verification for this incident, so no new ticket or AI review was
+    // created. Attach optional staged photos to the primary ticket under this
+    // supporter row (compensating ONLY the supporter row on conflict).
+    if (created.kind === 'SUPPORTED') {
+      if (staged.length > 0) {
+        try {
+          await repoLinkStagedUploads(conn.db, {
+            reportId: report.id,
+            supporterId: created.supporter.id,
+            staged,
+            uploadedBy: user.id,
+          });
+        } catch (error) {
+          if (isAppError(error) && error.code === 'CONFLICT') {
+            await repoCompensateFailedSupporter(conn.db, created.supporter.id).catch(
+              () => undefined,
+            );
+          }
+          throw error;
+        }
+      }
       return {
         status: 201,
         ticketNumber: report.ticketNumber,
         report,
-        relation: created.relation,
+        relation: { type: 'SUPPORTING', targetTicket: report.ticketNumber },
         duplicateCandidates: created.duplicateCandidates,
-        message: mergedMessage(created.relation.targetTicket),
+        message: mergedMessage(report.ticketNumber),
         verification: { status: 'MERGED' },
       };
     }
@@ -1440,7 +1440,7 @@ export async function submitVerifiedReport(
         priority: finalPriority,
         confidence: outcome.confidence,
       },
-      relation: created.relation,
+      relation: null,
       duplicateCandidates: created.duplicateCandidates,
     };
   } finally {

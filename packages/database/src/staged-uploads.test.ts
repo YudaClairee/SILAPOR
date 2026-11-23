@@ -12,7 +12,16 @@ import { describe, expect, it, afterAll, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getDb, resolveDatabaseUrl } from './index.js';
 import { runMigrations } from './migrate.js';
-import { facilityCategories, locations, maintenanceReports, stagedUploads, users } from './schema.js';
+import {
+  facilityCategories,
+  locations,
+  maintenanceReports,
+  reportAttachments,
+  reportEvents,
+  reportSupporters,
+  stagedUploads,
+  users,
+} from './schema.js';
 import {
   claimStagedUploads,
   cleanupStagedUploads,
@@ -47,6 +56,14 @@ describe('staged uploads validation (pure)', () => {
     await expect(claimStagedUploads(stubDb, 'nope', ['k'])).rejects.toMatchObject({
       status: 400,
     });
+    await expect(
+      linkStagedUploads(stubDb, {
+        reportId: STAGED_INPUT.uploadedBy,
+        supporterId: 'not-a-uuid',
+        staged: [{ ...STAGED_INPUT }],
+        uploadedBy: STAGED_INPUT.uploadedBy,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it('rejects janitor misuse with 400 before any I/O', async () => {
@@ -208,6 +225,52 @@ describe.skipIf(!enabled)('staged uploads persistence (requires reachable Postgr
         uploadedBy: userId,
       }),
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('links staged keys with supporterId into report_attachments and ATTACHMENT_ADDED metadata', async () => {
+    const supporterUser = (
+      await db!
+        .insert(users)
+        .values({ username: `staged-sup-${randomUUID()}`, role: 'REPORTER' })
+        .returning({ id: users.id })
+    )[0]?.id as string;
+    const [supporter] = await db!
+      .insert(reportSupporters)
+      .values({
+        reportId,
+        reporterId: supporterUser,
+        idempotencyKey: randomUUID(),
+        description: 'foto bukti pelapor pendukung',
+      })
+      .returning({ id: reportSupporters.id });
+    const supKey = `staging_${randomUUID()}`;
+    await recordStagedUpload(db!, { ...STAGED_INPUT, storageKey: supKey, uploadedBy: supporterUser });
+
+    const linked = await linkStagedUploads(db!, {
+      reportId,
+      supporterId: supporter!.id,
+      staged: [{ ...STAGED_INPUT, storageKey: supKey }],
+      uploadedBy: supporterUser,
+    });
+    expect(linked).toHaveLength(1);
+    expect(linked[0]?.supporterId).toBe(supporter!.id);
+
+    const [attRow] = await db!
+      .select()
+      .from(reportAttachments)
+      .where(eq(reportAttachments.id, linked[0]!.id));
+    expect(attRow?.supporterId).toBe(supporter!.id);
+
+    const events = await db!
+      .select()
+      .from(reportEvents)
+      .where(eq(reportEvents.reportId, reportId));
+    const supEvent = events.find(
+      (e) =>
+        e.eventType === 'ATTACHMENT_ADDED' &&
+        (e.metadata as Record<string, unknown> | null)?.['supporterId'] === supporter!.id,
+    );
+    expect(supEvent).toBeDefined();
   });
 
   it('keeps keys claimed by another report or owned by another user on FAIL-cleanup deletes', async () => {
