@@ -55,6 +55,7 @@ interface ReportRow {
   readonly resolvedAt: string | null;
   readonly closedAt: string | null;
   readonly isOwn: boolean;
+  readonly isSupporter?: boolean;
 }
 
 interface ReportListData {
@@ -702,6 +703,14 @@ function Page() {
                                 className="h-1.5 w-1.5 rounded-full bg-[#0a6b74]"
                               />
                               Laporan Anda
+                            </span>
+                          ) : row.isSupporter === true ? (
+                            <span className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#426e9b]">
+                              <span
+                                aria-hidden="true"
+                                className="h-1.5 w-1.5 rounded-full bg-[#426e9b]"
+                              />
+                              Mendukung
                             </span>
                           ) : null}
                         </td>

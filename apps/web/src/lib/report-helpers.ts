@@ -279,6 +279,7 @@ const EVENT_LABELS: Record<string, string> = {
   PRIORITY_CHANGED: 'Prioritas berubah',
   ASSIGNMENT_CHANGED: 'Penugasan berubah',
   ATTACHMENT_ADDED: 'Foto bukti ditambahkan',
+  SUPPORTER_ADDED: 'Laporan pendukung ditambahkan',
   PROGRESS_NOTE_ADDED: 'Catatan progres ditambahkan',
   PUBLIC_UPDATE_ADDED: 'Catatan progres ditambahkan',
   INTERNAL_NOTE_ADDED: 'Catatan progres ditambahkan',

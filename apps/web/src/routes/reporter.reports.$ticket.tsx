@@ -79,6 +79,13 @@ interface RelatedReportRow {
   readonly reportedAt: string;
 }
 
+interface SupporterRow {
+  readonly id: string;
+  readonly description: string;
+  readonly createdAt: string;
+  readonly isMine?: boolean;
+}
+
 interface TimelineRow {
   // Detail events (`eventType` + `createdAt` + `metadata`) and sanitized
   // timeline entries (`kind` + `label` + `at` + `detail`). The server
@@ -104,6 +111,8 @@ interface DetailAttachmentRow {
 interface ReportDetailData {
   readonly report: ReportRow;
   readonly isOwn?: boolean;
+  readonly isSupporter?: boolean;
+  readonly supporters?: readonly SupporterRow[];
   readonly events: TimelineRow[];
   readonly duplicateCandidates: DuplicateCandidate[];
   // Gallery metadata (id + display fields only — bytes come from the
@@ -353,13 +362,13 @@ function ReportDetailPage() {
   const issueTypeNames = new Map((options?.issueTypes ?? []).map((i) => [i.id, i.name] as const));
   const assetsById = new Map((options?.assets ?? []).map((a) => [a.id, a] as const));
 
-  const related = detail?.relatedReports ?? [];
-  // Two distinct counts stay separate: `related` are the grouped tickets the
-  // reporter can open, `reporterCount` is the verified impact snapshot an admin
-  // recorded (`priority_factors.affectedReporters`) and may exceed the linked
-  // rows. Never inflate one with the other.
-  const relatedCount = related.length;
-  const reporterCount = report?.reporterCount ?? null;
+  const supporters = detail?.supporters ?? [];
+  const supportersCount = supporters.length;
+  const related = (detail?.relatedReports ?? []).filter(
+    (item) => item.relationType !== 'SUPPORTING',
+  );
+  const reporterCount =
+    report?.reporterCount ?? (supportersCount > 0 ? supportersCount + 1 : null);
   const confidence = confidencePercent(detail?.classificationConfidence ?? null);
   const priority = report?.finalPriority ?? null;
   const parts = locationParts(report?.locationId ?? null, options?.locations ?? []);
@@ -482,6 +491,18 @@ function ReportDetailPage() {
 
       {!clientPending && !notFound && loadError === null && detail !== null && report !== null ? (
         <div className="mt-6 flex flex-col gap-4">
+          {detail.isSupporter === true && detail.isOwn !== true ? (
+            <div
+              role="status"
+              className="flex items-start gap-2.5 rounded-lg border border-[#b8e6f4] bg-[#eef8fb] px-4 py-3 text-sm text-[#0a3947]"
+            >
+              <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#0a6b74]" aria-hidden="true" />
+              <span>
+                Anda tercatat sebagai pelapor pendukung pada tiket ini dan akan menerima notifikasi
+                pembaruan.
+              </span>
+            </div>
+          ) : null}
           <SectionCard
             icon={<FileTextIcon className="h-4 w-4" />}
             title="Detail Laporan"
@@ -625,46 +646,69 @@ function ReportDetailPage() {
                   <UsersIcon className="h-3.5 w-3.5" aria-hidden="true" />
                   {reporterCount !== null
                     ? `${reporterCount} pelapor terdampak`
-                    : relatedCount > 0
-                      ? `${relatedCount + 1} laporan terkait`
+                    : supportersCount > 0
+                      ? `${supportersCount + 1} pelapor terdampak`
                       : 'Hanya laporan ini'}
                 </p>
               </div>
               <p className="mt-1 text-sm text-muted">
-                {relatedCount === 0
+                {supportersCount === 0
                   ? 'Belum ada laporan pendukung yang dikelompokkan.'
-                  : `${relatedCount} laporan lain mendukung laporan ini`}
+                  : `${supportersCount} laporan pendukung tergabung pada tiket ini`}
               </p>
               <p className="mt-1 text-xs text-muted">
                 Dikelompokkan otomatis berdasarkan kesamaan sarana dan lokasi.
               </p>
-              {relatedCount === 0 ? null : (
+              {supportersCount === 0 ? null : (
                 <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {related.map((item, index) => (
+                  {supporters.map((item, index) => (
                     <li
                       key={item.id}
                       className="flex flex-col rounded-md border border-border bg-surface p-3"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="flex items-center gap-1.5 text-[11px] font-semibold text-muted">
-                          <UsersIcon className="h-3 w-3" aria-hidden="true" />
-                          Laporan Pendukung #{index + 1}
-                        </p>
-                        <StatusBadge status={item.status} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="flex items-center gap-1.5 text-[11px] font-semibold text-muted">
+                            <UsersIcon className="h-3 w-3" aria-hidden="true" />
+                            Laporan Pendukung #{index + 1}
+                          </p>
+                          {item.isMine === true ? (
+                            <span className="rounded-full bg-[#e7f7fb] px-2 py-0.5 text-[10px] font-semibold text-[#0a6b74]">
+                              Laporan Anda
+                            </span>
+                          ) : null}
+                        </div>
+                        <time
+                          dateTime={item.createdAt}
+                          className="font-mono text-[11px] text-muted"
+                        >
+                          {formatJakartaDateTime(item.createdAt)}
+                        </time>
                       </div>
                       <p className="mt-2 line-clamp-4 text-sm text-pretty break-words text-text">
                         “{item.description}”
                       </p>
-                      <Link
-                        to="/reporter/reports/$ticket"
-                        params={{ ticket: item.ticketNumber }}
-                        className="mt-2 inline-block text-xs text-accent hover:underline"
-                      >
-                        <TicketMono>{item.ticketNumber}</TicketMono>
-                      </Link>
                     </li>
                   ))}
                 </ul>
+              )}
+              {related.length === 0 ? null : (
+                <div className="mt-4 border-t border-border pt-3">
+                  <p className="text-xs font-semibold text-muted">Tiket Terkait</p>
+                  <ul className="mt-2 flex flex-wrap gap-2">
+                    {related.map((item) => (
+                      <li key={item.id}>
+                        <Link
+                          to="/reporter/reports/$ticket"
+                          params={{ ticket: item.ticketNumber }}
+                          className="text-xs text-accent underline underline-offset-2"
+                        >
+                          <TicketMono>{item.ticketNumber}</TicketMono>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
 
               {detail.duplicateCandidates.length === 0 ? null : (
