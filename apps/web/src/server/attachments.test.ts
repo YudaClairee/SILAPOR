@@ -20,7 +20,7 @@ vi.mock('@silapor/database', async (importOriginal) => {
     getDb: vi.fn(),
     createAttachments: vi.fn(),
     getAttachmentById: vi.fn(),
-    countAttachments: vi.fn(),
+    countPrimaryAttachments: vi.fn(),
     getReportHeader: vi.fn(),
   };
 });
@@ -28,7 +28,7 @@ vi.mock('@silapor/database', async (importOriginal) => {
 import { requireUser } from './auth.js';
 import { resolveReportId } from './reports.js';
 import {
-  countAttachments,
+  countPrimaryAttachments,
   createAttachments,
   getAttachmentById,
   getDb,
@@ -48,7 +48,7 @@ const resolveReportIdMock = vi.mocked(resolveReportId);
 const getDbMock = vi.mocked(getDb);
 const createAttachmentsMock = vi.mocked(createAttachments);
 const getAttachmentByIdMock = vi.mocked(getAttachmentById);
-const countAttachmentsMock = vi.mocked(countAttachments);
+const countPrimaryAttachmentsMock = vi.mocked(countPrimaryAttachments);
 const getReportHeaderMock = vi.mocked(getReportHeader);
 
 const FAKE_DB = { marker: 'fake-db' } as never;
@@ -120,7 +120,7 @@ function setupReporterOwnReport(status = 'REPORTED', existingCount = 0): void {
   resolveReportIdMock.mockResolvedValue(REPORT_ID);
   getDbMock.mockReturnValue({ db: FAKE_DB, close: fakeClose } as never);
   getReportHeaderMock.mockResolvedValue(ownReportHeader(status));
-  countAttachmentsMock.mockResolvedValue(existingCount);
+  countPrimaryAttachmentsMock.mockResolvedValue(existingCount);
 }
 
 async function expectReject(
@@ -204,7 +204,7 @@ describe('upload auth + ownership', () => {
     resolveReportIdMock.mockResolvedValue(REPORT_ID);
     getDbMock.mockReturnValue({ db: FAKE_DB, close: fakeClose } as never);
     getReportHeaderMock.mockResolvedValue({ id: REPORT_ID, reporterId: OTHER_REPORTER_ID, status: 'CLOSED' });
-    countAttachmentsMock.mockResolvedValue(0);
+    countPrimaryAttachmentsMock.mockResolvedValue(0);
     createAttachmentsMock.mockResolvedValue([]);
     await uploadAttachments(new Request('http://localhost/x'), 'MNT-2026-000001', [pngFile()], mockStorage());
     expect(resolveReportIdMock).toHaveBeenCalledWith(FAKE_DB, null, 'MNT-2026-000001');
@@ -375,7 +375,7 @@ describe('upload terminal reports', () => {
     resolveReportIdMock.mockResolvedValue(REPORT_ID);
     getDbMock.mockReturnValue({ db: FAKE_DB, close: fakeClose } as never);
     getReportHeaderMock.mockResolvedValue({ id: REPORT_ID, reporterId: OTHER_REPORTER_ID, status: 'CLOSED' });
-    countAttachmentsMock.mockResolvedValue(0);
+    countPrimaryAttachmentsMock.mockResolvedValue(0);
     createAttachmentsMock.mockResolvedValue([]);
     const storage = mockStorage();
     await uploadAttachments(new Request('http://localhost/x'), 'ref', [pngFile()], storage);
@@ -441,6 +441,15 @@ describe('upload success + cleanup', () => {
       files: Array<{ originalFilename: string }>;
     };
     expect(input.files[0]?.originalFilename).toBe('passwd.png');
+  });
+
+  it('checks quota via countPrimaryAttachments so supporter photos do not block primary reporter', async () => {
+    setupReporterOwnReport('VERIFIED', 2);
+    const storage = mockStorage();
+    createAttachmentsMock.mockResolvedValue([]);
+    await uploadAttachments(new Request('http://localhost/x'), 'ref', [pngFile()], storage);
+    expect(countPrimaryAttachmentsMock).toHaveBeenCalledWith(FAKE_DB, REPORT_ID);
+    expect(storage.put).toHaveBeenCalledTimes(1);
   });
 
   it('removes stored objects when the DB insert fails, then propagates the error', async () => {

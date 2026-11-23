@@ -31,6 +31,7 @@ import {
   createReport as repoCreateReport,
   findDuplicateCandidates as repoFindDuplicateCandidates,
   findReportByKey as repoFindReportByKey,
+  findSupporterByKey as repoFindSupporterByKey,
   getAdminReportDetail as repoGetAdminReportDetail,
   getAsset as repoGetAsset,
   getCampusReportDetail as repoGetCampusReportDetail,
@@ -890,6 +891,8 @@ export type SubmitVerifiedResult =
       readonly ticketNumber: string;
       readonly report: Report;
       readonly idempotentReplay: true;
+      readonly merged?: true;
+      readonly supporter?: { readonly id: string; readonly createdAt: Date };
       readonly verification: { readonly status: string };
     }
   | {
@@ -901,14 +904,14 @@ export type SubmitVerifiedResult =
       readonly verification: { readonly status: 'HELD' };
     }
   | {
-      // Auto-merged as SUPPORTING evidence into another reporter's active
-      // ticket at submit: the row + relation stay for audit, verification is
-      // deliberately skipped in favor of the target's.
+      // Auto-merged as supporting evidence on another reporter's active
+      // ticket at submit: no new ticket row is minted and AI verification is
+      // skipped in favor of the primary ticket.
       readonly status: 201;
       readonly ticketNumber: string;
       readonly report: Report;
-      readonly relation: SupportingRelationRef;
-      readonly duplicateCandidates: DuplicateCandidate[];
+      readonly supporter: { readonly id: string; readonly createdAt: Date };
+      readonly merged: true;
       readonly message: string;
       readonly verification: { readonly status: 'MERGED' };
     }
@@ -1051,7 +1054,7 @@ const HELD_MESSAGE =
   'Verification is temporarily unavailable. Your report has been saved and is waiting for review.';
 
 function mergedMessage(targetTicket: string): string {
-  return `Report saved as additional evidence for ticket ${targetTicket}, which covers the same incident. Follow that ticket for updates.`;
+  return `Laporan Anda ditambahkan sebagai laporan pendukung pada tiket ${targetTicket}. Anda akan menerima notifikasi perkembangan penanganannya.`;
 }
 
 function normalizeAiPriority(value: string): 'LOW' | 'MEDIUM' | 'HIGH' | undefined {
@@ -1065,11 +1068,10 @@ function normalizeAiPriority(value: string): 'LOW' | 'MEDIUM' | 'HIGH' | undefin
 // Synchronous verified submit: duplicate-first create (a same-reporter
 // active block throws DUPLICATE_ACTIVE before any AI call), inline verify,
 // then PASS → VERIFIED + ticket (201), FAIL → 422 with no row left behind,
-// DOWN → held REPORTED + ticket (202). A submit auto-merged as SUPPORTING
-// evidence into another reporter's ticket skips the AI call entirely: its
-// response (201 + MERGED) points the reporter at the target ticket and the
-// row stays unverified outside the hand-verify queue. Idempotent replays
-// skip AI.
+// DOWN → held REPORTED + ticket (202). A submit auto-merged as supporting
+// evidence into another reporter's active ticket skips the AI call and does
+// not mint a new ticket: its response (201 + MERGED) points the reporter at
+// the primary ticket. Idempotent replays skip AI.
 export async function submitVerifiedReport(
   req: Request,
   body: unknown,
@@ -1089,8 +1091,8 @@ export async function submitVerifiedReport(
   const conn = getDb();
   try {
     // Idempotency first (mirrors the create fast-path): a same-key retry
-    // replays the prior ticket without touching staged keys, which the
-    // first submit already claimed.
+    // replays the prior ticket or supporter merge without touching staged
+    // keys, which the first submit already claimed.
     const prior = await repoFindReportByKey(conn.db, key);
     if (prior !== undefined) {
       return {
@@ -1099,6 +1101,21 @@ export async function submitVerifiedReport(
         report: prior,
         idempotentReplay: true,
         verification: { status: prior.status },
+      };
+    }
+    const priorSupporter = await repoFindSupporterByKey(conn.db, key);
+    if (priorSupporter !== undefined) {
+      return {
+        status: 200,
+        ticketNumber: priorSupporter.report.ticketNumber,
+        report: priorSupporter.report,
+        supporter: {
+          id: priorSupporter.supporter.id,
+          createdAt: priorSupporter.supporter.createdAt,
+        },
+        merged: true,
+        idempotentReplay: true,
+        verification: { status: 'MERGED' },
       };
     }
     // Staged keys resolve before any row exists: unknown, foreign, claimed,
@@ -1120,14 +1137,26 @@ export async function submitVerifiedReport(
       key,
     );
     if (created.idempotentReplay) {
+      if (created.kind === 'SUPPORTED') {
+        return {
+          status: 200,
+          ticketNumber: created.report.ticketNumber,
+          report: created.report,
+          supporter: {
+            id: created.supporter.id,
+            createdAt: created.supporter.createdAt,
+          },
+          merged: true,
+          idempotentReplay: true,
+          verification: { status: 'MERGED' },
+        };
+      }
       return {
         status: 200,
         ticketNumber: created.report.ticketNumber,
         report: created.report,
         idempotentReplay: true,
-        verification: {
-          status: created.kind === 'SUPPORTED' ? 'MERGED' : created.report.status,
-        },
+        verification: { status: created.report.status },
       };
     }
     const report = created.report;
@@ -1157,8 +1186,11 @@ export async function submitVerifiedReport(
         status: 201,
         ticketNumber: report.ticketNumber,
         report,
-        relation: { type: 'SUPPORTING', targetTicket: report.ticketNumber },
-        duplicateCandidates: created.duplicateCandidates,
+        supporter: {
+          id: created.supporter.id,
+          createdAt: created.supporter.createdAt,
+        },
+        merged: true,
         message: mergedMessage(report.ticketNumber),
         verification: { status: 'MERGED' },
       };
