@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #f4f5f8;
+  background: #f4f6f8;
   color: #1e293b;
   font-family: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
 }
@@ -13,7 +13,7 @@
   gap: 16px;
   padding: 14px 48px;
   background: #ffffff;
-  border-bottom: 1px solid #e1e5e9;
+  border-bottom: 1px solid #e2e8f0;
 }
 .login-brand {
   display: flex;
@@ -32,7 +32,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  border-left: 1px solid #e1e5e9;
+  border-left: 1px solid #e2e8f0;
   padding-left: 12px;
 }
 .login-brand-text strong {
@@ -70,7 +70,7 @@
 .login-card {
   width: min(448px, 100%);
   background: #fff;
-  border: 1px solid #e1e5e9;
+  border: 1px solid #e2e8f0;
   border-radius: 16px;
   box-shadow: 0 12px 32px rgba(16, 24, 40, 0.08);
   padding: 36px;
@@ -104,7 +104,7 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 44px;
-  border: 1px solid #e1e5e9;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 14px;
@@ -116,7 +116,7 @@
   color: #5c6b7a;
 }
 .login-input:focus {
-  border-color: #064653;
+  border-color: #0a3947;
   box-shadow: 0 0 0 3px rgba(6, 70, 83, 0.12);
 }
 #login-username {
@@ -134,7 +134,7 @@
 .forgot-link {
   font-size: 12px;
   font-weight: 500;
-  color: #064653;
+  color: #0a3947;
   text-decoration: none;
 }
 .forgot-link:hover {
@@ -164,7 +164,7 @@
   border-radius: 8px;
 }
 .password-toggle:hover {
-  color: #064653;
+  color: #0a3947;
   background: #f1f5f9;
 }
 .login-error {
@@ -183,7 +183,7 @@
   gap: 8px;
   border: 0;
   border-radius: 8px;
-  background: #0a3f4b;
+  background: #0a3947;
   color: #fff;
   font-size: 15px;
   font-weight: 600;
@@ -206,7 +206,7 @@
 .login-card-foot a {
   font-size: 13px;
   font-weight: 500;
-  color: #064653;
+  color: #0a3947;
   text-decoration: none;
 }
 .login-card-foot a:hover {
@@ -219,7 +219,7 @@
   gap: 16px;
   padding: 16px 48px;
   background: #fff;
-  border-top: 1px solid #e1e5e9;
+  border-top: 1px solid #e2e8f0;
   color: #697784;
   font-size: 12px;
   line-height: 16px;

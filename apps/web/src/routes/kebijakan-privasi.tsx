@@ -322,7 +322,7 @@ function KebijakanPrivasiPage() {
       </div>
 
       <footer className="policy-footer">
-        <span>© 2025 Universitas Pendidikan Indonesia. Seluruh hak cipta dilindungi.</span>
+        <span>© 2026 Universitas Pendidikan Indonesia. Seluruh hak cipta dilindungi.</span>
         <span>SCMS v1.0 · UMPER UPI Kampus Tasikmalaya</span>
       </footer>
     </div>

@@ -85,6 +85,16 @@ function trendData(model: ManagerialDashboardViewModel) {
   }));
 }
 
+function SummaryStat({ label, value, detail }: { readonly label: string; readonly value: string | number; readonly detail: string }) {
+  return (
+    <div className="px-5 py-4">
+      <p className="text-xs font-medium text-muted">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-text">{value}</p>
+      <p className="mt-0.5 text-xs text-muted">{detail}</p>
+    </div>
+  );
+}
+
 export function DashboardContent({
   model,
   readOnly = false,
@@ -96,13 +106,16 @@ export function DashboardContent({
     <>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Keluhan masuk" value={model.cards.totalReports} detail="Pada periode terpilih" />
-        <MetricCard label="Kerusakan fasilitas" value={model.cards.damageReports} detail="Terkait aset" />
-        <MetricCard label="Kendala layanan" value={model.cards.serviceReports} detail="Tanpa aset, misalnya akses atau keamanan" />
         <MetricCard label="Keluhan aktif" value={model.cards.activeReports} detail={`${model.cards.inRepair} sedang diperbaiki`} />
         <MetricCard label="Prioritas tinggi" value={model.cards.highPriorityActive} detail="Masih aktif" />
         <MetricCard label="Selesai bulan ini" value={model.cards.resolvedThisMonth} detail="Metrik bulan berjalan" />
-        <MetricCard label="Rata-rata penyelesaian" value={model.resolutionTime.average} detail={`${model.resolutionTime.sampleSize} laporan selesai`} />
-        <MetricCard label="Median penyelesaian" value={model.resolutionTime.median} detail={`${model.resolutionTime.sampleSize} laporan selesai`} />
+      </div>
+
+      <div className="mt-3 grid divide-y divide-border rounded-xl border border-border bg-white sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+        <SummaryStat label="Kerusakan fasilitas" value={model.cards.damageReports} detail="Terkait aset" />
+        <SummaryStat label="Kendala layanan" value={model.cards.serviceReports} detail="Tanpa aset, misalnya akses atau keamanan" />
+        <SummaryStat label="Rata-rata penyelesaian" value={model.resolutionTime.average} detail={`${model.resolutionTime.sampleSize} laporan selesai`} />
+        <SummaryStat label="Median penyelesaian" value={model.resolutionTime.median} detail={`${model.resolutionTime.sampleSize} laporan selesai`} />
       </div>
 
       <div className="mt-5">
@@ -122,45 +135,33 @@ export function DashboardContent({
           }))}
           emptyMessage="Belum ada lokasi pada periode ini."
         />
-        <RankedBarList
-          title="Aset paling rentan rusak"
-          subtitle="Aset dengan laporan berulang"
-          showRank
-          items={model.topAssets.map((asset) => ({
-            id: asset.assetId,
-            label: asset.assetName,
-            value: asset.count,
-            valueLabel: `${asset.count} laporan`,
-            description: asset.locationLabel,
-          }))}
-          emptyMessage="Belum ada aset pada periode ini."
-        />
-      </div>
 
-      <section aria-labelledby="managerial-assets-title" className="mt-5 rounded-xl border border-border bg-white p-5">
-        <h2 id="managerial-assets-title" className="text-lg font-semibold text-text">Detail aset berisiko</h2>
-        {model.topAssets.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">Belum ada aset pada periode ini.</p>
-        ) : (
-          <ul className="mt-4 divide-y divide-border">
-            {model.topAssets.map((asset) => (
-              <li key={asset.assetId} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div>
-                  {readOnly ? (
-                    <span className="font-medium text-text">{asset.assetName}</span>
-                  ) : (
-                    <Link to="/admin/facilities/$assetId" params={{ assetId: asset.assetId }} className="font-medium text-accent hover:underline">
-                      {asset.assetName}
-                    </Link>
-                  )}
-                  <p className="text-sm text-muted">{asset.locationLabel}</p>
-                </div>
-                <span className="text-sm font-semibold text-text">{asset.count} laporan</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+        <section aria-labelledby="managerial-assets-title" className="rounded-xl border border-border bg-white p-5">
+          <h2 id="managerial-assets-title" className="text-lg font-semibold text-text">Aset paling rentan rusak</h2>
+          <p className="mt-1 text-xs text-muted">Aset dengan laporan berulang pada periode terpilih</p>
+          {model.topAssets.length === 0 ? (
+            <p className="mt-4 text-sm text-muted">Belum ada aset pada periode ini.</p>
+          ) : (
+            <ul className="mt-4 divide-y divide-border">
+              {model.topAssets.map((asset) => (
+                <li key={asset.assetId} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                  <div>
+                    {readOnly ? (
+                      <span className="font-medium text-text">{asset.assetName}</span>
+                    ) : (
+                      <Link to="/admin/facilities/$assetId" params={{ assetId: asset.assetId }} className="font-medium text-accent hover:underline">
+                        {asset.assetName}
+                      </Link>
+                    )}
+                    <p className="text-sm text-muted">{asset.locationLabel}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-text">{asset.count} laporan</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
 
       <section aria-labelledby="managerial-queue-title" className="mt-5 rounded-xl border border-border bg-white p-5">
         <h2 id="managerial-queue-title" className="text-lg font-semibold text-text">Antrian prioritas</h2>

@@ -69,8 +69,8 @@ export function ReporterShell({ user, unreadCount, onLogout, children }: Reporte
   const nimLabel = user.nim ?? user.username;
 
   return (
-    <div className="min-h-screen bg-[#f7f9ff] text-text">
-      <header className="sticky top-0 z-20 border-b border-[#e1e5e9] bg-white">
+    <div className="min-h-screen bg-background text-text">
+      <header className="sticky top-0 z-20 border-b border-border bg-white">
         <div className="mx-auto flex min-h-[64px] w-full max-w-[1280px] items-center justify-between gap-4 px-4 md:px-12">
           <Link
             to="/reporter"
@@ -90,7 +90,7 @@ export function ReporterShell({ user, unreadCount, onLogout, children }: Reporte
 
           <nav
             aria-label="Navigasi utama"
-            className="hidden items-center gap-1 rounded-xl bg-[#ecf4ff] p-1 lg:flex"
+            className="hidden items-center gap-1 rounded-xl bg-[#eef2f5] p-1 lg:flex"
           >
             {NAV_ITEMS.map((item) => navLinkFor(item, unreadCount))}
           </nav>
@@ -150,7 +150,7 @@ export function ReporterShell({ user, unreadCount, onLogout, children }: Reporte
 
       <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-12 md:py-12">{children}</div>
 
-      <footer className="border-t border-[#e1e5e9] bg-white">
+      <footer className="border-t border-border bg-white">
         <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-2 px-4 py-4 text-xs text-muted sm:flex-row sm:items-center sm:justify-between md:px-12">
           <p>© 2026 Universitas Pendidikan Indonesia. Seluruh hak cipta dilindungi.</p>
           <p>SCMS v1.0 · UMPER UPI Kampus Tasikmalaya</p>

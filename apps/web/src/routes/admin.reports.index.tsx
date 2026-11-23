@@ -12,6 +12,7 @@ import {
   buildAdminListParams,
   pageRange,
   priorityLabel,
+  statusLabel,
   toAdminListQuery,
 } from '../lib/admin-reports.js';
 import type { FormOptions } from '../server/reports.js';
@@ -335,7 +336,7 @@ function StatusChip({ status }: { readonly status: string }) {
   return (
     <span className={`${CHIP_BASE_CLASSES} ${tone}`}>
       <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-      {status}
+      {statusLabel(status)}
     </span>
   );
 }
@@ -613,7 +614,7 @@ function AdminReportsPage() {
             <StatusTab
               key={status}
               status={status}
-              label={status}
+              label={statusLabel(status)}
               count={countFor(status)}
               active={search.status === status}
               search={search}
@@ -622,7 +623,7 @@ function AdminReportsPage() {
           {extraStatus === null ? null : (
             <StatusTab
               status={extraStatus}
-              label={extraStatus}
+              label={statusLabel(extraStatus)}
               count={countFor(extraStatus)}
               active
               search={search}

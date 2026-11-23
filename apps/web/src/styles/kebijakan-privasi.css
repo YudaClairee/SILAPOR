@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #f4f5f8;
+  background: #f4f6f8;
   color: #1e293b;
   font-family: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
 }
@@ -13,7 +13,7 @@
   gap: 16px;
   padding: 14px 48px;
   background: #ffffff;
-  border-bottom: 1px solid #e1e5e9;
+  border-bottom: 1px solid #e2e8f0;
 }
 .policy-brand {
   display: flex;
@@ -32,7 +32,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  border-left: 1px solid #e1e5e9;
+  border-left: 1px solid #e2e8f0;
   padding-left: 12px;
 }
 .policy-brand-text strong {
@@ -80,7 +80,7 @@
   gap: 8px;
   min-height: 44px;
   padding: 8px 16px;
-  border: 1px solid #e1e5e9;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
   color: #1e293b;
@@ -89,8 +89,8 @@
   text-decoration: none;
 }
 .policy-back:hover {
-  border-color: #064653;
-  color: #064653;
+  border-color: #0a3947;
+  color: #0a3947;
 }
 .policy-back-plain {
   border: 0;
@@ -117,15 +117,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #e1e5e9;
+  border: 1px solid #e2e8f0;
   border-radius: 9999px;
   background: #fff;
   color: #5c6b7a;
   cursor: pointer;
 }
 .policy-shield:hover {
-  color: #064653;
-  border-color: #064653;
+  color: #0a3947;
+  border-color: #0a3947;
 }
 .policy-eyebrow {
   margin: 0 0 8px;
@@ -151,7 +151,7 @@
 .policy-callout {
   margin: 0;
   padding: 16px 20px;
-  border-left: 3px solid #0a3f4b;
+  border-left: 3px solid #0a3947;
   border-radius: 0 8px 8px 0;
   background: #fff;
   color: #334155;
@@ -161,7 +161,7 @@
 .policy-rule {
   margin: 32px 0;
   border: 0;
-  border-top: 1px solid #e1e5e9;
+  border-top: 1px solid #e2e8f0;
 }
 .policy-section {
   margin-bottom: 40px;
@@ -253,7 +253,7 @@
   color: #1e293b;
 }
 .policy-panel {
-  border: 1px solid #e1e5e9;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
@@ -262,7 +262,7 @@
   margin: 0;
   padding: 16px 20px;
   background: #f6f8f9;
-  border-bottom: 1px solid #e1e5e9;
+  border-bottom: 1px solid #e2e8f0;
   font-size: 13px;
   font-weight: 600;
   color: #1e293b;
@@ -307,7 +307,7 @@
 .policy-contact-link {
   font-size: 14px;
   font-weight: 600;
-  color: #0a3f4b;
+  color: #0a3947;
   text-decoration: none;
 }
 .policy-contact-link:hover {
@@ -320,7 +320,7 @@
   gap: 16px;
   padding: 16px 48px;
   background: #fff;
-  border-top: 1px solid #e1e5e9;
+  border-top: 1px solid #e2e8f0;
   color: #697784;
   font-size: 12px;
   line-height: 16px;

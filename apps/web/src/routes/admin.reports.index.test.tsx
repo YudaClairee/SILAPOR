@@ -117,8 +117,8 @@ describe('admin kelola laporan', () => {
     const allTab = screen.getByRole('link', { name: /^Semua\s*2$/ });
     expect(allTab).toHaveTextContent('2');
     expect(allTab).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /^VERIFIED/ })).toHaveTextContent('1');
-    expect(screen.getByRole('link', { name: /^IN_REPAIR/ })).toHaveTextContent('1');
+    expect(screen.getByRole('link', { name: /^Terverifikasi/ })).toHaveTextContent('1');
+    expect(screen.getByRole('link', { name: /^Dalam perbaikan/ })).toHaveTextContent('1');
 
     expect(screen.getByRole('link', { name: '#MNT-2026-000001' }).getAttribute('href')).toBe(
       '/admin/reports/MNT-2026-000001',
@@ -132,7 +132,7 @@ describe('admin kelola laporan', () => {
       within(firstRow as HTMLElement).getByText('Gedung C · Lt. 3 · Ruang 14'),
     ).toBeInTheDocument();
     expect(within(firstRow as HTMLElement).getByText('Tinggi (88)')).toBeInTheDocument();
-    expect(within(firstRow as HTMLElement).getByText('IN_REPAIR')).toBeInTheDocument();
+    expect(within(firstRow as HTMLElement).getByText('Dalam perbaikan')).toBeInTheDocument();
     expect(within(firstRow as HTMLElement).getByText('3 pelapor')).toBeInTheDocument();
     expect(within(firstRow as HTMLElement).getByText('Budi Santoso')).toBeInTheDocument();
     expect(within(firstRow as HTMLElement).getByText('18 Okt 2026')).toBeInTheDocument();

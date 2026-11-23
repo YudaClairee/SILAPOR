@@ -287,8 +287,8 @@ export function AdminShell({ user, onLogout, children, variant = 'admin' }: Admi
   );
 
   return (
-    <div className="min-h-screen bg-[#f7f9ff] text-text">
-      <header className="sticky top-0 z-20 border-b border-[#e1e5e9] bg-white" data-print="hide">
+    <div className="min-h-screen bg-background text-text">
+      <header className="sticky top-0 z-20 border-b border-border bg-white" data-print="hide">
         <div className="mx-auto flex min-h-[64px] w-full max-w-[1600px] items-center justify-between gap-4 px-4 md:px-8">
           {isManagerial ? (
             <Link
@@ -311,7 +311,7 @@ export function AdminShell({ user, onLogout, children, variant = 'admin' }: Admi
           {isManagerial ? null : (
             <nav
               aria-label="Navigasi utama"
-              className="hidden items-center gap-1 rounded-xl bg-[#ecf4ff] p-1 lg:flex"
+              className="hidden items-center gap-1 rounded-xl bg-[#eef2f5] p-1 lg:flex"
             >
               {navEntries(variant, false)}
             </nav>
@@ -376,7 +376,7 @@ export function AdminShell({ user, onLogout, children, variant = 'admin' }: Admi
 
       <div className="mx-auto w-full max-w-[1600px] px-4 py-8 md:px-8 md:py-10">{children}</div>
 
-      <footer className="border-t border-[#e1e5e9] bg-white" data-print="hide">
+      <footer className="border-t border-border bg-white" data-print="hide">
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-2 px-4 py-4 text-xs text-muted sm:flex-row sm:items-center sm:justify-between md:px-8">
           <p>© 2026 Universitas Pendidikan Indonesia. Seluruh hak cipta dilindungi.</p>
           <p>SCMS v1.0 · UPI Kampus Tasikmalaya</p>
