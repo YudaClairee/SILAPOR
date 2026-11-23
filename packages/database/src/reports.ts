@@ -52,6 +52,9 @@ import {
   RELATION_TYPE,
   REPORT_STATUS,
   formatTicketNumber,
+  higherPriority,
+  scorePriority,
+  type PriorityLevel,
 } from '@silapor/domain';
 import * as schema from './schema.js';
 import { type AttachmentSummary } from './attachments.js';
@@ -594,6 +597,122 @@ async function countSupportersForReport(db: ReportQueryDb, reportId: string): Pr
   return rows[0]?.value ?? 0;
 }
 
+function asPriorityLevel(value: unknown): PriorityLevel | null {
+  if (value === 'LOW' || value === 'MEDIUM' || value === 'HIGH') {
+    return value;
+  }
+  return null;
+}
+
+async function loadScoringWeights(
+  tx: TransactionClient,
+  report: {
+    readonly finalCategoryId: string;
+    readonly finalIssueTypeId: string;
+    readonly assetId: string | null;
+    readonly locationId: string;
+  },
+): Promise<{
+  readonly categoryWeight: number | null;
+  readonly assetWeight: number | null;
+  readonly locationScore: number | null;
+  readonly issueTypeCode: string | null;
+}> {
+  const category = (
+    await tx
+      .select({ weight: schema.facilityCategories.weight })
+      .from(schema.facilityCategories)
+      .where(eq(schema.facilityCategories.id, report.finalCategoryId))
+  )[0];
+  const asset =
+    report.assetId === null
+      ? undefined
+      : (
+          await tx
+            .select({ weight: schema.facilityAssets.weight })
+            .from(schema.facilityAssets)
+            .where(eq(schema.facilityAssets.id, report.assetId))
+        )[0];
+  const location = (
+    await tx
+      .select({ tierScore: schema.locations.tierScore })
+      .from(schema.locations)
+      .where(eq(schema.locations.id, report.locationId))
+  )[0];
+  const issueType = (
+    await tx
+      .select({ code: schema.issueTypes.code })
+      .from(schema.issueTypes)
+      .where(eq(schema.issueTypes.id, report.finalIssueTypeId))
+  )[0];
+  return {
+    categoryWeight: category?.weight ?? null,
+    assetWeight: asset?.weight ?? null,
+    locationScore: location?.tierScore ?? null,
+    issueTypeCode: issueType?.code ?? null,
+  };
+}
+
+async function refreshPriorityOnSupport(
+  tx: TransactionClient,
+  report: schema.Report,
+  affectedReporters: number,
+  supporterId: string,
+): Promise<schema.Report> {
+  if (report.finalCategoryId === null || report.finalIssueTypeId === null) {
+    return report;
+  }
+  const weights = await loadScoringWeights(tx, {
+    finalCategoryId: report.finalCategoryId,
+    finalIssueTypeId: report.finalIssueTypeId,
+    assetId: report.assetId,
+    locationId: report.locationId,
+  });
+  const score = scorePriority({
+    ...weights,
+    affectedReporters,
+  });
+  const nextPriority =
+    report.priorityOverrideReason !== null
+      ? report.finalPriority
+      : higherPriority(asPriorityLevel(report.finalPriority), score.suggestedPriority);
+  const priorityFactors = {
+    ...score.factors,
+    scoringComplete: score.scoringComplete,
+    ...(report.assetId === null ? { assetless: true } : {}),
+  };
+  const now = new Date();
+  const updated = await tx
+    .update(schema.maintenanceReports)
+    .set({
+      priorityScore: score.score,
+      priorityFactors,
+      finalPriority: nextPriority,
+      scoringConfigVersion: score.scoringConfigVersion,
+      version: report.version + 1,
+      updatedAt: now,
+    })
+    .where(eq(schema.maintenanceReports.id, report.id))
+    .returning();
+  if (nextPriority !== report.finalPriority) {
+    await tx.insert(schema.reportEvents).values({
+      reportId: report.id,
+      eventType: 'PRIORITY_CHANGED',
+      actorId: null,
+      fromValue: report.finalPriority,
+      toValue: nextPriority,
+      metadata: {
+        reason: 'SUPPORTER_ADDED',
+        supporterId,
+        affectedReporters,
+        score: score.score,
+        suggestedPriority: score.suggestedPriority,
+      },
+    });
+  }
+  return updated[0] ?? report;
+}
+
 async function buildCreatedReplayResult(
   db: ReportQueryDb,
   report: schema.Report,
@@ -754,7 +873,22 @@ export async function createReport(
           metadata: { supporterId: supporter.id },
         });
 
-        return await buildSupportedResult(tx, activeTarget, supporter, false);
+        const supporterCount = await countSupportersForReport(tx, activeTarget.id);
+        const affectedReporters = 1 + supporterCount;
+        const updatedTarget = await refreshPriorityOnSupport(
+          tx,
+          activeTarget,
+          affectedReporters,
+          supporter.id,
+        );
+        return {
+          kind: 'SUPPORTED',
+          report: updatedTarget,
+          duplicateCandidates: [],
+          supporter,
+          affectedReporters,
+          idempotentReplay: false,
+        };
       }
 
       // Lock/increment the per-year ticket counter atomically.
@@ -860,8 +994,9 @@ export async function createReport(
 }
 
 // Compensates a failed supporter attachment (e.g. staged-photo claim CONFLICT)
-// by deleting only the supporter row and its SUPPORTER_ADDED event — NEVER the
-// primary maintenance_reports row belonging to another reporter.
+// by deleting only the supporter row and its SUPPORTER_ADDED / PRIORITY_CHANGED
+// events, and re-syncing priority score/factors on the primary report — NEVER
+// deleting the primary maintenance_reports row belonging to another reporter.
 export async function compensateFailedSupporter(db: Database, supporterId: string): Promise<void> {
   const id = requireUuid(supporterId, 'supporterId');
   await db.transaction(async (tx) => {
@@ -880,6 +1015,66 @@ export async function compensateFailedSupporter(db: Database, supporterId: strin
             sql`${schema.reportEvents.metadata}->>'supporterId' = ${id}`,
           ),
         );
+      const deletedPriorityEvents = await tx
+        .delete(schema.reportEvents)
+        .where(
+          and(
+            eq(schema.reportEvents.reportId, reportId),
+            eq(schema.reportEvents.eventType, 'PRIORITY_CHANGED'),
+            sql`${schema.reportEvents.metadata}->>'supporterId' = ${id}`,
+          ),
+        )
+        .returning({
+          fromValue: schema.reportEvents.fromValue,
+          toValue: schema.reportEvents.toValue,
+        });
+      const deletedPriorityEvent = deletedPriorityEvents[0];
+      const primary = (
+        await tx
+          .select()
+          .from(schema.maintenanceReports)
+          .where(eq(schema.maintenanceReports.id, reportId))
+      )[0];
+      if (
+        primary !== undefined &&
+        primary.finalCategoryId !== null &&
+        primary.finalIssueTypeId !== null
+      ) {
+        const remainingAffected = 1 + (await countSupportersForReport(tx, reportId));
+        const weights = await loadScoringWeights(tx, {
+          finalCategoryId: primary.finalCategoryId,
+          finalIssueTypeId: primary.finalIssueTypeId,
+          assetId: primary.assetId,
+          locationId: primary.locationId,
+        });
+        const score = scorePriority({
+          ...weights,
+          affectedReporters: remainingAffected,
+        });
+        const priorityFactors = {
+          ...score.factors,
+          scoringComplete: score.scoringComplete,
+          ...(primary.assetId === null ? { assetless: true } : {}),
+        };
+        const restoredPriorityFromEvent =
+          deletedPriorityEvent !== undefined &&
+          primary.priorityOverrideReason === null &&
+          primary.finalPriority === deletedPriorityEvent.toValue
+            ? asPriorityLevel(deletedPriorityEvent.fromValue)
+            : null;
+        const restoredPriority = restoredPriorityFromEvent ?? primary.finalPriority;
+        await tx
+          .update(schema.maintenanceReports)
+          .set({
+            priorityScore: score.score,
+            priorityFactors,
+            finalPriority: restoredPriority,
+            scoringConfigVersion: score.scoringConfigVersion,
+            version: primary.version + 1,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.maintenanceReports.id, reportId));
+      }
     }
   });
 }
@@ -986,6 +1181,7 @@ export async function applyVerification(
       // between the check and the update. A service report has no asset, so
       // its final category must be the one the reporter chose and must itself
       // be asset-less (`requiresAsset=false`).
+      let assetWeight: number | null = null;
       if (report.assetId === null || report.assetId === undefined) {
         if (category.id !== report.submittedCategoryId) {
           throw badRequest('Final category does not match the reported service category');
@@ -1009,7 +1205,36 @@ export async function applyVerification(
         if (asset.categoryId !== finals.finalCategoryId) {
           throw badRequest('Final category does not match asset category');
         }
+        assetWeight = asset.weight ?? null;
       }
+
+      const locationRow = (
+        await tx
+          .select({ tierScore: schema.locations.tierScore })
+          .from(schema.locations)
+          .where(eq(schema.locations.id, report.locationId))
+      )[0];
+      let affected = 1;
+      try {
+        affected = Math.max(
+          1,
+          await countAffectedReporters(tx, {
+            assetId: report.assetId,
+            locationId: report.locationId,
+            categoryId: category.id,
+            issueTypeId: issueType.id,
+          }),
+        );
+      } catch {
+        affected = 1;
+      }
+      const score = scorePriority({
+        categoryWeight: category.weight,
+        assetWeight,
+        locationScore: locationRow?.tierScore ?? null,
+        affectedReporters: affected,
+        issueTypeCode: issueType.code,
+      });
 
       // Spec floor: a DANGEROUS final issue type keeps minimum HIGH, whether
       // the verdict came from the AI or a hand verify.
@@ -1025,6 +1250,13 @@ export async function applyVerification(
           status: 'VERIFIED',
           finalCategoryId: finals.finalCategoryId,
           finalIssueTypeId: finals.finalIssueTypeId,
+          priorityScore: score.score,
+          priorityFactors: {
+            ...score.factors,
+            scoringComplete: score.scoringComplete,
+            ...(report.assetId === null ? { assetless: true } : {}),
+          },
+          scoringConfigVersion: score.scoringConfigVersion,
           finalPriority,
           priorityDecidedBy: decidedBy,
           priorityDecidedAt: now,
@@ -2302,10 +2534,10 @@ export interface AffectedCountFilter {
   readonly issueTypeId?: string | null | undefined;
 }
 
-// Distinct reporters over the shared incident predicate (ACTIVE statuses
-// only) PLUS reporters of rows linked as SUPPORTING/RELATED source/target of
-// those matches (one hop). Same-reporter rows collapse to one; non-active
-// rows contribute nothing unless linked to an active match.
+// Distinct reporters over active incident rows + attached `report_supporters`
+// PLUS reporters (and supporters) of rows linked via `report_relations` (one
+// hop). Same-reporter rows collapse to one; non-active rows contribute nothing
+// unless linked to an active match.
 export async function countAffectedReporters(
   db: ReportQueryDb,
   filter: AffectedCountFilter,
@@ -2323,18 +2555,57 @@ export async function countAffectedReporters(
     filter.issueTypeId === undefined || filter.issueTypeId === null
       ? filter.issueTypeId
       : requireUuid(filter.issueTypeId, 'issueTypeId');
+
+  const scope =
+    assetId !== undefined && assetId !== null
+      ? sql`${schema.maintenanceReports.assetId} IS NOT DISTINCT FROM ${assetId}`
+      : and(
+          eq(schema.maintenanceReports.locationId, locationId),
+          isNull(schema.maintenanceReports.assetId),
+        );
+  const conditions = [
+    inArray(schema.maintenanceReports.status, [...ACTIVE_REPORT_STATUSES]),
+    scope,
+    or(
+      eq(schema.maintenanceReports.submittedCategoryId, categoryId),
+      eq(schema.maintenanceReports.finalCategoryId, categoryId),
+    ),
+  ];
+  if (issueTypeId === null) {
+    conditions.push(isNull(schema.maintenanceReports.submittedIssueTypeId));
+  } else if (issueTypeId !== undefined) {
+    conditions.push(
+      or(
+        eq(schema.maintenanceReports.submittedIssueTypeId, issueTypeId),
+        eq(schema.maintenanceReports.finalIssueTypeId, issueTypeId),
+        and(
+          isNull(schema.maintenanceReports.submittedIssueTypeId),
+          isNull(schema.maintenanceReports.finalIssueTypeId),
+        ),
+      ),
+    );
+  }
+
   const matched = await db
     .select({
       id: schema.maintenanceReports.id,
       reporterId: schema.maintenanceReports.reporterId,
     })
     .from(schema.maintenanceReports)
-    .where(and(...incidentConditions({ assetId, locationId, categoryId, issueTypeId })));
+    .where(and(...conditions));
   if (matched.length === 0) {
     return 0;
   }
   const reporters = new Set(matched.map((row) => row.reporterId));
   const matchedIds = matched.map((row) => row.id);
+  const supporterRows = await db
+    .select({ reporterId: schema.reportSupporters.reporterId })
+    .from(schema.reportSupporters)
+    .where(inArray(schema.reportSupporters.reportId, matchedIds));
+  for (const supporter of supporterRows) {
+    reporters.add(supporter.reporterId);
+  }
+
   const matchedSet = new Set(matchedIds);
   const links = await db
     .select({
@@ -2358,12 +2629,20 @@ export async function countAffectedReporters(
     }
   }
   if (neighborIds.size > 0) {
+    const neighborIdList = [...neighborIds];
     const neighbors = await db
       .select({ reporterId: schema.maintenanceReports.reporterId })
       .from(schema.maintenanceReports)
-      .where(inArray(schema.maintenanceReports.id, [...neighborIds]));
+      .where(inArray(schema.maintenanceReports.id, neighborIdList));
     for (const neighbor of neighbors) {
       reporters.add(neighbor.reporterId);
+    }
+    const neighborSupporters = await db
+      .select({ reporterId: schema.reportSupporters.reporterId })
+      .from(schema.reportSupporters)
+      .where(inArray(schema.reportSupporters.reportId, neighborIdList));
+    for (const supporter of neighborSupporters) {
+      reporters.add(supporter.reporterId);
     }
   }
   return reporters.size;

@@ -20,6 +20,7 @@ import {
   maintenanceReports,
   outboxEvents,
   reportEvents,
+  reportSupporters,
   users,
 } from './schema.js';
 import {
@@ -479,5 +480,38 @@ describe.skipIf(!enabled)('workflow mutations (requires reachable PostgreSQL)', 
     expect(await eventsFor(created.id)).toEqual([]);
     expect(await auditsFor(created.id)).toEqual([]);
     expect(await outboxFor(created.id)).toEqual([]);
+  });
+
+  it('verifyReport counts attached report_supporters when affectedReporters is omitted', async () => {
+    const created = await makeReport();
+    const supporterUser = (
+      await requireDb()
+        .insert(users)
+        .values({ username: `p53-supporter-${randomUUID().slice(0, 8)}`, role: 'REPORTER' })
+        .returning({ id: users.id })
+    )[0]?.id;
+    if (supporterUser === undefined) {
+      throw new Error('fixture: supporter insert failed');
+    }
+    await requireDb().insert(reportSupporters).values({
+      reportId: created.id,
+      reporterId: supporterUser,
+      idempotencyKey: randomUUID(),
+      description: 'Laporan pendukung pada tiket held sebelum verifikasi.',
+    });
+
+    // 10 + 10 + 10 + 5 (2 reporters) = 35 → LOW.
+    const next = await verifyReport(
+      requireDb(),
+      created.id,
+      verifyInput({ affectedReporters: undefined }),
+      1,
+      actor(),
+    );
+    expect(next.priorityScore).toBe(35);
+    expect(next.priorityFactors).toMatchObject({
+      affectedReporters: 2,
+      frequency: 5,
+    });
   });
 });

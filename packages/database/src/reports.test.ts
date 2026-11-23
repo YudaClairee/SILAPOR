@@ -1916,6 +1916,592 @@ describe.skipIf(!enabled)(
         .where(eq(facilityCategories.id, catElec));
       expect(rows[0]?.requiresAsset).toBe(true);
     });
+
+    it('countAffectedReporters counts primary + report_supporters across null/non-null issueTypeId and ignores non-active rows', async () => {
+      const asset = await createAsset(`T3-ASSET-CNT-${randomUUID()}`, catElec);
+      const first = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('hitung pelapor terdampak utama'),
+        },
+        randomUUID(),
+      );
+      const second = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: locA,
+          assetId: asset,
+          description: longDescription('hitung pelapor terdampak pendukung'),
+        },
+        randomUUID(),
+      );
+      expect(second.kind).toBe('SUPPORTED');
+
+      // Both null issueTypeId and specific final issueTypeId must count primary + supporter on held REPORTED row.
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: null,
+        }),
+      ).toBe(2);
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: itElec,
+        }),
+      ).toBe(2);
+
+      await applyVerification(db!, first.report.id, {
+        finalCategoryId: catElec,
+        finalIssueTypeId: itElec,
+        finalPriority: 'LOW',
+      });
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: itElec,
+        }),
+      ).toBe(2);
+
+      await db!
+        .update(maintenanceReports)
+        .set({ status: 'RESOLVED' })
+        .where(eq(maintenanceReports.id, first.report.id));
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: locA,
+          categoryId: catElec,
+          issueTypeId: itElec,
+        }),
+      ).toBe(0);
+    });
+
+    it('re-scores a verified LOW ticket upward when a supporter joins and records PRIORITY_CHANGED', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-RESCORE-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Rescore',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Rescore',
+            weight: 15,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Rescore',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const asset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Rescore',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('rescore tiket verified low'),
+        },
+        randomUUID(),
+      );
+      const verified = await applyVerification(db!, created.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      // 15 + 12 + 10 + 0 = 37 → LOW.
+      expect(verified.priorityScore).toBe(37);
+      expect(verified.finalPriority).toBe('LOW');
+
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('pendukung menaikkan skor ke medium'),
+        },
+        randomUUID(),
+      );
+      expect(merged.kind).toBe('SUPPORTED');
+      if (merged.kind !== 'SUPPORTED') {
+        throw new Error('expected SUPPORTED');
+      }
+      // 15 + 12 + 10 + 5 (2 reporters) = 42 → MEDIUM.
+      expect(merged.affectedReporters).toBe(2);
+      expect(merged.report.priorityScore).toBe(42);
+      expect(merged.report.finalPriority).toBe('MEDIUM');
+      expect(merged.report.version).toBe(verified.version + 1);
+      expect(merged.report.priorityFactors).toMatchObject({
+        category: 15,
+        asset: 12,
+        location: 10,
+        frequency: 5,
+        affectedReporters: 2,
+        scoringComplete: true,
+      });
+
+      const events = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id));
+      const priorityChanged = events.find((e) => e.eventType === 'PRIORITY_CHANGED');
+      expect(priorityChanged).toBeDefined();
+      expect(priorityChanged?.fromValue).toBe('LOW');
+      expect(priorityChanged?.toValue).toBe('MEDIUM');
+      expect(priorityChanged?.metadata).toMatchObject({
+        reason: 'SUPPORTER_ADDED',
+        supporterId: merged.supporter.id,
+        affectedReporters: 2,
+      });
+    });
+
+    it('updates score without downgrading HIGH or overwriting admin priority override', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-OVR-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Override',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-OVR-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Override',
+            weight: 15,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-OVR-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Override',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const highAsset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-HI-${randomUUID().slice(0, 8)}`,
+            name: 'Aset High',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+      const ovrAsset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-OV-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Override',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      // Case A: already HIGH (even though computed score suggests MEDIUM).
+      const highCreated = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: highAsset,
+          description: longDescription('tiket sudah high'),
+        },
+        randomUUID(),
+      );
+      await applyVerification(db!, highCreated.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'HIGH',
+      });
+      const highMerged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: highAsset,
+          description: longDescription('pendukung pada tiket high'),
+        },
+        randomUUID(),
+      );
+      expect(highMerged.report.priorityScore).toBe(42);
+      expect(highMerged.report.finalPriority).toBe('HIGH');
+      expect(highMerged.report.priorityFactors).toMatchObject({ affectedReporters: 2 });
+      const highEvents = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, highCreated.report.id));
+      expect(highEvents.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+
+      // Case B: admin manual override on LOW is preserved when score crosses MEDIUM threshold.
+      const ovrCreated = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: ovrAsset,
+          description: longDescription('tiket override manual admin'),
+        },
+        randomUUID(),
+      );
+      await applyVerification(db!, ovrCreated.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      await db!
+        .update(maintenanceReports)
+        .set({ priorityOverrideReason: 'Diputuskan admin tetap LOW' })
+        .where(eq(maintenanceReports.id, ovrCreated.report.id));
+      const ovrMerged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: ovrAsset,
+          description: longDescription('pendukung pada tiket override'),
+        },
+        randomUUID(),
+      );
+      expect(ovrMerged.report.priorityScore).toBe(42);
+      expect(ovrMerged.report.finalPriority).toBe('LOW');
+      expect(ovrMerged.report.priorityFactors).toMatchObject({ affectedReporters: 2 });
+      const ovrEvents = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, ovrCreated.report.id));
+      expect(ovrEvents.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+    });
+
+    it('preserves assetless flag on verified service report when supporter joins', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-SVC-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Layanan Rescore',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const svcCat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-SVC-RSC-${randomUUID().slice(0, 8)}`,
+            name: 'Layanan Rescore',
+            weight: 15,
+            requiresAsset: false,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          serviceCategoryId: svcCat,
+          description: longDescription('layanan verified untuk rescore'),
+        },
+        randomUUID(),
+      );
+      const verified = await applyVerification(db!, created.report.id, {
+        finalCategoryId: svcCat,
+        finalIssueTypeId: itGeneric,
+        finalPriority: 'LOW',
+      });
+      // 15 (category) + 12 (asset median) + 10 (location) + 0 = 37; assetless: true.
+      expect(verified.priorityScore).toBe(37);
+      expect(verified.priorityFactors).toMatchObject({
+        assetless: true,
+        scoringComplete: false,
+        affectedReporters: 1,
+      });
+
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          serviceCategoryId: svcCat,
+          description: longDescription('pendukung layanan verified'),
+        },
+        randomUUID(),
+      );
+      expect(merged.report.priorityScore).toBe(42);
+      expect(merged.report.finalPriority).toBe('MEDIUM');
+      expect(merged.report.priorityFactors).toMatchObject({
+        assetless: true,
+        scoringComplete: false,
+        frequency: 5,
+        affectedReporters: 2,
+      });
+    });
+
+    it('keeps held REPORTED ticket unscored on supporter join, then scores with 2 reporters on applyVerification', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-HLD-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Held',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-HLD-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Held',
+            weight: 10,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-HLD-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Held',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const asset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-HLD-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Held',
+            categoryId: cat,
+            locationId: room,
+            weight: 10,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('tiket held belum verifikasi'),
+        },
+        randomUUID(),
+      );
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('pendukung pada tiket held'),
+        },
+        randomUUID(),
+      );
+      expect(merged.kind).toBe('SUPPORTED');
+      expect(merged.report.status).toBe('REPORTED');
+      expect(merged.report.finalCategoryId).toBeNull();
+      expect(merged.report.finalIssueTypeId).toBeNull();
+      expect(merged.report.priorityScore).toBeNull();
+      expect(merged.report.priorityFactors).toBeNull();
+      expect(merged.report.finalPriority).toBeNull();
+
+      const heldEvents = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id));
+      expect(heldEvents.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+
+      expect(
+        await countAffectedReporters(db!, {
+          assetId: asset,
+          locationId: room,
+          categoryId: cat,
+          issueTypeId: it,
+        }),
+      ).toBe(2);
+
+      const verified = await applyVerification(db!, created.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      // 10 + 10 + 10 + 5 = 35.
+      expect(verified.priorityScore).toBe(35);
+      expect(verified.priorityFactors).toMatchObject({
+        category: 10,
+        asset: 10,
+        location: 10,
+        frequency: 5,
+        affectedReporters: 2,
+        scoringComplete: true,
+      });
+    });
+
+    it('compensateFailedSupporter rolls back supporter, PRIORITY_CHANGED event, and priority score/level while keeping primary report', async () => {
+      const room = (
+        await db!
+          .insert(locations)
+          .values({
+            type: 'ROOM',
+            code: `T3-CMP-R-${randomUUID().slice(0, 8)}`,
+            name: 'Ruang Kompensasi',
+            tierScore: 10,
+          })
+          .returning({ id: locations.id })
+      )[0]?.id as string;
+      const cat = (
+        await db!
+          .insert(facilityCategories)
+          .values({
+            code: `T3-CMP-${randomUUID().slice(0, 8)}`,
+            name: 'Kategori Kompensasi',
+            weight: 15,
+          })
+          .returning({ id: facilityCategories.id })
+      )[0]?.id as string;
+      const it = (
+        await db!
+          .insert(issueTypes)
+          .values({
+            code: `T3-IT-CMP-${randomUUID().slice(0, 8)}`,
+            name: 'Issue Kompensasi',
+            categoryId: cat,
+          })
+          .returning({ id: issueTypes.id })
+      )[0]?.id as string;
+      const asset = (
+        await db!
+          .insert(facilityAssets)
+          .values({
+            assetCode: `T3-AST-CMP-${randomUUID().slice(0, 8)}`,
+            name: 'Aset Kompensasi',
+            categoryId: cat,
+            locationId: room,
+            weight: 12,
+          })
+          .returning({ id: facilityAssets.id })
+      )[0]?.id as string;
+
+      const created = await createReport(
+        db!,
+        {
+          reporterId: reporterA,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('tiket utama sebelum kompensasi'),
+        },
+        randomUUID(),
+      );
+      await applyVerification(db!, created.report.id, {
+        finalCategoryId: cat,
+        finalIssueTypeId: it,
+        finalPriority: 'LOW',
+      });
+      const merged = await createReport(
+        db!,
+        {
+          reporterId: reporterB,
+          locationId: room,
+          assetId: asset,
+          description: longDescription('pendukung gagal klaim foto'),
+        },
+        randomUUID(),
+      );
+      if (merged.kind !== 'SUPPORTED') {
+        throw new Error('expected SUPPORTED');
+      }
+      expect(merged.report.priorityScore).toBe(42);
+      expect(merged.report.finalPriority).toBe('MEDIUM');
+
+      await compensateFailedSupporter(db!, merged.supporter.id);
+
+      const supportersAfter = await db!
+        .select()
+        .from(reportSupporters)
+        .where(eq(reportSupporters.reportId, created.report.id));
+      expect(supportersAfter).toHaveLength(0);
+
+      const eventsAfter = await db!
+        .select()
+        .from(reportEvents)
+        .where(eq(reportEvents.reportId, created.report.id));
+      expect(eventsAfter.some((e) => e.eventType === 'SUPPORTER_ADDED')).toBe(false);
+      expect(eventsAfter.some((e) => e.eventType === 'PRIORITY_CHANGED')).toBe(false);
+
+      const primaryAfter = (
+        await db!
+          .select()
+          .from(maintenanceReports)
+          .where(eq(maintenanceReports.id, created.report.id))
+      )[0];
+      expect(primaryAfter).toBeDefined();
+      expect(primaryAfter?.priorityScore).toBe(37);
+      expect(primaryAfter?.finalPriority).toBe('LOW');
+      expect(primaryAfter?.priorityFactors).toMatchObject({
+        affectedReporters: 1,
+        frequency: 0,
+      });
+    });
   },
 );
 it('reports Task 3 availability (informational)', () => {

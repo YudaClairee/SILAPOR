@@ -317,12 +317,15 @@ export async function verifyReport(
         affected = input.affectedReporters;
       } else {
         try {
-          affected = await countAffectedReporters(tx, {
-            assetId: effectiveAssetId,
-            locationId: effectiveLocationId,
-            categoryId: shaped.finalCategoryId,
-            issueTypeId: shaped.finalIssueTypeId,
-          });
+          affected = Math.max(
+            1,
+            await countAffectedReporters(tx, {
+              assetId: effectiveAssetId,
+              locationId: effectiveLocationId,
+              categoryId: shaped.finalCategoryId,
+              issueTypeId: shaped.finalIssueTypeId,
+            }),
+          );
         } catch {
           affected = 1;
         }
@@ -353,7 +356,11 @@ export async function verifyReport(
           assetId: effectiveAssetId,
           locationId: effectiveLocationId,
           priorityScore: score.score,
-          priorityFactors: { ...score.factors, scoringComplete: score.scoringComplete },
+          priorityFactors: {
+            ...score.factors,
+            scoringComplete: score.scoringComplete,
+            ...(effectiveAssetId === null ? { assetless: true } : {}),
+          },
           finalPriority: shaped.finalPriority,
           priorityOverrideReason:
             typeof input.overrideReason === 'string' ? input.overrideReason.trim() : null,
