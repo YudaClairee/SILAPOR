@@ -468,6 +468,25 @@ describe('upload success + cleanup', () => {
     expect(storage.remove).toHaveBeenCalledTimes(1);
     expect(storage.remove).toHaveBeenCalledWith(key);
   });
+
+  it('rejects moderated photos with 422 PHOTO_REJECTED before storing or writing DB rows', async () => {
+    setupReporterOwnReport();
+    const storage = mockStorage();
+    const moderator = vi.fn(async () => ({
+      kind: 'REJECT' as const,
+      category: 'NSFW_OR_VIOLENCE' as const,
+      reason: 'nsfw',
+      model: 'google/gemini-2.5-flash',
+    }));
+    const rejected = await expectReject(
+      uploadAttachments(new Request('http://localhost/x'), 'ref', [pngFile()], storage, moderator),
+      422,
+      'PHOTO_REJECTED',
+    );
+    expect(rejected.message).toContain('Foto ditolak');
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(createAttachmentsMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('download auth + ownership', () => {

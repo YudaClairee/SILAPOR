@@ -1,4 +1,11 @@
 import { PROMPT_VERSION, SCHEMA_VERSION, parseVerdict } from './schema.js';
+import {
+  callOpenRouterJson,
+  isDisallowedModel,
+  type VerifyMeta,
+} from './openrouter.js';
+
+export { OPENROUTER_ENDPOINT, type VerifyMeta } from './openrouter.js';
 
 export interface VerifyPhoto {
   readonly storageKey: string;
@@ -51,18 +58,6 @@ export interface VerifyOpts {
   readonly schemaVersion?: string;
 }
 
-export interface VerifyMeta {
-  readonly gatewayRequestId?: string;
-  readonly upstreamProvider?: string;
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-  readonly estimatedCost?: number;
-  // HTTP status of a gateway-side rejection (no envelope parsed). Diagnostic
-  // only: it explains a 422 in the logs (401 bad key, 402 no credit, 404 no
-  // endpoint matching the routing policy) without leaking provider free text.
-  readonly upstreamStatus?: number;
-}
-
 export type VerifyOutcome =
   | {
       kind: 'PASS';
@@ -85,28 +80,6 @@ export type VerifyOutcome =
       readonly reasoningSummary?: string;
     }
   | { kind: 'DOWN' };
-
-export const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-
-function isDisallowedModel(model: string): boolean {
-  const slug = model.toLowerCase();
-  // Slugs match only on exact boundaries: `openrouter/auto` (the auto-router)
-  // and any model whose last `/`- or `:`-separated segment is exactly
-  // `latest` (unpinned alias tags like `vendor/model:latest`). Legit slugs
-  // that merely contain the substring (e.g. `vendor/autonomous-x`) pass.
-  const lastSegment = slug.split(/[:/]/).pop() ?? '';
-  return slug === 'openrouter/auto' || lastSegment === 'latest';
-}
-
-// `response_format: json_object` is normally enough, but providers occasionally
-// wrap the object in a markdown fence or a short preamble. Extract the
-// outermost `{...}` before parsing so a formatting quirk does not discard an
-// otherwise valid verdict; text without braces stays untouched and still fails.
-function extractJsonObject(content: string): string {
-  const start = content.indexOf('{');
-  const end = content.lastIndexOf('}');
-  return start === -1 || end <= start ? content : content.slice(start, end + 1);
-}
 
 const ASSET_SYSTEM_PROMPT = [
   'Judge the maintenance report text and answer with JSON only.',
@@ -153,65 +126,6 @@ function buildUserText(input: VerifyInput): string {
   return lines.join('\n');
 }
 
-function extractContent(envelope: unknown): string | undefined {
-  if (typeof envelope !== 'object' || envelope === null) {
-    return undefined;
-  }
-  const choices = (envelope as { choices?: unknown }).choices;
-  if (!Array.isArray(choices)) {
-    return undefined;
-  }
-  const message = (choices[0] as { message?: unknown } | undefined)?.message;
-  if (typeof message !== 'object' || message === null) {
-    return undefined;
-  }
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    const text = content
-      .filter(
-        (part): part is { type: string; text: string } => typeof part === 'object' && part !== null,
-      )
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text)
-      .join('');
-    return text === '' ? undefined : text;
-  }
-  return undefined;
-}
-
-function extractMeta(envelope: unknown): VerifyMeta | undefined {
-  if (typeof envelope !== 'object' || envelope === null) return undefined;
-  const record = envelope as Record<string, unknown>;
-  const meta: {
-    gatewayRequestId?: string;
-    upstreamProvider?: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    estimatedCost?: number;
-  } = {};
-  const id = record['id'];
-  if (typeof id === 'string' && id.trim() !== '') meta.gatewayRequestId = id.trim();
-  const provider = record['provider'];
-  if (typeof provider === 'string' && provider.trim() !== '')
-    meta.upstreamProvider = provider.trim();
-  const usage = record['usage'];
-  if (typeof usage === 'object' && usage !== null) {
-    const u = usage as Record<string, unknown>;
-    const promptTokens = u['prompt_tokens'];
-    if (typeof promptTokens === 'number' && Number.isFinite(promptTokens))
-      meta.inputTokens = promptTokens;
-    const completionTokens = u['completion_tokens'];
-    if (typeof completionTokens === 'number' && Number.isFinite(completionTokens))
-      meta.outputTokens = completionTokens;
-    const cost = u['cost'];
-    if (typeof cost === 'number' && Number.isFinite(cost)) meta.estimatedCost = cost;
-  }
-  return Object.keys(meta).length === 0 ? undefined : meta;
-}
-
 export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promise<VerifyOutcome> {
   const timeoutMs = opts.timeoutMs;
   if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -233,15 +147,13 @@ export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promis
   if (isDisallowedModel(model)) {
     return { kind: 'FAIL', reason: 'UNKNOWN_MODEL', model };
   }
-  const fetchImpl = opts.fetch ?? fetch;
-  const endpoint = opts.endpoint ?? OPENROUTER_ENDPOINT;
 
-  const body = {
+  const result = await callOpenRouterJson({
     model,
-    // Deterministic structured extraction: the same evidence should produce the
-    // same verdict, and low-variance decoding is what keeps JSON mode valid
-    // (the provider default temperature is much higher).
-    temperature: 0,
+    timeoutMs,
+    ...(opts.apiKey === undefined ? {} : { apiKey: opts.apiKey }),
+    ...(opts.endpoint === undefined ? {} : { endpoint: opts.endpoint }),
+    ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
     messages: [
       {
         role: 'system',
@@ -252,78 +164,29 @@ export async function verifyReport(input: VerifyInput, opts: VerifyOpts): Promis
         content: buildUserText(input),
       },
     ],
-    response_format: { type: 'json_object' },
-    usage: { include: true },
-    // Zero-retention routing required on every request.
-    provider: {
-      data_collection: 'deny',
-      zdr: true,
-      require_parameters: true,
-      allow_fallbacks: false,
-    },
-  };
+  });
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let response: Response;
-  try {
-    response = await fetchImpl(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(opts.apiKey === undefined ? {} : { Authorization: `Bearer ${opts.apiKey}` }),
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch {
-    // Only timeouts and network aborts reach this catch (5xx and 429 are
-    // classified below), and both are transient, so the report is held for
-    // admin rather than rejected.
-    return { kind: 'DOWN' };
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (response.status === 429 || response.status >= 500) {
+  if (result.kind === 'TRANSIENT_DOWN') {
     return { kind: 'DOWN' };
   }
-  if (!response.ok) {
+  if (result.kind === 'UPSTREAM_REJECTED') {
+    if (result.upstreamStatus !== undefined) {
+      return {
+        kind: 'FAIL',
+        reason: 'UPSTREAM_REJECTED',
+        model,
+        meta: { upstreamStatus: result.upstreamStatus },
+      };
+    }
     return {
       kind: 'FAIL',
       reason: 'UPSTREAM_REJECTED',
       model,
-      meta: { upstreamStatus: response.status },
+      ...(result.meta === undefined ? {} : { meta: result.meta }),
     };
   }
-  let envelope: unknown;
-  try {
-    envelope = await response.json();
-  } catch {
-    return { kind: 'FAIL', reason: 'UPSTREAM_REJECTED', model };
-  }
-  const meta = extractMeta(envelope);
-  const content = extractContent(envelope);
-  if (content === undefined) {
-    return {
-      kind: 'FAIL',
-      reason: 'UPSTREAM_REJECTED',
-      model,
-      ...(meta === undefined ? {} : { meta }),
-    };
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(extractJsonObject(content)) as unknown;
-  } catch {
-    return {
-      kind: 'FAIL',
-      reason: 'UPSTREAM_REJECTED',
-      model,
-      ...(meta === undefined ? {} : { meta }),
-    };
-  }
-  const parsed = parseVerdict(raw);
+  const meta = result.meta;
+  const parsed = parseVerdict(result.raw);
   if (!parsed.success) {
     return {
       kind: 'FAIL',

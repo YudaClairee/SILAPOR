@@ -7,10 +7,10 @@
 //
 // The SAME Phase 4 chain as report-bound uploads runs here — per-file size
 // cap (`413` before any processing), `validateAttachment` (magic-byte sniff,
-// JPEG/PNG/WebP allowlist), `processImage` (canonical re-encode) — then the
-// bytes store under an unguessable `staging_<uuid>` key and a staged row is
-// recorded. No validator is forked: limits and checks come from
-// `@silapor/storage` constants and functions.
+// JPEG/PNG/WebP allowlist), `processImage` (canonical re-encode), and
+// fail-open AI content moderation — then the bytes store under an unguessable
+// `staging_<uuid>` key and a staged row is recorded. No validator is forked:
+// limits and checks come from `@silapor/storage` constants and functions.
 //
 // Conventions:
 // - `uploadedBy` ALWAYS comes from the session user, NEVER from the client.
@@ -26,53 +26,31 @@ import {
   DEFAULT_STAGED_TTL_MS,
   type StagedUpload,
 } from '@silapor/database';
-import { AppError, badRequest, payloadTooLarge } from '@silapor/shared';
+import { AppError, badRequest } from '@silapor/shared';
 import {
-  AttachmentValidationError,
   createAttachmentStorage,
   generateAttachmentKey,
-  MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_REPORT,
-  processImage,
-  sanitizeOriginalFilename,
-  validateAttachment,
   type AttachmentStorage,
-  type ProcessedImage,
 } from '@silapor/storage';
 import { requireUser } from './auth';
+import {
+  validateAndProcessPhotos,
+  type PhotoModerator,
+  type PhotoUploadFile,
+} from './photo-pipeline.js';
 
-export interface StagingUploadFile {
-  readonly bytes: Uint8Array;
-  readonly declaredMime: string;
-  readonly originalFilename: string;
-}
+export type StagingUploadFile = PhotoUploadFile;
 
 export interface StageUploadsResult {
   readonly keys: readonly string[];
-}
-
-// Same fail-closed mapping as report-bound uploads: oversize is 413, every
-// other validation failure is a 400 with its code. Anything else propagates
-// untouched. Always throws.
-function mapStagingValidationError(error: unknown): never {
-  if (error instanceof AttachmentValidationError) {
-    if (error.code === 'FILE_TOO_LARGE') {
-      throw payloadTooLarge('Attachment exceeds the maximum allowed size.');
-    }
-    throw new AppError({ code: error.code, status: 400, message: error.message });
-  }
-  throw error;
-}
-
-interface ProcessedStage {
-  readonly image: ProcessedImage;
-  readonly originalFilename: string;
 }
 
 export async function stageUploads(
   req: Request,
   formFiles: readonly StagingUploadFile[],
   storageOverride?: AttachmentStorage,
+  moderateOverride?: PhotoModerator,
 ): Promise<StageUploadsResult> {
   const user = await requireUser(req);
   if (!Array.isArray(formFiles) || formFiles.length === 0) {
@@ -85,30 +63,9 @@ export async function stageUploads(
       message: `Too many files: a report allows at most ${MAX_ATTACHMENTS_PER_REPORT} attachments.`,
     });
   }
-  // Phase A: validate + process ALL files before touching storage —
-  // processing is side-effect free, so a failure here stores nothing.
-  const processed: ProcessedStage[] = [];
-  for (const file of formFiles) {
-    if (file.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-      throw payloadTooLarge('Attachment exceeds the maximum allowed size.');
-    }
-    try {
-      validateAttachment({
-        bytes: file.bytes,
-        declaredMime: file.declaredMime,
-        originalFilename: file.originalFilename,
-      });
-    } catch (error) {
-      mapStagingValidationError(error);
-    }
-    let image: ProcessedImage;
-    try {
-      image = await processImage(file.bytes);
-    } catch (error) {
-      mapStagingValidationError(error);
-    }
-    processed.push({ image, originalFilename: sanitizeOriginalFilename(file.originalFilename) });
-  }
+  // Phase A: validate + process + moderate ALL files before touching storage —
+  // side-effect free, so any failure here stores nothing.
+  const processed = await validateAndProcessPhotos(formFiles, moderateOverride);
   // Phase B: store every processed image under an unguessable staging key
   // (keys pair with items by array position).
   const storage = storageOverride ?? createAttachmentStorage();

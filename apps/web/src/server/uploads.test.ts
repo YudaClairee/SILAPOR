@@ -34,6 +34,7 @@ import {
   stageUploads,
   type StagingUploadFile,
 } from './uploads.js';
+import type { PhotoModerator } from './photo-pipeline.js';
 
 const requireUserMock = vi.mocked(requireUser);
 const getDbMock = vi.mocked(getDb);
@@ -198,6 +199,62 @@ describe('stageUploads', () => {
       requireUserFake.id,
       [expect.any(String), expect.any(String)],
     );
+  });
+
+  it('rejects moderated photos with 422 PHOTO_REJECTED before storing anything', async () => {
+    setupReporter();
+    const storage = mockStorage();
+    const moderator = vi.fn<PhotoModerator>(async () => ({
+      kind: 'REJECT',
+      category: 'SELFIE_OR_PORTRAIT',
+      reason: 'selfie',
+      model: 'google/gemini-2.5-flash',
+    }));
+    const msg = await expectReject(
+      stageUploads(new Request('http://localhost/x'), [pngFile()], storage, moderator),
+      422,
+      'PHOTO_REJECTED',
+    );
+    expect(msg).toContain('Foto ditolak');
+    expect(msg).toContain('selfie');
+    expect(moderator).toHaveBeenCalledTimes(1);
+    expect(moderator.mock.calls[0]?.[0]).toMatchObject({ mimeType: 'image/jpeg' });
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(recordStagedUploadMock).not.toHaveBeenCalled();
+  });
+
+  it('names the offending photo index in multi-photo rejections and fails open on moderator throw', async () => {
+    setupReporter();
+    const storage = mockStorage();
+    const rejectSecond = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'ALLOW', model: 'google/gemini-2.5-flash' })
+      .mockResolvedValueOnce({
+        kind: 'REJECT',
+        category: 'MEME_OR_SCREENSHOT',
+        reason: 'meme',
+        model: 'google/gemini-2.5-flash',
+      });
+    const msg = await expectReject(
+      stageUploads(new Request('http://localhost/x'), [pngFile('a.png'), pngFile('b.png')], storage, rejectSecond),
+      422,
+      'PHOTO_REJECTED',
+    );
+    expect(msg).toContain('Foto ke-2 ditolak');
+    expect(msg).toContain('meme');
+    expect(storage.put).not.toHaveBeenCalled();
+
+    const throwingMod = vi.fn(async () => {
+      throw new Error('unexpected error');
+    });
+    const okResult = await stageUploads(
+      new Request('http://localhost/x'),
+      [pngFile()],
+      storage,
+      throwingMod,
+    );
+    expect(okResult.keys).toHaveLength(1);
+    expect(storage.put).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -65,20 +65,17 @@ export function stagedUploadsUrl(): string {
   return '/api/uploads';
 }
 
-// Stages validated files before the report exists and returns opaque
-// storage keys for the verified submit. Throws Indonesian Errors.
-// Photos are optional: no files means no staging round-trip and no keys.
-export async function stageReportPhotos(files: readonly File[]): Promise<string[]> {
-  if (files.length === 0) {
-    return [];
-  }
+const DEFAULT_MODERATION_REJECT_MESSAGE =
+  'Foto ditolak oleh filter moderasi konten. Gunakan foto kondisi fasilitas atau hapus lampiran.';
+
+async function postPhotoFormData(url: string, files: readonly File[]): Promise<unknown> {
   const form = new FormData();
   for (const file of files) {
     form.append('files', file);
   }
   let response: Response;
   try {
-    response = await fetch(stagedUploadsUrl(), {
+    response = await fetch(url, {
       method: 'POST',
       credentials: 'include',
       body: form,
@@ -92,15 +89,39 @@ export async function stageReportPhotos(files: readonly File[]): Promise<string[
   if (response.status === 413) {
     throw new Error('Ukuran foto melebihi 5 MB.');
   }
+  if (response.status === 422) {
+    let body: { readonly error?: { readonly message?: unknown } } | null = null;
+    try {
+      body = (await response.json()) as { readonly error?: { readonly message?: unknown } };
+    } catch {
+      body = null;
+    }
+    const message =
+      typeof body?.error?.message === 'string' && body.error.message.trim() !== ''
+        ? body.error.message.trim()
+        : DEFAULT_MODERATION_REJECT_MESSAGE;
+    throw new Error(message);
+  }
   if (!response.ok) {
     throw new Error('Gagal mengunggah foto. Coba lagi.');
   }
-  let data: { readonly keys?: unknown };
   try {
-    data = (await response.json()) as { readonly keys?: unknown };
+    return (await response.json()) as unknown;
   } catch {
     throw new Error('Gagal mengunggah foto. Coba lagi.');
   }
+}
+
+// Stages validated files before the report exists and returns opaque
+// storage keys for the verified submit. Throws Indonesian Errors.
+// Photos are optional: no files means no staging round-trip and no keys.
+export async function stageReportPhotos(files: readonly File[]): Promise<string[]> {
+  if (files.length === 0) {
+    return [];
+  }
+  const data = (await postPhotoFormData(stagedUploadsUrl(), files)) as {
+    readonly keys?: unknown;
+  };
   if (
     !Array.isArray(data.keys) ||
     data.keys.length === 0 ||
@@ -131,34 +152,9 @@ export async function uploadReportAttachments(
   ticketNumber: string,
   files: readonly File[],
 ): Promise<readonly UploadedAttachmentSummary[]> {
-  const form = new FormData();
-  for (const file of files) {
-    form.append('files', file);
-  }
-  let response: Response;
-  try {
-    response = await fetch(reportAttachmentsUrl(ticketNumber), {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    });
-  } catch {
-    throw new Error('Gagal mengunggah foto. Coba lagi.');
-  }
-  if (response.status === 401) {
-    throw new Error('Sesi berakhir. Masuk kembali lalu coba lagi.');
-  }
-  if (response.status === 413) {
-    throw new Error('Ukuran foto melebihi 5 MB.');
-  }
-  if (!response.ok) {
-    throw new Error('Gagal mengunggah foto. Coba lagi.');
-  }
-  let data: UploadResponseBody;
-  try {
-    data = (await response.json()) as UploadResponseBody;
-  } catch {
-    throw new Error('Gagal mengunggah foto. Coba lagi.');
-  }
+  const data = (await postPhotoFormData(
+    reportAttachmentsUrl(ticketNumber),
+    files,
+  )) as UploadResponseBody;
   return Array.isArray(data.attachments) ? data.attachments : [];
 }

@@ -121,6 +121,10 @@ describe('uploadReportAttachments', () => {
     );
     stubFetch(413, { error: { message: 'too big' } });
     await expect(uploadReportAttachments('MNT-1', [realFile()])).rejects.toThrow('Ukuran foto melebihi 5 MB.');
+    stubFetch(422, { error: { code: 'PHOTO_REJECTED', message: 'Foto ditolak karena selfie.' } });
+    await expect(uploadReportAttachments('MNT-1', [realFile()])).rejects.toThrow(
+      'Foto ditolak karena selfie.',
+    );
     stubFetch(500, { error: { message: 'boom' } });
     await expect(uploadReportAttachments('MNT-1', [realFile()])).rejects.toThrow(
       'Gagal mengunggah foto. Coba lagi.',
@@ -185,6 +189,12 @@ describe('stageReportPhotos', () => {
     );
     stubFetch(413, { error: { message: 'too big' } });
     await expect(stageReportPhotos([realFile()])).rejects.toThrow('Ukuran foto melebihi 5 MB.');
+    stubFetch(422, { error: { code: 'PHOTO_REJECTED', message: 'Foto ditolak karena meme.' } });
+    await expect(stageReportPhotos([realFile()])).rejects.toThrow('Foto ditolak karena meme.');
+    stubFetch(422, {});
+    await expect(stageReportPhotos([realFile()])).rejects.toThrow(
+      'Foto ditolak oleh filter moderasi konten. Gunakan foto kondisi fasilitas atau hapus lampiran.',
+    );
     stubFetch(201, { keys: [] });
     await expect(stageReportPhotos([realFile()])).rejects.toThrow(
       'Gagal mengunggah foto. Coba lagi.',

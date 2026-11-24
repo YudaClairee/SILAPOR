@@ -38,28 +38,24 @@ import {
   getReportHeader as repoGetReportHeader,
   type AttachmentSummary,
 } from '@silapor/database';
-import { AppError, badRequest, conflict, notFound, payloadTooLarge } from '@silapor/shared';
+import { AppError, badRequest, conflict, notFound } from '@silapor/shared';
 import {
-  AttachmentValidationError,
   canAddAttachments,
   createAttachmentStorage,
   generateAttachmentKey,
-  MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_REPORT,
-  processImage,
   sanitizeOriginalFilename,
-  validateAttachment,
   type AttachmentStorage,
-  type ProcessedImage,
 } from '@silapor/storage';
 import { requireUser } from './auth';
+import {
+  validateAndProcessPhotos,
+  type PhotoModerator,
+  type PhotoUploadFile,
+} from './photo-pipeline.js';
 import { REPORT_NOT_FOUND_MESSAGE, resolveReportId } from './reports';
 
-export interface AttachmentUploadFile {
-  readonly bytes: Uint8Array;
-  readonly declaredMime: string;
-  readonly originalFilename: string;
-}
+export type AttachmentUploadFile = PhotoUploadFile;
 
 export interface UploadAttachmentsResult {
   readonly attachments: readonly AttachmentSummary[];
@@ -89,30 +85,12 @@ function tooManyFilesError(): AppError {
   });
 }
 
-// Maps a P4-1 validation/processing failure to its HTTP shape (413 for
-// oversize, 400 with the P4-1 code otherwise, reusing the generic P4-1
-// message which never carries filenames/bytes). Anything else propagates
-// untouched (storage/DB failures must not mask as 400). Always throws.
-function mapAttachmentValidationError(error: unknown): never {
-  if (error instanceof AttachmentValidationError) {
-    if (error.code === 'FILE_TOO_LARGE') {
-      throw payloadTooLarge('Attachment exceeds the maximum allowed size.');
-    }
-    throw new AppError({ code: error.code, status: 400, message: error.message });
-  }
-  throw error;
-}
-
-interface ProcessedUpload {
-  readonly image: ProcessedImage;
-  readonly originalFilename: string;
-}
-
 export async function uploadAttachments(
   req: Request,
   ref: string,
   formFiles: readonly AttachmentUploadFile[],
   storageOverride?: AttachmentStorage,
+  moderateOverride?: PhotoModerator,
 ): Promise<UploadAttachmentsResult> {
   const user = await requireUser(req);
   if (!Array.isArray(formFiles) || formFiles.length === 0) {
@@ -137,32 +115,9 @@ export async function uploadAttachments(
       throw tooManyFilesError();
     }
 
-    // Phase A: validate + process ALL files before touching storage —
-    // processing is side-effect free, so a failure here stores nothing.
-    const processed: ProcessedUpload[] = [];
-    for (const file of formFiles) {
-      if (file.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-        throw payloadTooLarge('Attachment exceeds the maximum allowed size.');
-      }
-      try {
-        validateAttachment({
-          bytes: file.bytes,
-          declaredMime: file.declaredMime,
-          originalFilename: file.originalFilename,
-        });
-      } catch (error) {
-        mapAttachmentValidationError(error);
-      }
-      let image: ProcessedImage;
-      try {
-        image = await processImage(file.bytes);
-      } catch (error) {
-        mapAttachmentValidationError(error);
-      }
-      // `validateAttachment` already accepted the name, so this cannot
-      // throw: it yields the display-only basename for storage.
-      processed.push({ image, originalFilename: sanitizeOriginalFilename(file.originalFilename) });
-    }
+    // Phase A: validate + process + moderate ALL files before touching storage —
+    // side-effect free, so any failure here stores nothing.
+    const processed = await validateAndProcessPhotos(formFiles, moderateOverride);
 
     // Phase B: store every processed image (keys pair with items by array
     // position — no index juggling on a separate key list).

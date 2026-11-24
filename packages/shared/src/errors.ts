@@ -41,7 +41,9 @@ export type AppErrorCode =
   // passes it through unchanged (status 409, set at the throw site).
   // Task 6 contract: read ticketNumber from (err as AppError).details
   // directly — toHttpResponse strips details.
-  | 'DUPLICATE_ACTIVE';
+  | 'DUPLICATE_ACTIVE'
+  // AI photo content moderation rejection (422).
+  | 'PHOTO_REJECTED';
 
 export interface AppErrorInit {
   readonly code: AppErrorCode;
