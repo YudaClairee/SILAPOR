@@ -255,7 +255,12 @@ describe('reporter form render', () => {
   };
 
   const rootRoute = createRootRoute();
-  function stubFetch(overrides?: { reportsStatus?: number; reportsBody?: unknown }) {
+  function stubFetch(overrides?: {
+    uploadsStatus?: number;
+    uploadsBody?: unknown;
+    reportsStatus?: number;
+    reportsBody?: unknown;
+  }) {
     const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/reports/form-options')) {
@@ -263,7 +268,9 @@ describe('reporter form render', () => {
         return { status: 200, ok: true, json: async () => FORM_OPTIONS } as Response;
       }
       if (url.includes('/api/uploads')) {
-        return { status: 201, ok: true, json: async () => ({ keys: ['staging_testkey'] }) } as Response;
+        const status = overrides?.uploadsStatus ?? 201;
+        const body = overrides?.uploadsBody ?? { keys: ['staging_testkey'] };
+        return { status, ok: status >= 200 && status < 300, json: async () => body } as Response;
       }
       if (url === '/api/reports') {
         const status = overrides?.reportsStatus ?? 201;
@@ -496,5 +503,37 @@ describe('reporter form render', () => {
     expect(detailLink).toHaveAttribute('href', '/reporter/reports/MNT-2026-000001');
     expect(screen.getByRole('link', { name: 'Laporan Saya' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Lapor masalah lain' })).toBeInTheDocument();
+  });
+
+  it('hides the loading spinner and shows the rejection reason when photo staging fails', async () => {
+    stubFetch({
+      uploadsStatus: 422,
+      uploadsBody: {
+        error: {
+          code: 'PHOTO_REJECTED',
+          message: 'Foto ditolak karena tampak seperti foto selfie atau potret wajah, bukan kondisi fasilitas.',
+        },
+      },
+    });
+    renderPage();
+    await screen.findByRole('button', { name: /lanjut ke review/i });
+    fillChain();
+    attachPhoto();
+    fireEvent.click(screen.getByRole('button', { name: /lanjut ke review/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /kirim laporan/i }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Gagal mengunggah foto' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Foto ditolak karena tampak seperti foto selfie atau potret wajah, bukan kondisi fasilitas.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Mengunggah foto…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Jangan tutup halaman ini.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Kembali ke formulir' }));
+    expect(await screen.findByLabelText('Gedung')).toBeInTheDocument();
   });
 });

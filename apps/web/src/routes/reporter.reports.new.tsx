@@ -810,35 +810,52 @@ function NewReportPage() {
   }
 
   if (phase === 'waiting') {
+    const hasError = submitError !== null;
     return (
       <section aria-labelledby="new-report-waiting-title" className="max-w-3xl">
         <div className="rounded-md border border-border bg-surface p-6 text-center md:p-8">
           <h1 id="new-report-waiting-title" className="text-2xl font-semibold text-text">
-            {waitingStep === 'staging' ? 'Mengunggah foto' : 'Menunggu hasil verifikasi'}
+            {hasError
+              ? waitingStep === 'staging'
+                ? 'Gagal mengunggah foto'
+                : 'Gagal mengirim laporan'
+              : waitingStep === 'staging'
+                ? 'Mengunggah foto'
+                : 'Menunggu hasil verifikasi'}
           </h1>
-          <div className="mt-4">
-            <LoadingState
-              message={
-                waitingStep === 'staging'
-                  ? 'Mengunggah foto…'
-                  : 'Mengirim laporan dan menunggu hasil verifikasi…'
-              }
-            />
-          </div>
-          <p className="mt-2 text-sm text-muted">Jangan tutup halaman ini.</p>
-          {submitError !== null ? (
+          {hasError ? (
             <div className="mt-4">
-              <ErrorPanel message={submitError} />
+              <ErrorPanel title="Alasan" message={submitError} />
               <p className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
                 <Button type="button" onClick={() => void submitReport()}>
                   Coba lagi
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => setPhase('form')}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setSubmitError(null);
+                    setPhase('form');
+                  }}
+                >
                   Kembali ke formulir
                 </Button>
               </p>
             </div>
-          ) : null}
+          ) : (
+            <>
+              <div className="mt-4">
+                <LoadingState
+                  message={
+                    waitingStep === 'staging'
+                      ? 'Mengunggah foto…'
+                      : 'Mengirim laporan dan menunggu hasil verifikasi…'
+                  }
+                />
+              </div>
+              <p className="mt-2 text-sm text-muted">Jangan tutup halaman ini.</p>
+            </>
+          )}
         </div>
       </section>
     );
