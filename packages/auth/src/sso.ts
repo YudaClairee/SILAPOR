@@ -74,8 +74,7 @@ export class MockSsoProvider implements SsoProvider {
   }
 }
 
-const REPORTER_COUNT = 20;
-const REPORTER_NIM_PREFIX = '2300';
+const UPI_NIM_PATTERN = /^\d{7}$/;
 
 function digest(value: string): Buffer {
   return createHash('sha256').update(value).digest();
@@ -91,8 +90,8 @@ export interface LocalSsoOptions {
 }
 
 // Limited class-test directory with password verification.
-// - Reporters: NIM 230001..230020, password `pelapor<n>` (n without leading
-//   zeros; derived, so it is intentionally shareable with the class).
+// - Reporters: any 7-digit UPI NIM, password `pelapor<last4>` (last 4 digits
+//   verbatim, including any leading zeros).
 // - admin / manajerial: password verified against scrypt hashes from env.
 //   Missing or malformed hash => that account cannot log in (fail closed).
 // Usernames are trimmed and case-sensitive; passwords are never trimmed.
@@ -124,18 +123,14 @@ export class LocalSsoProvider implements SsoProvider {
         isActive: true,
       });
     }
-    const match = /^2300(\d{2})$/.exec(trimmed);
-    if (match !== null && trimmed.startsWith(REPORTER_NIM_PREFIX)) {
-      const n = Number(match[1]);
-      if (n >= 1 && n <= REPORTER_COUNT && safeEqual(password, `pelapor${n}`)) {
-        return {
-          externalUserId: trimmed,
-          username: trimmed,
-          nim: trimmed,
-          role: 'REPORTER',
-          isActive: true,
-        };
-      }
+    if (UPI_NIM_PATTERN.test(trimmed) && safeEqual(password, `pelapor${trimmed.slice(-4)}`)) {
+      return {
+        externalUserId: trimmed,
+        username: trimmed,
+        nim: trimmed,
+        role: 'REPORTER',
+        isActive: true,
+      };
     }
     return null;
   }

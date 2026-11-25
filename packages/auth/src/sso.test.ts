@@ -79,36 +79,35 @@ describe('LocalSsoProvider', () => {
     expect(make().name).toBe('local');
   });
 
-  it('resolves reporter 230001 with pelapor1', async () => {
-    expect(await make().resolve('230001', 'pelapor1')).toEqual({
-      externalUserId: '230001',
-      username: '230001',
-      nim: '230001',
+  it('resolves any 7-digit UPI NIM with pelapor + last 4 digits', async () => {
+    expect(await make().resolve('2304649', 'pelapor4649')).toEqual({
+      externalUserId: '2304649',
+      username: '2304649',
+      nim: '2304649',
+      role: 'REPORTER',
+      isActive: true,
+    });
+    expect(await make().resolve('2300049', 'pelapor0049')).toEqual({
+      externalUserId: '2300049',
+      username: '2300049',
+      nim: '2300049',
       role: 'REPORTER',
       isActive: true,
     });
   });
 
-  it('accepts every reporter 230001..230020 with pelapor<n> (no leading zeros)', async () => {
-    for (let n = 1; n <= 20; n += 1) {
-      const nim = `2300${String(n).padStart(2, '0')}`;
-      const identity = await make().resolve(nim, `pelapor${n}`);
-      expect(identity?.role).toBe('REPORTER');
-      expect(identity?.nim).toBe(nim);
-    }
-  });
-
   it('rejects reporter with a wrong password', async () => {
-    expect(await make().resolve('230001', 'pelapor2')).toBeNull();
-    expect(await make().resolve('230001', 'pelapor01')).toBeNull();
-    expect(await make().resolve('230001', '')).toBeNull();
-    expect(await make().resolve('230001', undefined)).toBeNull();
+    expect(await make().resolve('2304649', 'pelapor4648')).toBeNull();
+    expect(await make().resolve('2300049', 'pelapor49')).toBeNull();
+    expect(await make().resolve('2304649', '')).toBeNull();
+    expect(await make().resolve('2304649', undefined)).toBeNull();
   });
 
-  it('rejects NIMs outside 230001..230020', async () => {
-    expect(await make().resolve('230000', 'pelapor0')).toBeNull();
-    expect(await make().resolve('230021', 'pelapor21')).toBeNull();
-    expect(await make().resolve('mahasiswa', 'pelapor1')).toBeNull();
+  it('rejects usernames that are not 7-digit UPI NIMs', async () => {
+    expect(await make().resolve('230001', 'pelapor0001')).toBeNull();
+    expect(await make().resolve('23046490', 'pelapor6490')).toBeNull();
+    expect(await make().resolve('230464a', 'pelapor464a')).toBeNull();
+    expect(await make().resolve('mahasiswa', 'pelaporiswa')).toBeNull();
   });
 
   it('resolves admin and manajerial only with their own password', async () => {
@@ -124,16 +123,16 @@ describe('LocalSsoProvider', () => {
     const provider = new LocalSsoProvider({});
     expect(await provider.resolve('admin', 'sandi-admin')).toBeNull();
     expect(await provider.resolve('manajerial', 'sandi-manajer')).toBeNull();
-    expect((await provider.resolve('230001', 'pelapor1'))?.role).toBe('REPORTER');
+    expect((await provider.resolve('2304649', 'pelapor4649'))?.role).toBe('REPORTER');
   });
 
   it('trims the username but never the password', async () => {
-    expect(await make().resolve('  230001  ', 'pelapor1')).not.toBeNull();
-    expect(await make().resolve('230001', ' pelapor1')).toBeNull();
+    expect(await make().resolve('  2304649  ', 'pelapor4649')).not.toBeNull();
+    expect(await make().resolve('2304649', ' pelapor4649')).toBeNull();
   });
 
   it('returns null for empty username', async () => {
-    expect(await make().resolve('', 'pelapor1')).toBeNull();
+    expect(await make().resolve('', 'pelapor4649')).toBeNull();
   });
 });
 
