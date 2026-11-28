@@ -613,18 +613,21 @@ test('10 layanan: access report goes from submit to closed with no asset', async
     await expect(adminPage.getByText('Laporan layanan — tidak terkait aset')).toBeVisible();
     await expect(adminPage.getByText(description)).toBeVisible();
 
-    // Assign the technician.
+    // Assign the technician. While VERIFIED, only the assignment card is shown.
     await adminPage.getByRole('tab', { name: 'Penugasan dan Progres' }).click();
     const assignCard = adminPage.getByRole('region', { name: 'Penugasan Teknisi' });
-    await assignCard.getByRole('combobox').selectOption({ label: SERVICE_TECHNICIAN });
-    await assignCard.getByRole('button', { name: 'Tugaskan Teknisi' }).click();
-    await expect(assignCard.getByText('Ditugaskan', { exact: true })).toBeVisible();
-
-    // Progress through the workflow to CLOSED. INSPECTION, IN_REPAIR and
-    // RESOLVED require a note, and each success clears it.
     const progressCard = adminPage.getByRole('region', {
       name: 'Catatan Progres & Transisi Status',
     });
+    await expect(assignCard).toBeVisible();
+    await expect(progressCard).toHaveCount(0);
+    await assignCard.getByRole('combobox').selectOption({ label: SERVICE_TECHNICIAN });
+    await assignCard.getByRole('button', { name: 'Tugaskan Teknisi' }).click();
+    await expect(assignCard).toHaveCount(0);
+    await expect(progressCard.getByText('Ditugaskan', { exact: true })).toBeVisible();
+
+    // Progress through the workflow to CLOSED. INSPECTION, IN_REPAIR and
+    // RESOLVED require a note, and each success clears it.
     const steps: ReadonlyArray<readonly [string, string, string]> = [
       ['INSPECTION', 'Teknisi meninjau pintu ruang kelas.', 'Inspeksi'],
       ['IN_REPAIR', 'Kunci pintu diganti dan sedang dipasang.', 'Dalam perbaikan'],
@@ -633,11 +636,11 @@ test('10 layanan: access report goes from submit to closed with no asset', async
     for (const [next, note, expectedLabel] of steps) {
       await progressCard.getByLabel('Catatan progres').fill(note);
       await progressCard.getByRole('button', { name: `Lanjut ke ${next}` }).click();
-      await expect(assignCard.getByText(expectedLabel, { exact: true })).toBeVisible();
+      await expect(progressCard.getByText(expectedLabel, { exact: true })).toBeVisible();
     }
     await progressCard.getByLabel('Catatan progres').fill('Perbaikan selesai dan sudah dicek.');
     await progressCard.getByRole('button', { name: 'Konfirmasi Penyelesaian' }).click();
-    await expect(assignCard.getByText('Ditutup', { exact: true })).toBeVisible();
+    await expect(progressCard.getByText('Ditutup', { exact: true })).toBeVisible();
 
     // Reporter sees the closed ticket: category in place of an asset.
     await reporterPage.goto(`/reporter/reports/${ticket}`);
